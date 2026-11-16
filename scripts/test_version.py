@@ -123,9 +123,13 @@ class Resolve(unittest.TestCase):
 
     def test_github_ref_branch_is_ignored(self):
         env = {"GITHUB_REF": "refs/heads/main", "REFLOW_TAG": ""}
-        # This worktree is not on a version tag, so untagged.
-        name, code = V.resolve(ROOT, env)
-        self.assertEqual((name, code), V.untagged())
+        # Use a throwaway repo with no tags: the real checkout may sit on a version tag (the v* tag run does),
+        # and then resolve() correctly returns that tag.
+        with tempfile.TemporaryDirectory() as d:
+            git = ["git", "-C", d, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]
+            subprocess.run(["git", "init", "-q", d], check=True)
+            subprocess.run(git + ["commit", "-q", "--allow-empty", "-m", "x"], check=True)
+            self.assertEqual(V.resolve(Path(d), env), V.untagged())
 
     def test_invalid_explicit_tag_fails(self):
         with self.assertRaises(V.VersionError):
