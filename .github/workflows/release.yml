@@ -22,7 +22,7 @@ jobs:
     env:
       TAG: ${{ github.ref_name }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           # #264 review: the default checkout (depth 1, no tags) can't see the tag; version.py would then rely on
           # GITHUB_REF alone. The APK is also compared with the tag directly below.
@@ -41,11 +41,11 @@ jobs:
         run: python3 scripts/release_check.py secrets
       - name: release-cert.sha256 holds the release fingerprint
         run: python3 scripts/release_check.py pin
-      - uses: actions/setup-java@v6
+      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880  # v6.3.0
         with:
           distribution: temurin
           java-version: '21'
-      - uses: gradle/actions/setup-gradle@v6
+      - uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c  # v6.4.1
         with:
           # A signing build neither reads nor writes the shared Gradle cache.
           cache-disabled: true
@@ -54,6 +54,8 @@ jobs:
           RELEASE_KEYSTORE_B64: ${{ secrets.RELEASE_KEYSTORE_B64 }}
         run: |
           umask 077
+          # #268: keep xtrace off so a debug trace can't print the keystore bytes.
+          set +x
           printf '%s' "$RELEASE_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/reflow-release.p12"
           test -s "$RUNNER_TEMP/reflow-release.p12" || { echo "::error::RELEASE_KEYSTORE_B64 did not decode to a keystore"; exit 1; }
           echo "RELEASE_KEYSTORE_PATH=$RUNNER_TEMP/reflow-release.p12" >> "$GITHUB_ENV"
@@ -97,7 +99,7 @@ jobs:
             echo
             echo "Check a download: \`apksigner verify --print-certs $APK_FILE | grep SHA-256\`"
           } >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: reflow-launcher-release-apk
           path: dist/
