@@ -141,6 +141,8 @@ fun HomeScreen(vm: HomeViewModel) {
     // #212: a refused drop springs back on this composition's frame clock (instant with reduced motion).
     drag.scope = rememberCoroutineScope(); drag.reducedMotion = { ReducedMotion.on(ctx) }
     WireDragHaptics(drag) // #281: a tick when a drag starts, per the system touch-feedback setting
+    // #282: a target the engine would refuse (full dock, its own cell, a reserved cell) gets no highlight and springs back.
+    drag.accepts = { e -> Edits.apply(vm.store.engine.state.value.config, e).applied }
     var cloudUri by remember { mutableStateOf<android.net.Uri?>(null) }
     var onboarded by remember { mutableStateOf(vm.store.prefs.onboarded) }
     // #61: default home app. Re-checked on every resume (the user may change it in system settings).

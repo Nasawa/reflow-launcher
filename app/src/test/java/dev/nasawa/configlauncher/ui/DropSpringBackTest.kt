@@ -63,11 +63,15 @@ class DropSpringBackTest {
         rule.mainClock.advanceTimeByFrame()
     }
 
+    /** #282: the lift eases in over [DragController.RAISE_MS]; let it finish on the test clock. */
+    private fun raised() { rule.mainClock.advanceTimeBy(DragController.RAISE_MS + 32L); rule.waitForIdle(); assertEquals(1f, drag.raise, 0f) }
+
     @After fun tearDown() { Settings.Global.putFloat(ctx.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) }
 
     /** Lift the tile at (0,0) and release it in the right-hand margin, outside the block. */
     private fun refusedDrop() {
         drag.start(item, Rect(0f, 0f, 100f, 100f))
+        raised()
         drag.move(Offset(450f, 0f)) // centre at x=500: outside gridRect, no dock
         assertEquals(Offset(450f, 0f), drag.visualOffset)
         assertEquals(1.15f, drag.visualScale, 1e-4f)
@@ -115,10 +119,15 @@ class DropSpringBackTest {
         assertTrue(submitted.isEmpty()); assertEquals(1, cancelled)
     }
 
-    @Test fun successfulDropIsUnchanged() {
+    // #282: an accepted drop settles into its cell over SETTLE_MS first, then writes (was: written at once).
+    @Test fun successfulDropSettlesThenWrites() {
         drag.start(item, Rect(0f, 0f, 100f, 100f))
+        raised()
         drag.move(Offset(250f, 250f)) // into the block
         rule.runOnIdle { drag.drop() }
+        assertTrue("settling, not written yet", drag.settling); assertTrue(submitted.isEmpty())
+        assertTrue("the write waits for the settle (§17 Q6 hold)", engine.dragging)
+        rule.mainClock.advanceTimeBy(DragController.SETTLE_MS + 32L); rule.waitForIdle()
         assertEquals(listOf<Edit>(Edit.MoveToCell("a", "home", 3, 3)), submitted)
         assertEquals(0, cancelled)
         assertNull("no spring-back on success", drag.dragged)
@@ -143,6 +152,8 @@ class DropSpringBackTest {
         drag.move(Offset(30f, 30f)) // stray input mid-animation is ignored
         rule.runOnIdle { drag.start(other, Rect(100f, 0f, 200f, 100f)) }
         assertSame(other, drag.dragged); assertFalse(drag.returning)
+        assertEquals("#282: the new lift starts in its cell", Offset.Zero, drag.visualOffset); assertEquals(1f, drag.visualScale, 1e-4f)
+        raised()
         assertEquals(Offset.Zero, drag.visualOffset); assertEquals(1.15f, drag.visualScale, 1e-4f)
         assertTrue(engine.dragging)
         rule.mainClock.advanceTimeBy(300) // the old animation must not clear the new drag
@@ -150,6 +161,7 @@ class DropSpringBackTest {
         assertSame(other, drag.dragged); assertTrue(engine.dragging)
         drag.move(Offset(150f, 250f)) // into the block
         rule.runOnIdle { drag.drop() }
+        rule.mainClock.advanceTimeBy(DragController.SETTLE_MS + 32L); rule.waitForIdle()
         assertEquals(1, submitted.size); assertEquals(1, cancelled)
     }
 

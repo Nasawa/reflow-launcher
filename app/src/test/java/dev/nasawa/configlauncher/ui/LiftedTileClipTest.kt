@@ -131,7 +131,7 @@ class LiftedTileClipTest {
             drag.start(lifted, cellRect())
             drag.move(by)
         }
-        frames(3) // recompose (isMe), then the layer picks up the lift
+        frames(3 + DragController.RAISE_MS / 16) // recompose (isMe), the layer picks up the lift, the #282 raise finishes
     }
 
     private fun assertDrawnAwayFrom(origin: Rect, atLeast: Float, what: String) {
