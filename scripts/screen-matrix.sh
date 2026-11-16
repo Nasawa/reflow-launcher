@@ -346,6 +346,8 @@ run_point() {
   if [[ ",$MATRIX_PROBES," == *,dnd-only,* ]]; then
     echo "probe_only=dnd" >> "$d/meta.txt"
     if [ "$seed_ok" -eq 1 ] && [ "$fixture" = launcher.json ]; then
+      # Same warm-up as the full flow (first touch after boot is often dropped on the emulator).
+      if p=$($CHECK find-empty "$d/home1.xml" "$dens"); then read -r x y <<< "$p"; sh_ input tap "$x" "$y"; pause 2; fi
       dnd_probe "$d" "$dens"
     else
       echo "dnd-only: no probe (seed_ok=$seed_ok fixture=$fixture)" >> "$d/run.txt"
