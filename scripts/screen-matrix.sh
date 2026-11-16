@@ -9,7 +9,8 @@ source "$SCRIPT_DIR/pkg.env"
 # usage: scripts/screen-matrix.sh [--shard NAME] [--points REGEX] [--gate] [--matrix-gate LEVEL]
 #                                  [--apk PATH] [--out DIR] [--settle SEC]
 #   --shard        only rows of this shard (small-a, small-b, phones, tablets, fold). CI's dnd shard runs the
-#                  tablets rows with MATRIX_PROBES=dnd-only (scripts/screen_matrix_plan.py).
+#                  tablets rows with MATRIX_PROBES=dnd-only, and/or the EDGE_POINTS rows of any shard with
+#                  MATRIX_PROBES=edge-only (scripts/screen_matrix_plan.py).
 #   --points       only rows whose id matches this extended regex
 #   --gate         only the on-box gate subset (see the test plan)
 #   --matrix-gate  severity for L* / large G*: dev7 (advisory, default) or dev8 (blocking).
@@ -30,6 +31,18 @@ DND="python3 $HERE/screen_matrix_dnd.py"
 # The point is marked probe_only=dnd in meta.txt, and summarize lists it apart from the verdict rows (CI dnd shard).
 MATRIX_PROBES=${MATRIX_PROBES:-}
 DND_POINTS=${DND_POINTS:-'^(rtl-.*|t7-land-v1|t7-port-v1|phone-land-v1|p411-a51-v1)$'}
+# dev8 edge drag-and-drop pass (test-plan-screen-matrix §4, #243; scripts/screen_matrix_drop.py edge / score).
+# MATRIX_PROBES=edge-only runs only edge_probe on these points, whatever their points.tsv shard (CI: the dnd shard,
+# one point per form factor). Probe-only like dnd-only: probe_only=edge in meta.txt, advisory table in the summary.
+# EDGE_FLIP_RE points also run the flipped rotation (none by default, to fit the 60 min shard). EDGE_REC_ALL=1
+# screenrecords the cell cases too (#221 / PR #223; gutter and outer cases are always recorded). EDGE_BUDGET_S:
+# seconds after the script starts past which edge_probe starts no new case (recorded as skipped, scored n/a), so the
+# shard ends and uploads its artifacts inside the job timeout.
+DROPH="python3 $HERE/screen_matrix_drop.py"
+EDGE_POINTS=${EDGE_POINTS:-'^(p411-a51-v1|rtl-phone-port-v1|t10-port-v1|fold-open-v1)$'}
+EDGE_FLIP_RE=${EDGE_FLIP_RE:-'^$'}
+EDGE_REC_ALL=${EDGE_REC_ALL:-0}
+EDGE_BUDGET_S=${EDGE_BUDGET_S:-2700}
 GATE_RE='^(s320-a51-v1|s320-a51-v2|s320-mdpi-v1|p411-a51-v1|p411-a51-v2|t7-land-v1)$'
 
 SHARD=''; POINTS='.'; OUT=screen-matrix-out; SETTLE=4; APK=''
@@ -44,7 +57,7 @@ while [ $# -gt 0 ]; do
     --apk) APK=$2; shift 2;;
     --out) OUT=$2; shift 2;;
     --settle) SETTLE=$2; shift 2;;
-    -h|--help) sed -n '2,14p' "$0"; exit 0;;
+    -h|--help) sed -n '2,15p' "$0"; exit 0;;
     *) echo "unknown argument: $1" >&2; exit 2;;
   esac
 done
@@ -342,19 +355,23 @@ run_point() {
   # Record the nav-bar inset so a harness change that drops it is visible (pitch reference geometry).
   echo "nav_inset=$(grep -m1 -o 'type=navigationBars frame=\[[^]]*\]\[[^]]*\]' "$d/insets.txt" | sed 's/.*frame=//' || true)" >> "$d/meta.txt"
 
-  # dnd-only (CI dnd shard): the probe alone. The same point gets its F*/L* verdict in its own shard.
-  if [[ ",$MATRIX_PROBES," == *,dnd-only,* ]]; then
-    echo "probe_only=dnd" >> "$d/meta.txt"
+  # dnd-only / edge-only (CI dnd shard): the probe(s) alone, $PO = dnd, edge or dnd,edge (probe_only_for).
+  # The same point gets its F*/L* verdict in its own shard.
+  if [ -n "$PO" ]; then
+    echo "probe_only=$PO" >> "$d/meta.txt"
     if [ "$seed_ok" -eq 1 ] && [ "$fixture" = launcher.json ]; then
       # Same warm-up as the full flow (first touch after boot is often dropped on the emulator).
       if p=$($CHECK find-empty "$d/home1.xml" "$dens"); then read -r x y <<< "$p"; sh_ input tap "$x" "$y"; pause 2; fi
-      dnd_probe "$d" "$dens"
+      if [[ ",$PO," == *,dnd,* ]]; then dnd_probe "$d" "$dens"; fi
+      if [[ ",$PO," == *,edge,* ]]; then edge_probe "$d" "$dens" "$size" "$rot" "$shape"; fi
     else
-      echo "dnd-only: no probe (seed_ok=$seed_ok fixture=$fixture)" >> "$d/run.txt"
+      echo "$PO probe-only: no probe (seed_ok=$seed_ok fixture=$fixture)" >> "$d/run.txt"
     fi
+    # scored even when it did not run, so the summary row says why there are no cases
+    if [[ ",$PO," == *,edge,* ]]; then $DROPH score "$d" >> "$d/run.txt" 2>&1 || echo "edge score non-zero" >> "$d/run.txt"; fi
     sh_ logcat -d -b crash > "$d/crash.txt" 2>&1
     sh_ logcat -d -b main -b system | grep -E "ANR in $PKG|FATAL EXCEPTION" >> "$d/crash.txt"
-    grep -m1 '^#' "$d/dnd.md" 2> /dev/null
+    grep -h -m1 '^#' "$d/dnd.md" "$d/edge-score.md" 2> /dev/null
     return
   fi
 
@@ -489,6 +506,120 @@ run_point() {
   fi
 }
 
+# --- dev8 edge drag-and-drop pass (test-plan-screen-matrix §4 "Manual edge drag-and-drop"; #243). Ported from
+# qa/matrix-243-edge (cfc5772, 984e4ef). Fixture edge.json: page 1 "Drag" (id home) holds Edge C (1,1) and Edge D
+# (2,3), so every edge/corner cell of the 4x5 grid is empty. Per orientation: one geo cold start ->
+# scripts/screen_matrix_drop.py edge -> sb-edge-<o>.txt, then per case a cold start, Edit layout, one
+# `input motionevent` drag of Edge C, UP, after-dump, config before/after, crash/ANR (pg-<case>-crash.txt). Gutter
+# and outer cases are screenrecorded (sb-<case>.mp4) so the return is visible. Animations on (scale 1), as a user
+# has them. `screen_matrix_drop.py score` turns edge-cases.txt + those files into edge-score.json / .md (advisory).
+pg_seed() {   # pg_seed <dir> <fixture>: cold start on <fixture>
+  sh_ am force-stop "$PKG"
+  A push "$FIX/$2" /data/local/tmp/sm-probe.json > /dev/null < /dev/null
+  sh_ "run-as $PKG sh -c 'cp /data/local/tmp/sm-probe.json files/config/source/launcher.json'"
+  sh_ am start -W -n "$PKG/$NS.MainActivity" > /dev/null 2>&1; pause; anr "$1"
+  sh_ am broadcast -a "$PKG.RELOAD" -n "$PKG/$NS.ReloadReceiver" > /dev/null 2>&1; pause 3; anr "$1"
+}
+pg_goto() {    # pg_goto <dir> <Title>: Pages list -> that page
+  local d=$1 t=$2
+  dump "$d" .pg
+  tap "$d/.pg.xml" desc ', Pages$' || { rm -f "$d"/.pg.*; return 1; }
+  pause 3; dump "$d" .pg
+  tap "$d/.pg.xml" desc "^$t, page" || { rm -f "$d"/.pg.*; sh_ input keyevent BACK; return 1; }
+  pause 3; rm -f "$d"/.pg.*
+}
+pg_hash() { sh_ "run-as $PKG sha256sum files/config/source/launcher.json 2>/dev/null | cut -c1-64" | tr -d '\r'; }
+pg_snap() {    # pg_snap <dir> <case> <step>
+  dump "$1" "pg-$2-$3"
+  sh_ dumpsys activity activities 2>/dev/null | tr -d '\r' | grep -m1 -E 'topResumedActivity|mResumedActivity' > "$1/pg-$2-$3-top.txt" || true
+  echo "$2 $3 hash=$(pg_hash)" >> "$1/pg-hashes.txt"
+}
+pg_case_start() { echo "== case $2" >> "$1/run.txt"; echo "$2" >> "$1/pg-cases.txt"; sh_ logcat -b all -c > /dev/null 2>&1; }
+pg_case_end() {
+  { sh_ logcat -d -b crash; sh_ logcat -d -b main -b system | grep -E "ANR in $PKG|FATAL EXCEPTION|AndroidRuntime.*$PKG"; } > "$1/pg-$2-crash.txt" 2>&1
+}
+# sb_* use the caller's d, dens and RECSZ (bash dynamic scope). Files: sb-<case>.mp4, sb-<case>-times.txt (device
+# /proc/uptime around UP), sb-<case>-gfx.txt (framestats), pg-<case>-<step>.xml/.png, pg-<case>-config-{before,after}.json.
+sb_moves() {  # sb_moves x0 y0 x1 y1 -> "input motionevent MOVE ..." x8
+  local i out=''
+  for i in 1 2 3 4 5 6 7 8; do out="$out; input motionevent MOVE $(( $1 + ($3 - $1) * i / 8 )) $(( $2 + ($4 - $2) * i / 8 ))"; done
+  echo "${out#; }"
+}
+sb_drag_cmd() { echo "input motionevent DOWN $1 $2; sleep 1.6; $(sb_moves "$1" "$2" "$3" "$4"); sleep 0.5; input motionevent UP $3 $4"; }
+sb_cfg() { sh_ "run-as $PKG cat files/config/source/launcher.json" > "$1" 2>/dev/null || true; }
+sb_setup() {  # sb_setup <case> <fixture>: cold start, edit mode, 0-edit snapshot, config before
+  pg_case_start "$d" "$1"; pg_seed "$d" "$2"
+  dump "$d" .sbchk
+  grep -q 'content-desc="Drag, Pages"' "$d/.sbchk.xml" || { echo "edge $1: not on Drag, goto" >> "$d/run.txt"; pg_goto "$d" Drag; }
+  rm -f "$d"/.sbchk.*
+  dnd_edit "$d" "$dens" || echo "edge $1: no edit mode" >> "$d/run.txt"
+  pg_snap "$d" "$1" 0-edit; sb_cfg "$d/pg-$1-config-before.json"
+}
+# sb_run <case> <x0> <y0> <fx> <fy> <rec-seconds>: screenrecord, drag (x0,y0)->(fx,fy), UP.
+sb_run() {
+  local cs=$1 rp cmd
+  cmd="echo T_DOWN \$(cat /proc/uptime); input motionevent DOWN $2 $3; sleep 1.6; $(sb_moves "$2" "$3" "$4" "$5"); sleep 0.5; echo T_UP0 \$(cat /proc/uptime); input motionevent UP $4 $5; echo T_UP1 \$(cat /proc/uptime)"
+  echo "drag $2 $3 -> $4 $5" > "$d/sb-$cs-times.txt"
+  sh_ "rm -f /sdcard/sb.mp4; dumpsys gfxinfo $PKG reset" > /dev/null 2>&1
+  sh_ "screenrecord --time-limit $6 --bit-rate 6000000 --size $RECSZ /sdcard/sb.mp4" > "$d/sb-$cs-rec.txt" 2>&1 &
+  rp=$!; sleep 1.5
+  echo "T_REC_GO $(sh_ cat /proc/uptime | tr -d '\r')" >> "$d/sb-$cs-times.txt"
+  sh_ "$cmd" 2>&1 | tr -d '\r' >> "$d/sb-$cs-times.txt"
+  wait "$rp" || true
+  sh_ "dumpsys gfxinfo $PKG framestats" 2>&1 | tr -d '\r' > "$d/sb-$cs-gfx.txt"
+  A pull /sdcard/sb.mp4 "$d/sb-$cs.mp4" > /dev/null 2>&1 < /dev/null || echo "edge $cs: no video" >> "$d/run.txt"
+}
+sb_end() {  # sb_end <case>: after snapshot, config after, crash/ANR
+  pause 2; anr "$d"; pg_snap "$d" "$1" 1-after
+  sb_cfg "$d/pg-$1-config-after.json"; pg_case_end "$d" "$1"
+}
+edge_probe() {
+  local d=$1 dens=$2 size=$3 rot=$4 shape=$5 flip rtl=0 o r cs fx fy kind col row
+  flip=$((1 - rot)); { [[ $id == rtl-* ]] || echo "$shape" | grep -qi rtl; } && rtl=1
+  echo "== edge probe ($id) rtl=$rtl" >> "$d/run.txt"
+  : > "$d/pg-cases.txt"; : > "$d/pg-hashes.txt"; : > "$d/edge-cases.txt"
+  sh_ "settings put system user_rotation $rot; settings put global animator_duration_scale 1; settings put system show_touches 1"
+  for o in base flip; do
+    if [ "$o" = flip ]; then
+      [[ $id =~ $EDGE_FLIP_RE ]] || continue
+      r=$flip
+    else
+      r=$rot
+    fi
+    sh_ "settings put system user_rotation $r"; pause; anr "$d"
+    pg_case_start "$d" "egeo-$o"; pg_seed "$d" edge.json
+    dump "$d" .sbchk
+    grep -q 'content-desc="Drag, Pages"' "$d/.sbchk.xml" || { echo "edge geo-$o: not on Drag, goto" >> "$d/run.txt"; pg_goto "$d" Drag; }
+    rm -f "$d"/.sbchk.*
+    dnd_edit "$d" "$dens" || echo "edge geo-$o: no edit mode" >> "$d/run.txt"
+    pg_snap "$d" "egeo-$o" 0-edit; pg_case_end "$d" "egeo-$o"
+    $DROPH edge "$d/pg-egeo-$o-0-edit.xml" "$d/pg-egeo-$o-0-edit.png" "$rtl" "$dens" > "$d/sb-edge-$o.txt" 2>> "$d/run.txt" || true
+    CX=$(sed -n 's/^CX=//p' "$d/sb-edge-$o.txt"); CY=$(sed -n 's/^CY=//p' "$d/sb-edge-$o.txt")
+    W=$(sed -n 's/^W=//p' "$d/sb-edge-$o.txt"); H=$(sed -n 's/^H=//p' "$d/sb-edge-$o.txt")
+    if [ -z "$CX" ] || [ -z "$CY" ]; then echo "edge geo-$o: targets failed" >> "$d/run.txt"; continue; fi
+    RECSZ="$(( ${W:-1080} / 2 / 2 * 2 ))x$(( ${H:-1920} / 2 / 2 * 2 ))"
+    while read -r _ cs fx fy kind col row; do
+      cs="$o-$cs"
+      if [ "$SECONDS" -ge "$EDGE_BUDGET_S" ]; then
+        echo "$cs $kind $col $row $fx $fy rot=$r skipped=budget" >> "$d/edge-cases.txt"
+        continue
+      fi
+      echo "$cs $kind $col $row $fx $fy rot=$r" >> "$d/edge-cases.txt"
+      sb_setup "$cs" edge.json
+      if [ "$kind" = cell ] && [ "$EDGE_REC_ALL" != 1 ]; then
+        echo "drag $CX $CY -> $fx $fy" > "$d/sb-$cs-times.txt"
+        sh_ "$(sb_drag_cmd "$CX" "$CY" "$fx" "$fy")" >> "$d/sb-$cs-times.txt" 2>&1
+      else
+        sb_run "$cs" "$CX" "$CY" "$fx" "$fy" 7
+      fi
+      sb_end "$cs"
+    done < <(grep '^CASE ' "$d/sb-edge-$o.txt")
+  done
+  sh_ "settings put global animator_duration_scale 0; settings put system show_touches 0"
+  sh_ "wm size $size; wm density $dens; settings put system user_rotation $rot"
+  dnd_reset "$d"; home
+}
+
 # --- DnD / pager probe (scripts/screen_matrix_dnd.py). Each case starts from the seeded fixture.
 dnd_reset() {
   sh_ am force-stop "$PKG"
@@ -584,6 +715,18 @@ tap_routing_probe() {
   grep -m1 '^# Tap-routing' "$d/tap-routing.md" 2>/dev/null || true
 }
 
+# probe_only_for <id> <shard>: the probe-only probes this row runs under MATRIX_PROBES dnd-only / edge-only (dnd,
+# edge or dnd,edge); empty = skip the row. dnd-only keeps the --shard filter; edge-only picks EDGE_POINTS rows from
+# any shard (the CI dnd shard's panel fits every edge point, scripts/screen_matrix_plan.py).
+probe_only_for() {
+  local po=''
+  if [[ ",$MATRIX_PROBES," == *,dnd-only,* ]] && { [ -z "$SHARD" ] || [ "$2" = "$SHARD" ]; } && [[ $1 =~ $DND_POINTS ]]; then po=dnd; fi
+  if [[ ",$MATRIX_PROBES," == *,edge-only,* ]] && [[ $1 =~ $EDGE_POINTS ]]; then po=${po:+$po,}edge; fi
+  echo "$po"
+}
+PROBE_ONLY=0
+if [[ ",$MATRIX_PROBES," == *,dnd-only,* || ",$MATRIX_PROBES," == *,edge-only,* ]]; then PROBE_ONLY=1; fi
+
 A wait-for-device < /dev/null
 wait_boot_idle
 A install -r -g "$APK" < /dev/null | tee "$OUT/install.txt"
@@ -600,9 +743,13 @@ dups=$(awk -F'\t' '!/^#/ && NF > 1 {print $1}' "$FIX/points.tsv" | sort | uniq -
 n=0
 while IFS=$'\t' read -r id shard size dens rot fs night fixture tier shape <&3; do
   case $id in '#'*|'') continue;; esac
-  [ -n "$SHARD" ] && [ "$shard" != "$SHARD" ] && continue
   [[ $id =~ $POINTS ]] || continue
-  if [[ ",$MATRIX_PROBES," == *,dnd-only,* ]]; then [[ $id =~ $DND_POINTS ]] || continue; fi
+  PO=''
+  if [ "$PROBE_ONLY" -eq 1 ]; then
+    PO=$(probe_only_for "$id" "$shard"); [ -n "$PO" ] || continue
+  else
+    [ -n "$SHARD" ] && [ "$shard" != "$SHARD" ] && continue
+  fi
   run_point "$id" "$shard" "$size" "$dens" "$rot" "$fs" "$night" "$fixture" "$tier" "$shape"
   n=$((n + 1))
 done 3< "$FIX/points.tsv"
