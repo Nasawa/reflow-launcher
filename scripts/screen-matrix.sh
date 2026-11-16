@@ -8,7 +8,8 @@ source "$SCRIPT_DIR/pkg.env"
 #
 # usage: scripts/screen-matrix.sh [--shard NAME] [--points REGEX] [--gate] [--matrix-gate LEVEL]
 #                                  [--apk PATH] [--out DIR] [--settle SEC]
-#   --shard        only rows of this shard (small-a, small-b, phones, tablets, fold)
+#   --shard        only rows of this shard (small-a, small-b, phones, tablets, fold). CI's dnd shard runs the
+#                  tablets rows with MATRIX_PROBES=dnd-only (scripts/screen_matrix_plan.py).
 #   --points       only rows whose id matches this extended regex
 #   --gate         only the on-box gate subset (see the test plan)
 #   --matrix-gate  severity for L* / large G*: dev7 (advisory, default) or dev8 (blocking).
@@ -25,6 +26,8 @@ CHECK="python3 $HERE/screen_matrix_check.py"
 TAP_ROUTING="python3 $HERE/screen_matrix_tap_routing.py"
 DND="python3 $HERE/screen_matrix_dnd.py"
 # Live DnD / pager probe (#187, PR #210): MATRIX_PROBES=dnd enables it on these points (launcher.json fixture only).
+# MATRIX_PROBES=dnd-only runs only these points and only the probe: seed, dnd_probe, crash log; no F3-F7, no checker.
+# The point is marked probe_only=dnd in meta.txt, and summarize lists it apart from the verdict rows (CI dnd shard).
 MATRIX_PROBES=${MATRIX_PROBES:-}
 DND_POINTS=${DND_POINTS:-'^(rtl-.*|t7-land-v1|t7-port-v1|phone-land-v1|p411-a51-v1)$'}
 GATE_RE='^(s320-a51-v1|s320-a51-v2|s320-mdpi-v1|p411-a51-v1|p411-a51-v2|t7-land-v1)$'
@@ -339,6 +342,20 @@ run_point() {
   # Record the nav-bar inset so a harness change that drops it is visible (pitch reference geometry).
   echo "nav_inset=$(grep -m1 -o 'type=navigationBars frame=\[[^]]*\]\[[^]]*\]' "$d/insets.txt" | sed 's/.*frame=//' || true)" >> "$d/meta.txt"
 
+  # dnd-only (CI dnd shard): the probe alone. The same point gets its F*/L* verdict in its own shard.
+  if [[ ",$MATRIX_PROBES," == *,dnd-only,* ]]; then
+    echo "probe_only=dnd" >> "$d/meta.txt"
+    if [ "$seed_ok" -eq 1 ] && [ "$fixture" = launcher.json ]; then
+      dnd_probe "$d" "$dens"
+    else
+      echo "dnd-only: no probe (seed_ok=$seed_ok fixture=$fixture)" >> "$d/run.txt"
+    fi
+    sh_ logcat -d -b crash > "$d/crash.txt" 2>&1
+    sh_ logcat -d -b main -b system | grep -E "ANR in $PKG|FATAL EXCEPTION" >> "$d/crash.txt"
+    grep -m1 '^#' "$d/dnd.md" 2> /dev/null
+    return
+  fi
+
   # Warm-up + F3–F7 only when seed produced home (else product checks would score FirstRun as app bugs).
   hd="$d/home1.xml"
   if [ "$seed_ok" -eq 1 ]; then
@@ -583,6 +600,7 @@ while IFS=$'\t' read -r id shard size dens rot fs night fixture tier shape <&3; 
   case $id in '#'*|'') continue;; esac
   [ -n "$SHARD" ] && [ "$shard" != "$SHARD" ] && continue
   [[ $id =~ $POINTS ]] || continue
+  if [[ ",$MATRIX_PROBES," == *,dnd-only,* ]]; then [[ $id =~ $DND_POINTS ]] || continue; fi
   run_point "$id" "$shard" "$size" "$dens" "$rot" "$fs" "$night" "$fixture" "$tier" "$shape"
   n=$((n + 1))
 done 3< "$FIX/points.tsv"

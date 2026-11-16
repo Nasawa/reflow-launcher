@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       shards:
-        description: 'Shards, comma-separated: small-a,small-b,phones,tablets,fold (or all)'
+        description: 'Shards, comma-separated: small-a,small-b,phones,tablets,dnd,fold (or all). dnd = the live DnD probe on the tablet points; probes=dnd adds it.'
         default: all
         type: string
       points:
@@ -20,7 +20,7 @@ on:
         type: choice
         options: [dev7, dev8]
       probes:
-        description: 'Extra live probes, comma-separated (dnd = scripted drag-and-drop + pager direction, #187). Empty = none.'
+        description: 'Extra live probes, comma-separated (dnd = scripted drag-and-drop + pager direction, #187; on tablets it runs in its own dnd shard). Empty = none.'
         default: ''
         type: string
   push:
@@ -39,27 +39,13 @@ jobs:
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
     steps:
+      - uses: actions/checkout@v7
       - id: plan
         env:
           SHARDS: ${{ inputs.shards || 'all' }}
-        run: |
-          python3 - <<'PY' >> "$GITHUB_OUTPUT"
-          import json, os
-          all_ = [
-              # skin = AVD panel (portrait). Android clamps `wm size` overrides to a multiple of the panel,
-              # so each panel is at least as big as every point in its shard (run 1 used the 320x640 default).
-              {"shard": "small-a", "api": 29, "target": "default", "arch": "x86", "skin": "720x1440"},
-              {"shard": "small-b", "api": 29, "target": "default", "arch": "x86", "skin": "720x1440"},
-              {"shard": "phones", "api": 35, "target": "google_apis", "arch": "x86_64", "skin": "1344x2992"},
-              {"shard": "tablets", "api": 35, "target": "google_apis", "arch": "x86_64", "skin": "1600x2560"},
-              {"shard": "fold", "api": 36, "target": "google_apis", "arch": "x86_64", "skin": "2208x2400"},
-          ]
-          want = {s.strip() for s in os.environ["SHARDS"].split(",") if s.strip()}
-          inc = [s for s in all_ if "all" in want or s["shard"] in want]
-          if not inc:
-              raise SystemExit(f"no shard matches {sorted(want)}")
-          print("matrix=" + json.dumps({"include": inc}))
-          PY
+          PROBES: ${{ inputs.probes || '' }}
+        # Shard list, images and per-shard probes: scripts/screen_matrix_plan.py (unit tests in test_screen_matrix_plan.py).
+        run: python3 scripts/screen_matrix_plan.py "$SHARDS" "$PROBES" >> "$GITHUB_OUTPUT"
 
   build:
     needs: plan
@@ -83,7 +69,7 @@ jobs:
   shard:
     needs: [plan, build]
     runs-on: ubuntu-latest
-    timeout-minutes: ${{ matrix.shard == 'tablets' && 90 || 60 }}  # tablets + dnd probe outran 60 min on dev9
+    timeout-minutes: 60  # the tablet DnD probe has its own dnd shard, so tablets fits again (PR #246 had 90)
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
@@ -107,8 +93,9 @@ jobs:
         env:
           POINTS: ${{ inputs.points || '.' }}
           SHARD: ${{ matrix.shard }}
+          ROWS: ${{ matrix.rows }}
           MATRIX_GATE: ${{ inputs.gate || (contains(github.ref, 'dev8') && 'dev8' || 'dev7') }}
-          MATRIX_PROBES: ${{ inputs.probes || '' }}
+          MATRIX_PROBES: ${{ matrix.probes }}
         with:
           api-level: ${{ matrix.api }}
           target: ${{ matrix.target }}
@@ -117,7 +104,7 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -skin ${{ matrix.skin }}
           # One line: the runner executes each script line in its own sh.
-          script: bash scripts/screen-matrix.sh --shard "$SHARD" --points "$POINTS" --matrix-gate "$MATRIX_GATE" --apk apk --out "screen-matrix-out/$SHARD"
+          script: bash scripts/screen-matrix.sh --shard "$ROWS" --points "$POINTS" --matrix-gate "$MATRIX_GATE" --apk apk --out "screen-matrix-out/$SHARD"
       - uses: actions/upload-artifact@v7
         if: always()
         with:
