@@ -164,7 +164,7 @@ Shape in brief:
     picks `Use file` or `Keep mine` instead.
   - An edit whose item you deleted is skipped.
   - Changes that arrive during a drag wait until the drop.
-- **How the launcher writes.** Android's folder access has no atomic replace, so it writes `.configlauncher/launcher.json.tmp`
+- **How the launcher writes.** Android's folder access has no atomic replace, so it writes a temp copy in `.configlauncher/`
   first and verifies it, then truncate-writes `launcher.json` and verifies that, restoring from the temp copy on failure.
   For a few milliseconds, a reader can see a partial file. **If you get a parse error reading `launcher.json`, wait a
   second and retry.**
@@ -212,8 +212,11 @@ Shape in brief:
   apps.json* or the hidden list changes. Use it to place apps by their real package and activity. Work apps are listed
   only when *Include work apps in config* is on. Apps hidden from the drawer are left out unless *Include hidden apps in
   apps.json* is on (off by default).
-- `launcher.json.tmp` and `AGENTS.md.tmp`: the write-verify copies (above). `AGENTS.md` goes through the same temp,
-  verify and restore path as `launcher.json`, so its `.tmp` stays too. Both are reused on the next write.
+- `.launcher.json.<8hex>.tmp` and `.AGENTS.md.<8hex>.tmp`: the write-verify copies (above), one per save, deleted once
+  the save is verified. `AGENTS.md` goes through the same temp, verify and restore path as `launcher.json`. If the app
+  was stopped mid-save, the next start uses the copy to finish the save, then deletes it. A `launcher.json.tmp` or
+  `AGENTS.md.tmp` left by an older version is cleaned up the same way, unless it might be your only copy; then the
+  phone lists it under Warnings.
 - `launcher-config.v1.schema.json`: an offline copy of the schema, so agents can validate without network. Replaced on
   app updates unless you edited it.
 - `broken/`: copies of invalid files saved before a phone edit replaced them.

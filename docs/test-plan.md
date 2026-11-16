@@ -163,7 +163,7 @@ Principle: nothing in the file ever builds an Intent. The launcher only launches
 
 ## 5. Store fault injection (fake `DocumentAccess`, A§5 Atomic writes, A§11, A§15 OQ-18, AQ-4)
 
-Write sequence under test: write `.configlauncher/launcher.json.tmp` (or, when `.configlauncher` can't be used, a root temp `.launcher.json.<8hex>.tmp` or `.AGENTS.md.<8hex>.tmp`) and verify by reading back → `"wt"` write to `launcher.json` and verify → on failure, restore from tmp → on failure, B5 Retry. If a kill leaves the target empty or invalid and the temp is valid, the start sweep restores from that temp or keeps it as the only copy (#251, #263). The in-memory model and `last-good.json` keep the edit.
+Write sequence under test: write a new sidecar temp `.configlauncher/.launcher.json.<8hex>.tmp` or `.AGENTS.md.<8hex>.tmp` (or, when `.configlauncher` can't be used, a root temp with the same name) and verify by reading back → `"wt"` write to `launcher.json` and verify → on failure, restore from tmp → on failure, B5 Retry → delete the temp. Every temp is journaled. If a kill leaves the target empty or invalid and the temp is valid, the start sweep restores from that temp or keeps it as the only copy (#251, #263, #274). A fixed-name `.configlauncher/<name>.tmp` from a pre-#274 build is settled by the start sweep (deleted only when it can't be the only copy, else kept with a ▲ line), and a null display name after a create is treated as unconfirmed. Unit tests: `SafWritesTest`, `SidecarTempsTest` (kill mid-Replace of AGENTS.md, repeated Replaces/starts on a renaming, name-hiding provider leaving no `(N)` or fixed-name temps, null display name, legacy temps). The in-memory model and `last-good.json` keep the edit.
 
 | ID | Fault injected | Expected | Level |
 |---|---|---|---|
@@ -373,7 +373,7 @@ Implemented as `.github/workflows/emulator-smoke.yml` (PR #23): nightly, on dema
 | MG-2 | git | Drag on the phone, commit and push from the git client, pull on the PC. | A small canonical diff (2-space, schema order). `revision` + 1. |
 | MG-3 | git | Phone drag not yet committed, then pull a PC change to a different item. | Depends on the git client: it may refuse the pull (dirty tree). If it merges: auto-merge snackbar `Kept your 1 change.` (CM-7). Record the client's behaviour. |
 | MG-4 | git | Pull a conflicted merge (markers; fixture `invalid/git-conflict-markers.json`). | B1 with line/column, last-good kept, no write from us (CM-21). |
-| MG-5 | git | Check `git status` after a week of use. | Only `launcher.json` (and backup/broken, by preference) changes. `.configlauncher/launcher.json.tmp` and `status.json` are gitignored per the README snippet (A§17 Q14). |
+| MG-5 | git | Check `git status` after a week of use. | Only `launcher.json` (and backup/broken, by preference) changes. `.configlauncher/*.tmp` and `status.json` are gitignored per the README snippet (A§17 Q14). |
 | MG-6 | git | `git checkout` an old commit (file replaced while home is showing). | Reloads the old layout. Undo is possible with git, and the launcher's history has the previous one. |
 | MS-1 | Syncthing (second) | Edit on the PC, then drag on the phone, then edit on both at once. | As MG-1/MG-3. A Syncthing conflict copy shows the notice (CM-20). |
 | GD-1 | Google Drive (third, best effort) | Pick a Drive folder. | Soft warning `Cloud folders can take a while to sync. A Syncthing or git folder works best.` with `Use anyway` / `Choose another folder`. Record latency. Airplane mode leads to B5 or a delayed write, and the edit is never lost. |

@@ -563,7 +563,7 @@ queued as an ID-based operation (`Move`, `Add`, `Remove`, `Rename`, `CreateFolde
 3. **Serialize canonically:** 2-space indent, keys in schema order, `x-` keys after known keys (preserved verbatim), LF,
    trailing newline, UTF-8 without BOM. Hand formatting and key order are **not** preserved. Bump `revision` (max seen + 1).
 4. **Write safely (no SAF rename is relied on):**
-   1. Write `.configlauncher/launcher.json.tmp` in the folder, and read it back to verify the hash.
+   1. Write a new temp `.configlauncher/.launcher.json.<8hex>.tmp` in the folder, and read it back to verify the hash.
    2. Truncate-write `launcher.json` (`"wt"`), and read it back to verify.
    3. On failure, restore `launcher.json` from the temp copy. If that also fails → banner B5 with `Retry`. The edit stays
       on screen and in the app's last working copy.
@@ -2371,7 +2371,7 @@ All seven are answered in ARCHITECTURE §16 and applied above:
 | AQ-1 | ✅ `launcher.json`, schema at `schema/launcher-config.v1.schema.json` (+ `schema/examples/`) |
 | AQ-2 | ✅ Canonical reformat on every launcher write. `x-` keys kept, other unknown keys invalid, key order not preserved. Reloads never write |
 | AQ-3 | ✅ Errors reject the whole file (last working layout kept, B2). Grid 2–12 × 2–12 |
-| AQ-4 | ✅ Temp write + verify, then `"wt"` write + verify, restore on failure. No SAF rename relied on. Normally `.configlauncher/launcher.json.tmp`; when that folder can't be used, a root temp `.launcher.json.<8hex>.tmp` (or `.AGENTS.md.<8hex>.tmp`). The start sweep restores or keeps a leftover temp if it's the only valid copy (#251, #263) |
+| AQ-4 | ✅ Temp write + verify, then `"wt"` write + verify, restore on failure. No SAF rename relied on. Normally a sidecar temp `.configlauncher/.launcher.json.<8hex>.tmp` (or `.AGENTS.md.<8hex>.tmp`), deleted after the save; when that folder can't be used, a root temp with the same name. The start sweep restores or keeps a leftover temp if it's the only valid copy (#251, #263, #274) |
 | AQ-5 | ✅ Separate `id`, `package`, `activity`, `profile` (`personal`/`work`). Private space never written |
 | AQ-6 | ✅ Hash check before writing, replay by ID. Hash, not `revision`, is the conflict key. Since §18.2 the merge is automatic, and B6 only appears with `Ask before merging` |
 | AQ-7 | ✅ App-private `last-good.json`, survives process death and reboots, not uninstall |
