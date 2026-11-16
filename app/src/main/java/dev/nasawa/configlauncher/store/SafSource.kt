@@ -9,10 +9,12 @@ import java.io.IOException
 
 /**
  * launcher.json inside a user-picked SAF tree (persisted READ|WRITE grant, no storage permission).
- * SAF has no atomic replace, so writes follow AQ-4 ([SafWrites]): write `.configlauncher/launcher.json.tmp`
- * (or `.launcher.json.<8hex>.tmp` in the root while `.configlauncher` is unusable, #251), verify, truncate-write
- * launcher.json ("wt"), verify, restore from temp on failure. A leftover root temp is restored or kept by the
- * start sweep if it's the only valid copy (#251, #263).
+ * SAF has no atomic replace, so writes follow AQ-4 ([SafWrites]): write a new sidecar temp
+ * `.configlauncher/.launcher.json.<8hex>.tmp` (or `.launcher.json.<8hex>.tmp` in the root while `.configlauncher` is
+ * unusable, #251), verify, truncate-write launcher.json ("wt"), verify, restore from temp on failure, delete the temp.
+ * AGENTS.md goes the same way. Every temp is journaled; a leftover one is restored or kept by the start sweep if it's
+ * the only valid copy (#251, #263, #274), and a fixed-name `.configlauncher/<name>.tmp` from a pre-#274 build is
+ * settled by the same sweep.
  */
 class SafSource(private val resolver: ContentResolver, val treeUri: Uri, private val journal: TempJournal = TempJournal.NONE) : ConfigSource {
     private val rootDocId = DocumentsContract.getTreeDocumentId(treeUri)
@@ -81,7 +83,7 @@ class SafSource(private val resolver: ContentResolver, val treeUri: Uri, private
     private val dirs = SafDirs(docs, treeUri.toString())
     private val writes = SafWrites(docs, dirs, treeUri.toString(), journal)
 
-    /** #251: start-up sweep of root save temps left by a killed save (by journaled document id; [SafWrites]). */
+    /** #251 / #274: start-up sweep of root and sidecar save temps left by a killed save (by journaled id; [SafWrites]). */
     fun sweepRootTemps() = writes.sweepRootTemps(rootDocId)
 
     /** #244: find-or-create through [SafDirs] (serialized, rename-checked), never a bare createDocument. */

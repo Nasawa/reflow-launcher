@@ -563,10 +563,21 @@ queued as an ID-based operation (`Move`, `Add`, `Remove`, `Rename`, `CreateFolde
 3. **Serialize canonically:** 2-space indent, keys in schema order, `x-` keys after known keys (preserved verbatim), LF,
    trailing newline, UTF-8 without BOM. Hand formatting and key order are **not** preserved. Bump `revision` (max seen + 1).
 4. **Write safely (no SAF rename is relied on):**
-   1. Write `.configlauncher/launcher.json.tmp` in the folder, and read it back to verify the hash.
+   1. Write a new temp `.configlauncher/.launcher.json.<8hex>.tmp` in the folder, and read it back to verify the hash.
    2. Truncate-write `launcher.json` (`"wt"`), and read it back to verify.
    3. On failure, restore `launcher.json` from the temp copy. If that also fails → banner B5 with `Retry`. The edit stays
       on screen and in the app's last working copy.
+   4. **Leftover temps on start** (#251, #263, #274). A save the app was stopped in the middle of leaves its temp. The
+      next start restores the file from a journaled temp when the file is empty or a prefix of it, then deletes the
+      temp. When it can't, the temp is kept and one ▲ line is added to the problem banner's Warnings list (and
+      `status.json`):
+      - `Couldn't finish saving <file> after the app was stopped: the new version is kept in <temp>. Copy it over <file> to keep your last edit.`
+      - `launcher.json has problems, and the app was stopped while saving it: your last edit on the phone is kept in <temp>.`
+      - `An older version of the app left .configlauncher/<file>.tmp, which doesn't match <file>. It's kept in case it's your only copy; delete it once you don't need it.`
+        (A fixed-name temp from a pre-#274 build has no recorded hash, so the app never restores from it and never
+        treats it as outdated: your current file always wins. It's deleted silently only when it's empty, identical
+        to the file, or an unedited shipped `AGENTS.md`.)
+      `<temp>` is the temp's name, with `.configlauncher/` in front for a temp in that folder.
 5. Remember the hash, so our own write never triggers a reload. Update the app-private last working copy. The previous
    version goes to app-private history (last **10**), which is recoverable in Settings → `Restore previous layout`.
 
@@ -2371,7 +2382,7 @@ All seven are answered in ARCHITECTURE §16 and applied above:
 | AQ-1 | ✅ `launcher.json`, schema at `schema/launcher-config.v1.schema.json` (+ `schema/examples/`) |
 | AQ-2 | ✅ Canonical reformat on every launcher write. `x-` keys kept, other unknown keys invalid, key order not preserved. Reloads never write |
 | AQ-3 | ✅ Errors reject the whole file (last working layout kept, B2). Grid 2–12 × 2–12 |
-| AQ-4 | ✅ Temp write + verify, then `"wt"` write + verify, restore on failure. No SAF rename relied on. Normally `.configlauncher/launcher.json.tmp`; when that folder can't be used, a root temp `.launcher.json.<8hex>.tmp` (or `.AGENTS.md.<8hex>.tmp`). The start sweep restores or keeps a leftover temp if it's the only valid copy (#251, #263) |
+| AQ-4 | ✅ Temp write + verify, then `"wt"` write + verify, restore on failure. No SAF rename relied on. Normally a sidecar temp `.configlauncher/.launcher.json.<8hex>.tmp` (or `.AGENTS.md.<8hex>.tmp`), deleted after the save; when that folder can't be used, a root temp with the same name. The start sweep restores or keeps a leftover temp if it's the only valid copy (#251, #263, #274) |
 | AQ-5 | ✅ Separate `id`, `package`, `activity`, `profile` (`personal`/`work`). Private space never written |
 | AQ-6 | ✅ Hash check before writing, replay by ID. Hash, not `revision`, is the conflict key. Since §18.2 the merge is automatic, and B6 only appears with `Ask before merging` |
 | AQ-7 | ✅ App-private `last-good.json`, survives process death and reboots, not uninstall |

@@ -43,7 +43,8 @@ internal interface DocTree {
  * exists (a MediaStore `msd:` tree hides the dot-folder) or one that was just created (a cached listing). So:
  * - every call is serialized process-wide (SafSource instances are short-lived, so the lock is global);
  * - a fresh listing by exact display name comes first, then a document this process already created;
- * - after a create, the returned display name is checked. If the provider renamed it, the new document is deleted
+ * - after a create, the returned display name is checked (#274: a provider that can't say, null, counts as renamed
+ *   unless a fresh listing shows the new document under the exact name). If the provider renamed it, the new document is deleted
  *   (only that one, only while empty), the original is used if it's now listed, else this fails with an
  *   IOException and won't try creating that name again in this tree (see "Suppression" below).
  * Pre-existing `(N)` folders are never touched.
@@ -68,7 +69,11 @@ internal class SafDirs(private val tree: DocTree, private val treeKey: String) {
         if (key in hidden) throw hiddenError(name)
         val id = tree.create(parentDocId, mime, name) ?: throw IOException("can't create $name")
         val actual = runCatching { tree.displayName(id) }.getOrNull()
-        if (actual == null || actual == name) { made[key] = id; return id }
+        if (actual == name) { made[key] = id; return id }
+        // #274: no name (null) is unknown, not success: it's used only if a fresh listing shows it under [name].
+        // Otherwise it's handled like a rename (it may be `name (1)`), so nothing is ever written into a document
+        // whose name can't be confirmed.
+        if (actual == null) tree.list(parentDocId)[name]?.takeIf { it.docId == id }?.let { made[key] = id; return id }
         discardIfEmpty(id)
         tree.list(parentDocId)[name]?.let { made[key] = it.docId; return it.docId }
         if (hidden.add(key)) unannounced += key

@@ -57,8 +57,12 @@ class SafWritesTest {
         val s = setup(hidden = false)
         s.w.writeVerified("root", "launcher.json", json, "{}".toByteArray(), "layout")
         assertEquals("{}", s.t.text("launcher.json"))
-        assertEquals(listOf(".configlauncher", "launcher.json.tmp", "launcher.json"), s.r.asked)
+        // #274: a new sidecar temp name per save (no fixed `launcher.json.tmp`), deleted after the save.
+        assertEquals(listOf(".configlauncher", ".launcher.json.00000000.tmp", "launcher.json"), s.r.asked)
         assertEquals(listOf(".configlauncher", "launcher.json"), s.t.namesIn("root"))
+        val cl = s.t.docs.values.single { it.name == ".configlauncher" }.id
+        assertEquals(emptyList<String>(), s.t.namesIn(cl))
+        assertTrue(s.journal.list(s.key).isEmpty())
     }
 
     @Test fun suppressedFolderStagesInTheRootAndDeletesTheTemp() {
