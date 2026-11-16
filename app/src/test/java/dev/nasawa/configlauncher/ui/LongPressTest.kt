@@ -42,6 +42,70 @@ class LongPressTest {
     }
 }
 
+/**
+ * #280: the timed tile gesture. Down at t=1000; the long-press timeout is 400 ms and the drag hold half of it
+ * (200 ms). Times are plain numbers (event uptimes), never a real clock.
+ */
+class TimedLongPressTest {
+    private val o = Offset(100f, 100f)
+    private val far = Offset(120f, 100f) // 20 px: past the 8 px slop
+    private val near = Offset(104f, 103f) // 5 px: jitter under the slop
+    private fun lp(canDrag: Boolean = true) = LongPress.track(o, 8f, canDrag, downTime = 1_000, holdMs = 200, menuMs = 400)
+
+    @Test fun dragHoldIsHalfTheSystemTimeout() {
+        assertEquals(200L, LongPress.dragHoldMillis(400))   // Android 12+ default
+        assertEquals(250L, LongPress.dragHoldMillis(500))   // older default
+        assertEquals(750L, LongPress.dragHoldMillis(1_500)) // a long touch-and-hold delay stays long
+    }
+
+    @Test fun holdMayNotExceedTheTimeout() {
+        assertThrows(IllegalArgumentException::class.java) { LongPress.track(o, 8f, true, 0, holdMs = 401, menuMs = 400) }
+    }
+
+    @Test fun moveBeforeTheHoldIsASwipeNotADrag() {
+        val lp = lp()
+        assertEquals(Step.PASS, lp.next(near, pressed = true, time = 1_050))   // not ours: the pager may still take it
+        assertEquals(Step.SWIPE, lp.next(far, pressed = true, time = 1_199))
+        assertFalse(lp.dragging)
+    }
+
+    @Test fun moveAtTheHoldStartsADragBeforeTheTimeout() {
+        val lp = lp()
+        assertEquals(Step.START_DRAG, lp.next(far, pressed = true, time = 1_200))
+        assertEquals(Step.DRAG, lp.next(o, pressed = true, time = 1_250))
+        assertEquals(Step.DROP, lp.next(o, pressed = false, time = 1_300))
+    }
+
+    @Test fun jitterAfterTheHoldIsOursSoThePagerCantStealIt() {
+        val lp = lp()
+        assertEquals(Step.WAIT, lp.next(near, pressed = true, time = 1_250))
+        assertEquals(Step.START_DRAG, lp.next(far, pressed = true, time = 1_300))
+    }
+
+    @Test fun stationaryReleaseIsATapUntilTheTimeoutThenTheMenu() {
+        assertEquals(Step.TAP, lp().next(near, pressed = false, time = 1_100))
+        assertEquals("after the hold but before the timeout: still a tap", Step.TAP, lp().next(near, pressed = false, time = 1_399))
+        assertEquals(Step.MENU, lp().next(near, pressed = false, time = 1_400))
+    }
+
+    @Test fun aFlingThatLiftsInOneEventIsNotATap() {
+        assertEquals(Step.SWIPE, lp().next(far, pressed = false, time = 1_050))
+    }
+
+    @Test fun aMoveSomeoneElseConsumedBeforeTheTimeoutEndsIt() {
+        assertEquals(Step.CANCEL, lp().next(near, pressed = true, consumed = true, time = 1_100))
+        assertEquals(Step.CANCEL, lp().next(near, pressed = false, consumed = true, time = 1_500))
+    }
+
+    @Test fun nonDraggableTilesKeepTheOldTimeout() {   // folder children / drawer tiles: no drag, pager free until the timeout
+        assertEquals(Step.PASS, lp(canDrag = false).next(near, pressed = true, time = 1_300))
+        assertEquals(Step.SWIPE, lp(canDrag = false).next(far, pressed = true, time = 1_300))
+        val late = lp(canDrag = false)
+        assertEquals(Step.WAIT, late.next(far, pressed = true, time = 1_400))
+        assertEquals(Step.MENU, late.next(far, pressed = false, time = 1_500))
+    }
+}
+
 class ItemSheetModelTest {
     private val maps = InstalledApp("com.google.android.apps.maps", "com.google.android.maps.MapsActivity", "Maps")
 

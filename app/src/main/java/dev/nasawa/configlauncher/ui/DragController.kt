@@ -5,8 +5,9 @@ import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.waitForUpOrCancellation
-import androidx.compose.ui.input.pointer.PointerInputChange
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.customActions
@@ -86,6 +87,8 @@ class DragController(private val engine: () -> ConfigEngine, private val onCance
     /** §12 reduced motion (wired to [ReducedMotion.on]): the return is instant. */
     var reducedMotion: () -> Boolean = { false }
     private var returnJob: Job? = null
+    /** #281: one tick per drag start (wired by [WireDragHaptics]; a no-op until then). */
+    var haptic: () -> Unit = {}
 
     /** The lifted tile's offset from [liftedOriginInRoot] and its scale, as the [DragOverlay] draws it. */
     val visualOffset: Offset get() = if (dragged == null) Offset.Zero else offset * lift
@@ -97,6 +100,7 @@ class DragController(private val engine: () -> ConfigEngine, private val onCance
         liftedOriginInRoot = unclipped[k] ?: rect; liftedVisual = visuals[k]
         dragged = item; startRect = rect; offset = Offset.Zero; lift = 1f
         engine().dragging = true
+        haptic()
         onStart()
     }
 
@@ -189,9 +193,11 @@ class DragController(private val engine: () -> ConfigEngine, private val onCance
     }
 
     /**
-     * Tile gestures (#53, ux.md §1.1/§4.1): tap → [onClick]; hold past the long-press timeout and
-     * release without moving → [onLongClick] (item sheet); hold then move more than 8 dp → drag (when
-     * [canDrag]). A release after a long-press never fires [onClick].
+     * Tile gestures (#53, ux.md §1.1/§4.1, #280): tap → [onClick]; hold past the long-press timeout and
+     * release without moving → [onLongClick] (item sheet); hold at least [LongPress.dragHoldMillis] (half the
+     * long-press timeout) then move more than 8 dp → drag (when [canDrag]). Moving past 8 dp before that hold
+     * leaves the gesture to the pager or swipe-up. A release after a long-press never fires [onClick].
+     * Timing comes from the pointer events' own uptimes, so there is no timer.
      *
      * #228: while lifted the tile stays composed and keeps the gesture, its semantics and its hit area (the
      * #212/#214 cancel paths run from this coroutine's `finally`), but draws at alpha 0; the root
@@ -219,16 +225,8 @@ class DragController(private val engine: () -> ConfigEngine, private val onCance
             .pointerInput(item.item.id, item.app?.key, canDrag) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
-                    var up: PointerInputChange? = null
-                    var ended = false
-                    val tapPhase = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
-                        up = waitForUpOrCancellation(); ended = true
-                    }
-                    if (tapPhase != null || ended) {
-                        up?.let { it.consume(); onClick() }
-                        return@awaitEachGesture
-                    }
-                    val res = LongPress.track(down.position, 8.dp.toPx(), canDrag)
+                    val menuMs = viewConfiguration.longPressTimeoutMillis
+                    val res = LongPress.track(down.position, 8.dp.toPx(), canDrag, down.uptimeMillis, LongPress.dragHoldMillis(menuMs), menuMs)
                     var mine = false // this gesture started the drag and has not ended it yet
                     try {
                         while (true) {
@@ -236,7 +234,12 @@ class DragController(private val engine: () -> ConfigEngine, private val onCance
                             if (ch == null) { if (mine) { mine = false; cancel() }; break }
                             // #214 (5): an ACTION_CANCEL (rotate / window resize mid-drag) arrives as a lift that is already
                             // consumed. It must cancel, never drop (Compose's own waitForUpOrCancellation reads it the same way).
-                            when (res.next(ch.position, ch.pressed, ch.isConsumed)) {
+                            when (res.next(ch.position, ch.pressed, ch.isConsumed, ch.uptimeMillis)) {
+                                LongPress.Step.TAP -> { ch.consume(); onClick(); break }
+                                // Not ours yet: if the pager (or anyone after us) took this move, the gesture is theirs.
+                                LongPress.Step.PASS ->
+                                    if (awaitPointerEvent(PointerEventPass.Final).changes.firstOrNull { it.id == down.id }?.isConsumed != false) break
+                                LongPress.Step.SWIPE -> break
                                 LongPress.Step.START_DRAG -> { start(item, rects[key] ?: Rect.Zero); mine = true; move(ch.position - down.position); ch.consume() }
                                 LongPress.Step.DRAG -> { move(ch.positionChange()); ch.consume() }
                                 LongPress.Step.DROP -> { ch.consume(); mine = false; drop(); break }
@@ -297,6 +300,17 @@ fun DragOverlay(drag: DragController, modifier: Modifier = Modifier) {
     }
 }
 
+/**
+ * #281: the drag-start tick goes through Compose's [LocalHapticFeedback] as [HapticFeedbackType.LongPress]. On
+ * Android that is `View.performHapticFeedback(LONG_PRESS)` with the default flags, so the system touch-feedback
+ * setting decides whether it buzzes (it is never forced).
+ */
+@Composable
+fun WireDragHaptics(drag: DragController) {
+    val feedback = LocalHapticFeedback.current
+    drag.haptic = { feedback.performHapticFeedback(HapticFeedbackType.LongPress) }
+}
+
 /** Test tag of the [DragOverlay]'s lifted-tile node (no semantics besides the tag). */
 const val DRAG_OVERLAY_TAG = "drag-overlay"
 
@@ -309,19 +323,59 @@ private class DetachNode(var drag: DragController, var id: String, var app: Any?
     override fun onDetach() { drag.detached(id, app) }
 }
 
-/** Pure state machine for the part of a gesture after the long-press timeout (unit-tested). */
-class LongPress private constructor(private val origin: Offset, private val slop: Float, private val canDrag: Boolean) {
-    enum class Step { WAIT, START_DRAG, DRAG, DROP, MENU, CANCEL }
+/**
+ * Pure state machine for one tile gesture (unit-tested; #53, #280). Times are pointer-event uptimes in ms, so
+ * tests drive it with plain numbers and never a real clock. The decision is made when the finger first moves
+ * past [slop] from [origin]:
+ *  - before [holdMs]: [Step.SWIPE], the gesture is left to the pager or swipe-up (never a drag or a sheet);
+ *  - at or after [holdMs] (when [canDrag]): [Step.START_DRAG].
+ * A release without that move is [Step.TAP] before [menuMs] and [Step.MENU] at or after it.
+ * [track] without times starts after the long-press timeout (the pre-#280 behaviour).
+ */
+class LongPress private constructor(
+    private val origin: Offset, private val slop: Float, private val canDrag: Boolean,
+    private val downTime: Long, private val holdMs: Long, private val menuMs: Long,
+) {
+    /**
+     * [PASS]: not ours yet, leave the event unconsumed (the pager may still take it). [WAIT]: ours, consume it.
+     * [SWIPE]: moved before the hold, the gesture is someone else's; stop tracking.
+     */
+    enum class Step { PASS, WAIT, TAP, SWIPE, START_DRAG, DRAG, DROP, MENU, CANCEL }
     var dragging = false; private set
 
     /** [consumed]: a lift that someone already consumed is a pointer cancel, not a release (#214). */
-    fun next(pos: Offset, pressed: Boolean, consumed: Boolean = false): Step = when {
-        !pressed && consumed -> Step.CANCEL
-        !pressed -> if (dragging) Step.DROP else Step.MENU
-        dragging -> Step.DRAG
-        canDrag && (pos - origin).getDistance() > slop -> { dragging = true; Step.START_DRAG }
-        else -> Step.WAIT
+    fun next(pos: Offset, pressed: Boolean, consumed: Boolean = false, time: Long = downTime + menuMs): Step {
+        val t = time - downTime
+        val far = (pos - origin).getDistance() > slop
+        return when {
+            !pressed && consumed -> Step.CANCEL
+            dragging -> if (pressed) Step.DRAG else Step.DROP
+            // Before the long-press, a move someone else consumed (the pager) ends it, as Compose's tap detection does.
+            consumed && t < menuMs -> Step.CANCEL
+            !pressed -> when {
+                t >= menuMs -> Step.MENU
+                far -> Step.SWIPE // a fling that lifted in one event: not a tap
+                else -> Step.TAP
+            }
+            far && canDrag && t >= holdMs -> { dragging = true; Step.START_DRAG }
+            far && t < menuMs -> Step.SWIPE
+            (canDrag && t >= holdMs) || t >= menuMs -> Step.WAIT
+            else -> Step.PASS
+        }
     }
 
-    companion object { fun track(origin: Offset, slop: Float, canDrag: Boolean) = LongPress(origin, slop, canDrag) }
+    companion object {
+        /** #280: the hold before a move can start a drag, as a share of the system long-press timeout. */
+        const val DRAG_HOLD_FRACTION = 0.5
+        /** 200 ms at the default 400 ms timeout; longer when the user set a longer touch-and-hold delay. */
+        fun dragHoldMillis(longPressTimeoutMillis: Long): Long = (longPressTimeoutMillis * DRAG_HOLD_FRACTION).toLong()
+
+        /** After the long-press timeout (the old entry point): a move past [slop] drags, a release opens the menu. */
+        fun track(origin: Offset, slop: Float, canDrag: Boolean) = LongPress(origin, slop, canDrag, 0L, 0L, 0L)
+
+        fun track(origin: Offset, slop: Float, canDrag: Boolean, downTime: Long, holdMs: Long, menuMs: Long): LongPress {
+            require(holdMs in 0..menuMs) { "the drag hold ($holdMs) must not exceed the long-press timeout ($menuMs)" }
+            return LongPress(origin, slop, canDrag, downTime, holdMs, menuMs)
+        }
+    }
 }
