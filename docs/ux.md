@@ -750,7 +750,7 @@ Shown on first launch, before the home screen. Each step is one full screen with
   - No `AGENTS.md` in the folder: `Add agent instructions`. Writes the current version.
   - `AGENTS.md` present: `Update agent instructions` (replaces `Add agent instructions again`).
     - The file is unchanged since the app wrote it (its hash matches a shipped version): replaced silently, then the snackbar `Agent instructions updated.`
-    - The user edited it (any other content): confirm `Replace your AGENTS.md?` / `Your edits will be saved to .configlauncher/backup/.` [`Cancel`] [`Replace`]. Replace copies the old file to `.configlauncher/backup/AGENTS.<timestamp>.md`, then writes the new one.
+    - The user edited it (any other content): confirm `Replace your AGENTS.md?` / `Your edits will be saved to .configlauncher/backup/.` [`Cancel`] [`Replace`]. Replace copies the old file to `.configlauncher/backup/AGENTS.<timestamp>.md`, then writes the new one. If the backup can't be written, the file is left alone and a long toast explains why. When the storage app hides `.configlauncher`: `Can't replace AGENTS.md because the storage app hides .configlauncher. To fix it, choose the folder again from internal storage.` Any other backup failure: `Can't replace AGENTS.md: a backup of your file couldn't be kept.`
 - **App-only mode:** the setting, the action and the first-run line are hidden.
 - `AGENTS.md` is written with the same temp, verify and restore path as `launcher.json`.
 

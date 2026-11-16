@@ -149,4 +149,17 @@ class SafSuppressionTest {
         assertEquals("# agents\n", String(src.readRoot("AGENTS.md", 1000)!!))
         assertEquals(listOf(".configlauncher", "AGENTS.md", "launcher.json"), t.namesIn("root"))
     }
+
+    // #262: ⋮ Update → Replace needs a backup in .configlauncher/backup/. When that folder is hidden, nothing
+    // is written (no backup, no overwrite) and the outcome is FAILED_HIDDEN so the UI can show why.
+    @Test fun replaceOfEditedAgentsLeavesTheFileWhenConfiglauncherIsHidden() {
+        val (t, _) = hiddenTree(); val src = TreeSource(t, key())
+        val id = t.add("root", "AGENTS.md", "application/octet-stream")
+        t.write(id, "my edits".toByteArray())
+        val now = 1_792_000_000_000L
+        assertEquals(AgentDocs.Update.FAILED_HIDDEN, AgentDocs.update(src, "# new\n".toByteArray(), confirmed = true, nowMillis = now))
+        assertEquals("my edits", String(src.readRoot("AGENTS.md", 1000)!!))
+        assertFalse("no (N) copies", t.namesIn("root").any { "(" in it })
+        assertEquals(Msg(R.string.agent_docs_replace_hidden), AgentDocs.Update.FAILED_HIDDEN.message())
+    }
 }
