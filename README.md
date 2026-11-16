@@ -299,7 +299,7 @@ the [1.0 release notes](docs/release-notes/v1.0.0.md) and in `release-cert.sha25
 apksigner verify --print-certs reflow-launcher-1.0.0.apk | grep "SHA-256"
 ```
 
-Release certificate SHA-256: *not yet generated; it's added here and to `release-cert.sha256` before `v1.0.0-rc1`.*
+Release certificate SHA-256: `7F:EF:63:96:CE:83:42:A5:EB:8C:BF:41:B1:EA:47:44:0F:BB:D5:9A:3D:EC:45:17:07:EC:74:04:D1:D1:4B:B4`
 
 Debug and release builds are signed by different keys, so neither installs over the other. Moving from a dev build to
 the first release candidate takes one reinstall (the [1.0 release notes](docs/release-notes/v1.0.0.md) give the steps); after that, release builds update in
