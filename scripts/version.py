@@ -14,6 +14,10 @@ Run from the repo root:
   python3 scripts/version.py --tag v1.0.0-rc1
   python3 scripts/version.py --from-git
   python3 scripts/version.py --check-apk path/to/app.apk
+  python3 scripts/version.py --check-apk path/to/app.apk --expect-tag v1.0.0-rc1
+
+--expect-tag compares the APK with that tag directly (CI passes github.ref_name on tag
+jobs), so an APK stamped as an untagged build fails even if resolve() would agree with it.
 """
 from __future__ import annotations
 
@@ -36,7 +40,10 @@ DEV_MAX = 49
 RC_MAX = 48
 MINOR_MAX = 99
 PATCH_MAX = 99
-MAJOR_MAX = 2147  # signed 32-bit versionCode
+# Google Play's largest allowed versionCode. It's also below int32 max (2147483647), so Gradle's
+# toInt() can't overflow. MAJOR_MAX is the largest major whose highest code (MAJOR.99.99) fits under it.
+VERSION_CODE_MAX = 2_100_000_000
+MAJOR_MAX = 2099
 
 # vMAJOR.MINOR.PATCH, optional -devN or -rcN. No leading zeros.
 TAG_RE = re.compile(
@@ -84,6 +91,8 @@ def parse_tag(tag: str) -> tuple[str, int]:
             raise VersionError(f"rc number {pre_n} is too large (max {RC_MAX})")
         suffix = RC_BASE + pre_n
     code = major * 1_000_000 + minor * 10_000 + patch * 100 + suffix
+    if code > VERSION_CODE_MAX:  # unreachable while MAJOR_MAX holds; kept as a guard
+        raise VersionError(f"versionCode {code} is above Google Play's max {VERSION_CODE_MAX}")
     name = raw[1:]  # strip the leading v
     return name, code
 
@@ -239,17 +248,37 @@ def check_apk(apk: Path, repo: Path | None = None, env: dict[str, str] | None = 
     return actual_name, actual_code
 
 
+def check_apk_against_tag(apk: Path, tag: str) -> tuple[str, int]:
+    """Require the APK to carry exactly this tag's version. Doesn't look at git or the env."""
+    expected_name, expected_code = parse_tag(normalize_tag(tag))
+    actual_name, actual_code = apk_version(apk)
+    if actual_name != expected_name or actual_code != expected_code:
+        raise VersionError(
+            f"APK version {actual_name} ({actual_code}) does not match "
+            f"the tag {normalize_tag(tag)}: {expected_name} ({expected_code})"
+        )
+    return actual_name, actual_code
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__)
     src = p.add_mutually_exclusive_group()
     src.add_argument("--tag", help="parse this tag (with or without the leading v)")
     src.add_argument("--from-git", action="store_true", help="resolve from env and git (default)")
     p.add_argument("--check-apk", metavar="APK", help="require this APK to match the resolved version")
+    p.add_argument("--expect-tag", metavar="TAG",
+                   help="with --check-apk: compare with this tag directly instead of resolving")
     p.add_argument("--repo", default=str(ROOT), help="repo root for git lookups")
     args = p.parse_args(argv)
     repo = Path(args.repo)
     try:
-        if args.check_apk:
+        if args.expect_tag is not None and not args.check_apk:
+            raise VersionError("--expect-tag needs --check-apk")
+        if args.check_apk and args.expect_tag is not None:
+            if not args.expect_tag.strip():
+                raise VersionError("--expect-tag is empty")
+            name, code = check_apk_against_tag(Path(args.check_apk), args.expect_tag)
+        elif args.check_apk:
             name, code = check_apk(Path(args.check_apk), repo)
         elif args.tag is not None:
             name, code = parse_tag(normalize_tag(args.tag))
