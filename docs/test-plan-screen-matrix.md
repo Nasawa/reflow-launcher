@@ -161,7 +161,7 @@ lands. Under `dev8` they block. F1 (crashes/ANRs) always blocks.
   that seeds `launcher.json`, phones included. It's gated exactly like L*: advisory under dev7, blocking under
   dev8, and advisory at font 2.0. See §4.2.
 - **Edge drag-and-drop.** Every debug prerelease (dev8 onward) needs a scripted CI pass
-  (`probes=edge-only`; software rendering is fine there). The hands-on pass on a stable host (a hardware-accelerated
+  (`probes=edge`, which runs in the dnd shard only, see §5; software rendering is fine there). The hands-on pass on a stable host (a hardware-accelerated
   emulator or a real device) is **optional for debug prereleases and blocking for v1.0** (Christopher's decision, 2026-11-02).
   The hands-on pass covers what CI can't: drag feel, touch slop, long-press timing, the dragged tile and its spring-back near
   edges, a real hinge, and OEM edge-gesture zones. Software rendering hits SystemUI ANRs that limited the #194 review,
@@ -282,9 +282,19 @@ side nav/cutout is not a layout bias (#197).
        points get their verdict in the tablets shard. The tablets shard then runs without the probe. Before this
        split the probe ran inside tablets and outran 60 min, so PR #246 had raised that shard to 90 min.
      - Phone DnD points (phone-land, p411, rtl-phone-*) still run the probe inline in the phones shard.
+     - `probes=edge` (#243) adds the dnd shard whatever `shards` says and gives it `MATRIX_PROBES=edge-only`: the
+       edge drag-and-drop pass (§4) on one point per form factor, p411-a51-v1, rtl-phone-port-v1, t10-port-v1 and
+       fold-open-v1 (`EDGE_POINTS`, taken from any points.tsv shard), base rotation only. It never runs inline in
+       another shard. With it the dnd shard's panel is 2208x2560 so fold-open fits. Each point is probe-only
+       (`probe_only=edge`); `scripts/screen_matrix_drop.py score` writes `edge-score.json` / `.md`: an edge or corner
+       cell drop must commit to that cell, a gutter drop must be refused, an outer drop (2 dp from the window edge)
+       must commit to the edge column or be refused, and no case may crash, ANR, lose or duplicate the tile, or move
+       another item. `EDGE_BUDGET_S` (default 2700 s) stops starting cases near the 60 min timeout; skipped cases
+       score n/a.
   4. `summary` merges `result.json` into the job summary and fails if any point isn't PASS. Probe-only points
-     (`probe_only=dnd` in `meta.txt`) are listed in their own advisory table with the probe's PASS / FAIL / n/a
-     tally and never count toward the verdict.
+     (`probe_only=dnd` / `edge` in `meta.txt`) are listed in their own advisory table with the probe's PASS / FAIL /
+     n/a tally and never count toward the verdict. A probe-only row with no results says **NO RESULTS**, and the
+     table opens with how many there are.
 - **Estimate** (KVM; made before run 1, kept for comparison):
   - Each shard spends ~5 min on runner setup, image download and boot, then ~2.5 min per point.
   - small-a ≈ 20 min, small-b ≈ 20, phones ≈ 23, tablets ≈ 25, fold ≈ 15.

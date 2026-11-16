@@ -15,6 +15,13 @@ The live DnD probe (`dnd`, #187) used to run inside the tablets shard and pushed
 tablet DnD points without re-running F3-F7 or the checker, and the tablets shard no longer runs the probe. Phone
 DnD points stay in the phones shard (it has headroom). The dnd shard is added whenever `dnd` is in <probes> and
 the tablets shard is selected, or when it is asked for by name.
+
+The dev8 edge drag-and-drop pass (`edge` in <probes>, #243) runs in the dnd shard only, never inline: the dnd shard
+gets `edge-only`, which runs edge_probe on one point per form factor (EDGE_POINTS in screen-matrix.sh: p411-a51,
+rtl-phone-port, t10-port, fold-open) whatever their points.tsv shard, probe-only, so its tally lands in the
+summary's advisory table. `edge` adds the dnd shard whatever <shards> says (`dnd-only` still only with `dnd` and
+tablets, or the dnd shard by name), and every other shard drops it. With edge-only the dnd shard's panel is
+EDGE_SKIN, wide enough for fold-open (2208 px) and tall enough for t10 (2560 px), since Android clamps `wm size`.
 """
 from __future__ import annotations
 
@@ -32,6 +39,7 @@ SHARDS = [
     {"shard": "fold", "rows": "fold", "api": 36, "target": "google_apis", "arch": "x86_64", "skin": "2208x2400"},
 ]
 NAMES = [s["shard"] for s in SHARDS]
+EDGE_SKIN = "2208x2560"
 
 
 def split(s):
@@ -45,21 +53,26 @@ def plan(shards, probes):
         raise SystemExit(f"unknown shard(s) {unknown}; known: {', '.join(NAMES)} or all")
     pr = split(probes)
     dnd = "dnd" in pr
-    rest = [p for p in pr if p != "dnd"]
+    edge = "edge" in pr
+    inline = [p for p in pr if p != "edge"]  # the edge pass never runs inline
+    rest = [p for p in inline if p != "dnd"]
     inc = []
     for s in SHARDS:
         name = s["shard"]
         if name == "dnd":
-            # by name, or implied by probes=dnd with the tablets shard in the run
-            if not ("dnd" in want or (dnd and ("all" in want or "tablets" in want))):
+            # dnd-only: by name, or implied by probes=dnd with the tablets shard in the run
+            dnd_only = "dnd" in want or (dnd and ("all" in want or "tablets" in want))
+            if not (dnd_only or edge):
                 continue
-            p = ["dnd-only"]
+            p = (["dnd-only"] if dnd_only else []) + (["edge-only"] if edge else [])
+            e = dict(s, skin=EDGE_SKIN) if edge else s
         else:
             if "all" not in want and name not in want:
                 continue
             # tablets hands its DnD points to the dnd shard; every other shard keeps the probe inline
-            p = rest if name == "tablets" else pr
-        inc.append(dict(s, probes=",".join(p)))
+            p = rest if name == "tablets" else inline
+            e = s
+        inc.append(dict(e, probes=",".join(p)))
     if not inc:
         raise SystemExit(f"no shard matches {sorted(want)}")
     return {"include": inc}

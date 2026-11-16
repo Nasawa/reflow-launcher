@@ -4,6 +4,7 @@ screen_matrix_check.py summarize. Run from repo root: python3 scripts/test_scree
 """
 from __future__ import annotations
 
+import gc
 import io
 import json
 import os
@@ -12,6 +13,7 @@ import re
 import sys
 import tempfile
 import unittest
+import warnings
 from contextlib import redirect_stdout
 
 HERE = pathlib.Path(__file__).resolve().parent
@@ -96,6 +98,67 @@ class Plan(unittest.TestCase):
         self.assertGreaterEqual(len(hits), 2, hits)
 
 
+class EdgePlan(unittest.TestCase):
+    """probes=edge (#243): the edge pass runs in the dnd shard only, edge-only, on a panel that fits every point."""
+
+    sh = (HERE / "screen-matrix.sh").read_text()
+    tsv = [l.split("\t") for l in (HERE / "screen-matrix" / "points.tsv").read_text().splitlines()
+           if l and not l.startswith("#")]
+
+    def edge_ids(self):
+        rx = re.search(r"EDGE_POINTS=\$\{EDGE_POINTS:-'([^']+)'\}", self.sh).group(1)
+        return [r for r in self.tsv if re.search(rx, r[0])]
+
+    def test_edge_goes_to_dnd_shard_only(self):
+        m = by_name(sp.plan("all", "edge"))
+        self.assertEqual(m["dnd"]["probes"], "edge-only")
+        for n, e in m.items():
+            if n != "dnd":
+                self.assertNotIn("edge", e["probes"], n)
+
+    def test_edge_with_dnd_keeps_both_in_dnd_and_dnd_inline_on_phones(self):
+        m = by_name(sp.plan("all", "dnd,edge"))
+        self.assertEqual(m["dnd"]["probes"], "dnd-only,edge-only")
+        self.assertEqual(m["phones"]["probes"], "dnd")
+        self.assertEqual(m["tablets"]["probes"], "")
+
+    def test_edge_adds_dnd_shard_whatever_the_shards(self):
+        m = by_name(sp.plan("phones", "edge"))
+        self.assertEqual(sorted(m), ["dnd", "phones"])
+        self.assertEqual(m["phones"]["probes"], "")
+        self.assertEqual(m["dnd"]["probes"], "edge-only")  # no dnd-only: dnd was not asked for
+
+    def test_dnd_by_name_with_edge(self):
+        m = by_name(sp.plan("dnd", "edge"))
+        self.assertEqual(sorted(m), ["dnd"])
+        self.assertEqual(m["dnd"]["probes"], "dnd-only,edge-only")
+
+    def test_no_edge_keeps_tablets_panel(self):
+        self.assertEqual(by_name(sp.plan("dnd", ""))["dnd"]["skin"], by_name(sp.plan("tablets", ""))["tablets"]["skin"])
+
+    def test_edge_panel_fits_every_edge_point(self):
+        w, h = map(int, by_name(sp.plan("all", "edge"))["dnd"]["skin"].split("x"))
+        for r in self.edge_ids():
+            pw, ph = map(int, r[2].split("x"))
+            self.assertLessEqual((pw, ph), (w, h), r[0])
+            self.assertLessEqual(ph, h, r[0])
+
+    def test_one_point_per_form_factor(self):
+        ids = sorted(r[0] for r in self.edge_ids())
+        self.assertEqual(ids, ["fold-open-v1", "p411-a51-v1", "rtl-phone-port-v1", "t10-port-v1"])
+        self.assertTrue(all(r[7] == "launcher.json" for r in self.edge_ids()))
+
+    def test_no_flip_by_default(self):
+        self.assertIn("EDGE_FLIP_RE=${EDGE_FLIP_RE:-'^$'}", self.sh)
+
+    def test_edge_only_rows_ignore_the_shard_filter_but_dnd_only_keeps_it(self):
+        body = re.search(r"probe_only_for\(\) \{\n(.*?)\n\}", self.sh, re.S).group(1)
+        dnd_line = next(l for l in body.splitlines() if "dnd-only" in l)
+        edge_line = next(l for l in body.splitlines() if "edge-only" in l)
+        self.assertIn('"$2" = "$SHARD"', dnd_line)
+        self.assertNotIn("SHARD", edge_line)
+
+
 class WorkflowWiring(unittest.TestCase):
     """screen-matrix.yml must use the plan script and the per-entry rows / probes (no inline shard list)."""
 
@@ -114,14 +177,20 @@ class WorkflowWiring(unittest.TestCase):
     def test_timeout_back_to_60(self):
         self.assertEqual(re.findall(r"timeout-minutes: *(\S+)", self.yml), ["60"])
 
+    def test_plan_checkout_pinned_like_ci(self):
+        ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
+        pin = re.search(r"actions/checkout@([0-9a-f]{40})", ci).group(1)
+        plan_job = self.yml.split("\n  plan:\n", 1)[1].split("\n  build:\n", 1)[0]
+        self.assertIn(f"actions/checkout@{pin}", plan_job)
+
 
 class SummarizeProbeOnly(unittest.TestCase):
-    def _point(self, root, name, meta, result=None, dnd=None):
+    def _point(self, root, name, meta, result=None, dnd=None, edge=None):
         d = os.path.join(root, name)
         os.makedirs(d)
         with open(os.path.join(d, "meta.txt"), "w") as f:
             f.write(meta)
-        for fn, obj in (("result.json", result), ("dnd.json", dnd)):
+        for fn, obj in (("result.json", result), ("dnd.json", dnd), ("edge-score.json", edge)):
             if obj is not None:
                 with open(os.path.join(d, fn), "w") as f:
                     json.dump(obj, f)
@@ -154,6 +223,46 @@ class SummarizeProbeOnly(unittest.TestCase):
             self.assertEqual(rc, 0)
             self.assertIn("no dnd.json", md)
             self.assertNotIn("ERROR", md)
+            # advisory (exit 0) but visible: flagged in the row and counted above the table
+            self.assertIn("**NO RESULTS**", md)
+            self.assertIn("**1 of 1 probe-only rows have no results**", md)
+
+    def test_edge_point_reads_edge_score_json(self):
+        with tempfile.TemporaryDirectory() as t:
+            self._point(t, "dnd-fold-open-v1", "id=fold-open-v1\nprobe_only=edge\n",
+                        edge={"results": [{"id": "base-corner-c0r0", "ok": True}, {"id": "base-gutter-L", "ok": False}]})
+            rc, md = self._run(t)
+            self.assertEqual(rc, 0)
+            self.assertIn("| dnd-fold-open-v1 | edge | 1 PASS, 1 FAIL, 0 n/a (base-gutter-L) |", md)
+            self.assertNotIn("have no results", md)
+
+    def test_dnd_and_edge_on_one_point_get_a_row_each(self):
+        with tempfile.TemporaryDirectory() as t:
+            self._point(t, "dnd-x", "probe_only=dnd,edge\n", dnd={"results": [{"id": "grid", "ok": True}]})
+            rc, md = self._run(t)
+            self.assertEqual(rc, 0)
+            self.assertIn("## Probe-only points (2", md)
+            self.assertIn("| dnd-x | dnd | 1 PASS, 0 FAIL, 0 n/a |", md)
+            self.assertIn("| dnd-x | edge | **NO RESULTS**: no edge-score.json", md)
+            self.assertIn("**1 of 2 probe-only rows have no results**", md)
+
+    def test_empty_results_count_as_no_results(self):
+        with tempfile.TemporaryDirectory() as t:
+            self._point(t, "dnd-y", "probe_only=edge\n", edge={"results": []})
+            _, md = self._run(t)
+            self.assertIn("edge-score.json has no cases", md)
+
+    def test_summarize_closes_its_files(self):
+        with tempfile.TemporaryDirectory() as t:
+            self._point(t, "tablets-t7-land-v1", "id=t7-land-v1\n",
+                        {"point": "t7-land-v1", "verdict": "PASS", "checks": []})
+            self._point(t, "dnd-t7-land-v1", "probe_only=dnd\n", dnd={"results": []})
+            with warnings.catch_warnings(record=True) as w:
+                warnings.simplefilter("always", ResourceWarning)
+                with redirect_stdout(io.StringIO()):
+                    c.cmd_summarize(t)
+                gc.collect()
+            self.assertEqual([str(x.message) for x in w if issubclass(x.category, ResourceWarning)], [])
 
     def test_regular_point_without_result_still_errors(self):
         with tempfile.TemporaryDirectory() as t:

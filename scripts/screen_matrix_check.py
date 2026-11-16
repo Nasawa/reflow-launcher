@@ -402,7 +402,8 @@ def cmd_find_empty(path, density):
 # ---------------------------------------------------------------- the checks
 def read(path, default=''):
     try:
-        return open(path, encoding='utf-8', errors='replace').read()
+        with open(path, encoding='utf-8', errors='replace') as f:
+            return f.read()
     except OSError:
         return default
 
@@ -1796,13 +1797,22 @@ def cmd_check(d):
     return 0
 
 
+# Probe-only results file per probe: dnd.json (screen_matrix_dnd.py score), edge-score.json (screen_matrix_drop.py
+# score; the edge.json name is the fixture's).
+PROBE_RESULTS = {'edge': 'edge-score.json'}
+NO_RESULTS = 'NO RESULTS'
+
+
 def probe_tally(d, probe):
-    """`<probe>.json` results (screen_matrix_dnd.py score) as 'N PASS, N FAIL, N n/a', or why there are none."""
+    """A probe's results file as 'N PASS, N FAIL, N n/a', or NO_RESULTS and why there are none."""
+    fn = PROBE_RESULTS.get(probe, f'{probe}.json')
     try:
-        with open(os.path.join(d, f'{probe}.json')) as f:
+        with open(os.path.join(d, fn)) as f:
             res = json.load(f)['results']
     except (OSError, ValueError, KeyError, TypeError):
-        return f'no {probe}.json (probe did not run or was not scored; see run.txt)'
+        return f'**{NO_RESULTS}**: no {fn} (probe did not run or was not scored; see run.txt)'
+    if not res:
+        return f'**{NO_RESULTS}**: {fn} has no cases (see run.txt)'
     n = {True: 0, False: 0, None: 0}
     for r in res:
         n[r.get('ok')] = n.get(r.get('ok'), 0) + 1
@@ -1818,15 +1828,18 @@ def cmd_summarize(out):
             continue
         po = meta_of(os.path.join(out, name)).get('probe_only')
         if po:
-            # Probe-only point (CI dnd shard, MATRIX_PROBES=dnd-only): no checker by design, and its F*/L* verdict
-            # comes from the same point in its own shard. Listed apart, advisory, never counted as a verdict row.
-            probes.append(f"| {name} | {po} | {probe_tally(os.path.join(out, name), po)} |")
+            # Probe-only point (CI dnd shard, MATRIX_PROBES=dnd-only / edge-only): no checker by design, and its F*/L*
+            # verdict comes from the same point in its own shard. Listed apart, advisory, never counted as a verdict
+            # row; one row per probe (probe_only=dnd,edge).
+            for pr in [x for x in po.split(',') if x]:
+                probes.append(f"| {name} | {pr} | {probe_tally(os.path.join(out, name), pr)} |")
             continue
         if not os.path.exists(p):
             bad += 1
             rows.append(f'| {name} | ERROR | checker did not produce result.json | - | - |')
             continue
-        r = json.load(open(p))
+        with open(p) as fh:
+            r = json.load(fh)
         f = [c['id'] for c in r['checks'] if c['status'] == 'FAIL' and c['severity'] == 'block']
         a = [c['id'] for c in r['checks'] if c['status'] == 'FAIL' and c['severity'] != 'block']
         k = [c['id'] for c in r['checks'] if c['status'] == 'SKIP' and c['severity'] == 'block']
@@ -1835,9 +1848,15 @@ def cmd_summarize(out):
     md = ['# Screen matrix summary', '', f'{len(rows)} points, {bad} not PASS (FAIL = a blocking check failed; INCOMPLETE = a blocking check could not run).', '',
           '| point | verdict | blocking fails | advisory/pending fails | blocking checks not run |', '|---|---|---|---|---|'] + rows
     if probes:
-        md += ['', f'## Probe-only points ({len(probes)}, advisory; see each point\'s probe report)', '',
-               '| point | probe | report |', '|---|---|---|'] + probes
-    open(os.path.join(out, 'summary.md'), 'w').write('\n'.join(md) + '\n')
+        md += ['', f'## Probe-only points ({len(probes)}, advisory; see each point\'s probe report)', '']
+        missing = sum(NO_RESULTS in r for r in probes)
+        if missing:
+            # advisory, so not a failing exit, but it must not read as a quiet pass
+            md += [f'**{missing} of {len(probes)} probe-only rows have no results** (the probe did not run or was '
+                   'not scored); the exit code does not count them.', '']
+        md += ['| point | probe | report |', '|---|---|---|'] + probes
+    with open(os.path.join(out, 'summary.md'), 'w') as f:
+        f.write('\n'.join(md) + '\n')
     print('\n'.join(md))
     return 1 if bad or not (rows or probes) else 0
 

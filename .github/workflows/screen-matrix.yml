@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       shards:
-        description: 'Shards, comma-separated: small-a,small-b,phones,tablets,dnd,fold (or all). dnd = the live DnD probe on the tablet points; probes=dnd adds it.'
+        description: 'Shards, comma-separated: small-a,small-b,phones,tablets,dnd,fold (or all). dnd = the live DnD probe on the tablet points; probes=dnd adds it, probes=edge always adds it.'
         default: all
         type: string
       points:
@@ -20,7 +20,7 @@ on:
         type: choice
         options: [dev7, dev8]
       probes:
-        description: 'Extra live probes, comma-separated (dnd = scripted drag-and-drop + pager direction, #187; on tablets it runs in its own dnd shard). Empty = none.'
+        description: 'Extra live probes, comma-separated (dnd = scripted drag-and-drop + pager direction, #187; on tablets it runs in its own dnd shard. edge = dev8 edge drag-and-drop pass, #243; dnd shard only, advisory). Empty = none.'
         default: ''
         type: string
   push:
@@ -39,7 +39,7 @@ jobs:
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - id: plan
         env:
           SHARDS: ${{ inputs.shards || 'all' }}
