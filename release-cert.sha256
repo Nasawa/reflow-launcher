@@ -3,3 +3,4 @@
 # One line, 64 hex digits (colons optional). Empty until the release key exists: after generating it, put
 # the "SHA-256 digest" from `keytool -list -v -keystore reflow-release.p12 -alias reflow` (or from
 # `apksigner verify --print-certs` on a signed APK) on the next line. See README "Release builds: signing key".
+7F:EF:63:96:CE:83:42:A5:EB:8C:BF:41:B1:EA:47:44:0F:BB:D5:9A:3D:EC:45:17:07:EC:74:04:D1:D1:4B:B4
