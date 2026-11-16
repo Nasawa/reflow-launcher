@@ -31,6 +31,7 @@ class KeptTempNoticeTest {
     @get:Rule val tmp = TemporaryFolder()
 
     private val restoreFailed = "Couldn't finish saving launcher.json after the app was stopped: the new version is kept in .launcher.json.696580f1.tmp. Copy it over launcher.json to keep your last edit."
+    private val agentsKept = "Couldn't finish saving AGENTS.md after the app was stopped: the new version is kept in .AGENTS.md.3d4068d8.tmp. Copy it over AGENTS.md to keep your last edit."
     private val valid = """{"schemaVersion":1,"pages":[{"id":"home","items":[]}]}"""
 
     /** msd:12: the sweep's kept-temp lines, and a `.configlauncher` that can't be written (no status.json). */
@@ -61,11 +62,10 @@ class KeptTempNoticeTest {
     @Test fun withNoBannerTheLineIsInTheWarningsListInstead() = runBlocking {
         // An AGENTS.md temp kept while launcher.json is fine: no banner, so the Warnings list (shown then) names it.
         val dir = tmp.newFolder(); val src = LocalFileSource(dir); src.file.writeText(valid)
-        val agents = "Couldn't finish saving AGENTS.md after the app was stopped: the new version is kept in .AGENTS.md.3d4068d8.tmp. Copy it over AGENTS.md to keep your last edit."
-        val e = ConfigEngine(Msd(src, listOf(agents)), LastGoodStore(tmp.newFolder()), 0)
+        val e = ConfigEngine(Msd(src, listOf(agentsKept)), LastGoodStore(tmp.newFolder()), 0, clock = { 0L })
         e.poll(force = true)
         assertNull(e.state.value.issue)
-        assertTrue(e.warnings.value.toString(), agents in e.warnings.value)
+        assertTrue(e.warnings.value.toString(), agentsKept in e.warnings.value)
         assertEquals("not shown twice", emptyList<String>(), BannerNotes.keptTemps(null, e.keptTemps.value))
     }
 
@@ -83,6 +83,41 @@ class KeptTempNoticeTest {
         rule.onNodeWithText("▲ $restoreFailed").assertIsDisplayed()
         // Only the first detail line while folded; the kept-temp line isn't one of them.
         assertEquals(0, rule.onAllNodesWithText("• second problem").fetchSemanticsNodes().size)
+    }
+
+    /** #263 review (G5): a 2-temp case. Both ▲ lines must render while the details stay folded. */
+    @Test fun theBannerShowsBothKeptTempsWithoutOpeningTheDetails() {
+        val issue = Issue.ParseError(listOf("unexpected end of input", "second problem"))
+        val kept = listOf(restoreFailed, agentsKept)
+        assertEquals(kept, BannerNotes.keptTemps(issue, kept))
+        rule.setContent {
+            IssueBanner(issue, reconnectable = true, kept = kept, locate = { l -> l.map { null } },
+                onReconnect = {}, onCreate = {}, onUseAppStorage = {}, onRetry = {})
+        }
+        rule.onNodeWithText("Can't read launcher.json. Showing the last working layout.").assertIsDisplayed()
+        rule.onNodeWithText("▲ $restoreFailed").assertIsDisplayed()
+        rule.onNodeWithText("▲ $agentsKept").assertIsDisplayed()
+        assertEquals(0, rule.onAllNodesWithText("• second problem").fetchSemanticsNodes().size)
+    }
+
+    /**
+     * #263 review (G7): emitStatus refreshes the kept-temp list. setTitleBarFit calls emitStatus only,
+     * not the entry-point publishSuppression refresh that other tests already cover.
+     */
+    @Test fun emitStatusRefreshesTheKeptTempList() = runBlocking {
+        val dir = tmp.newFolder(); val src = LocalFileSource(dir); src.file.writeText(valid)
+        val msd = Msd(src, emptyList())
+        val e = ConfigEngine(msd, LastGoodStore(tmp.newFolder()), 0, clock = { 0L })
+        e.poll(force = true)
+        assertEquals(emptyList<String>(), e.keptTemps.value)
+
+        msd.kept = listOf(restoreFailed)
+        e.setTitleBarFit("the title needs more than one line")
+        assertEquals(listOf(restoreFailed), e.keptTemps.value)
+
+        msd.kept = emptyList()
+        e.setTitleBarFit(null)
+        assertEquals(emptyList<String>(), e.keptTemps.value)
     }
 
     @Test fun noKeptTempNoExtraLine() {
