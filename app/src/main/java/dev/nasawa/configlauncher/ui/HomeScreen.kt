@@ -208,10 +208,13 @@ fun HomeScreen(vm: HomeViewModel) {
     LaunchedEffect(menuOpen) { if (menuOpen) agentAction = withContext(Dispatchers.IO) { vm.store.agentDocsMenuAction() } }
     val runAgentUpdate = { confirmed: Boolean ->
         scope.launch {
-            when (withContext(Dispatchers.IO) { vm.store.updateAgentDocs(confirmed) }) {
+            when (val o = withContext(Dispatchers.IO) { vm.store.updateAgentDocs(confirmed) }) {
                 AgentDocs.Update.UPDATED -> agentSnack = true
                 AgentDocs.Update.NEEDS_CONFIRM -> agentConfirm = true
-                else -> Unit
+                AgentDocs.Update.ADDED -> Unit
+                // #262: Replace used to swallow FAILED; the toast says why and (for a hidden folder) how to fix it.
+                AgentDocs.Update.FAILED, AgentDocs.Update.FAILED_HIDDEN ->
+                    Toast.makeText(ctx, o.message()!!.resolve(res), Toast.LENGTH_LONG).show()
             }
         }
         Unit

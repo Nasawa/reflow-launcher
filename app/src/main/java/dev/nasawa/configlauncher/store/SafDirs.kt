@@ -9,6 +9,14 @@ internal data class DocChild(val docId: String, val mime: String, val modified: 
 /** A document's own type and size, queried on its document URI (not through a listing, which may hide it). */
 internal data class DocInfo(val mime: String, val size: Long)
 
+/**
+ * #251 / #262: a SAF create was suppressed because the provider hides [name] (typically `.configlauncher`).
+ * The existing document is left alone. Callers that need a backup must not overwrite the original.
+ */
+class FolderHiddenException(val name: String, actual: String? = null) : IOException(
+    "this folder has a $name the storage provider doesn't show" + (actual?.let { " (it made \"$it\" instead)" } ?: "") +
+        "; pick the folder again from internal storage")
+
 /** The few SAF document operations [SafDirs] needs. [SafSource] backs it with DocumentsContract; tests use a fake. */
 internal interface DocTree {
     /** A fresh listing of [parentDocId], by display name. */
@@ -89,9 +97,7 @@ internal class SafDirs(private val tree: DocTree, private val treeKey: String) {
         tree.create(parentDocId, mime, name) ?: throw IOException("can't create $name")
     }
 
-    private fun hiddenError(name: String, actual: String? = null) = IOException(
-        "this folder has a $name the storage provider doesn't show" + (actual?.let { " (it made \"$it\" instead)" } ?: "") +
-            "; pick the folder again from internal storage")
+    private fun hiddenError(name: String, actual: String? = null) = FolderHiddenException(name, actual)
 
     /** Names suppressed in this tree right now (for the Warnings list and status.json). */
     fun suppressed(): List<String> = synchronized(lock) { hidden.filter { it.startsWith(prefix) }.map(::nameOf).sorted() }

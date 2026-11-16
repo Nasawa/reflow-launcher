@@ -1,5 +1,6 @@
 package dev.nasawa.configlauncher.store
 
+import dev.nasawa.configlauncher.R
 import dev.nasawa.configlauncher.config.ConfigCodec
 
 /**
@@ -52,7 +53,15 @@ object AgentDocs {
     enum class MenuAction { ADD, UPDATE }
     fun menuAction(existing: ByteArray?) = if (existing == null) MenuAction.ADD else MenuAction.UPDATE
 
-    enum class Update { ADDED, UPDATED, NEEDS_CONFIRM, FAILED }
+    enum class Update {
+        ADDED, UPDATED, NEEDS_CONFIRM, FAILED, FAILED_HIDDEN;
+        /** User-facing reason when the update didn't happen; null when there's nothing to show. */
+        fun message(): Msg? = when (this) {
+            FAILED_HIDDEN -> Msg(R.string.agent_docs_replace_hidden)
+            FAILED -> Msg(R.string.agent_docs_replace_failed)
+            else -> null
+        }
+    }
 
     /** Backup name under `.configlauncher/backup/`, e.g. `AGENTS.20261018-235300.md`. */
     fun backupName(nowMillis: Long): String =
@@ -61,7 +70,9 @@ object AgentDocs {
     /**
      * The menu action. No file → write. An untouched file (same bytes or a shipped hash) → replace silently (UPDATED,
      * caller shows `Agent instructions updated.`). An edited file → NEEDS_CONFIRM unless [confirmed]; confirmed copies
-     * it to `.configlauncher/backup/<backupName>` first, and writes nothing if that backup fails.
+     * it to `.configlauncher/backup/<backupName>` first, and writes nothing if that backup fails
+     * ([FAILED_HIDDEN] when the storage app hides `.configlauncher`, otherwise [FAILED]). The caller shows
+     * [Update.message].
      */
     fun update(src: ConfigSource, bundled: ByteArray, confirmed: Boolean, nowMillis: Long = System.currentTimeMillis()): Update = try {
         val existing = src.readRoot(NAME, MAX_BYTES)
@@ -71,7 +82,14 @@ object AgentDocs {
                 if (!existing.contentEquals(bundled)) src.writeRoot(NAME, bundled); Update.UPDATED
             }
             !confirmed -> Update.NEEDS_CONFIRM
-            else -> { src.writeSidecar("backup", backupName(nowMillis), existing); src.writeRoot(NAME, bundled); Update.UPDATED }
+            else -> {
+                // No backup, no overwrite: a failed copy must not reach writeRoot.
+                try { src.writeSidecar("backup", backupName(nowMillis), existing) }
+                catch (e: FolderHiddenException) { return@update Update.FAILED_HIDDEN }
+                catch (e: Exception) { return@update Update.FAILED }
+                src.writeRoot(NAME, bundled)
+                Update.UPDATED
+            }
         }
     } catch (e: Exception) { Update.FAILED }
 

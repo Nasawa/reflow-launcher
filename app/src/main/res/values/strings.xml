@@ -220,6 +220,9 @@
     <string name="agent_docs_replace_title">Replace your AGENTS.md?</string>
     <string name="agent_docs_replace_body">Your edits will be saved to .configlauncher/backup/.</string>
     <string name="agent_docs_replace">Replace</string>
+    <!-- #262: Update -> Replace when the backup can't be written. The file is left alone. Pragma copy review. -->
+    <string name="agent_docs_replace_hidden">Can\'t replace AGENTS.md because the storage app hides .configlauncher. To fix it, choose the folder again from internal storage.</string>
+    <string name="agent_docs_replace_failed">Can\'t replace AGENTS.md because a backup of your edits couldn\'t be saved. Your file wasn\'t changed.</string>
     <string name="first_run_agent_docs">It also adds AGENTS.md, a short guide for AI agents that edit your layout. You can turn this off in Settings.</string>
     <!-- #142 S3-C consent (Pragma, ux.md §17.13). -->
     <string name="tile_needs_ok">Needs your OK</string>
