@@ -6,9 +6,10 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
 /**
- * #257 (N5): in a release build, a shown card keeps its cells but isn't drawn. Debug still shows the consent
- * tile and live target ([dev.nasawa.configlauncher.BuildConfig.CARDS_LIVE]). 1.1 removes the flag when #140
- * and #141 land.
+ * #257 (N5): in a release build, a shown card keeps its cells and draws a placeholder tile
+ * ("Cards arrive in a later version.") instead of the live target. Debug still shows the consent
+ * tile and live target ([dev.nasawa.configlauncher.BuildConfig.CARDS_LIVE]). 1.1 removes the flag
+ * when #140 and #141 land.
  */
 object CardPlaceholder {
     data class Tile(val id: String, val placement: Elements.Placement, val title: String?)
