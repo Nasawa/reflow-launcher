@@ -4,6 +4,7 @@
 Uses canned apksigner output only: no keystore, no secrets, no real clock.
 """
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -209,6 +210,43 @@ class Verify(unittest.TestCase):
         self.assertIn("verify -v --print-certs --min-sdk-version 24", workflow)
         self.assertIn("release_check.py verify", workflow)
         self.assertIn("--expect-tag", workflow)
+
+    def test_release_workflow_actions_are_sha_pinned(self):
+        # #268: every uses: must be a 40-char commit SHA, with the version in a comment.
+        workflow = (ROOT / ".github/workflows/release.yml").read_text()
+        uses = []
+        for i, line in enumerate(workflow.splitlines(), 1):
+            stripped = line.lstrip()
+            if stripped.startswith("#"):
+                continue
+            if stripped.startswith("- "):
+                stripped = stripped[2:].lstrip()
+            if stripped.startswith("uses:"):
+                uses.append((i, stripped[len("uses:"):].strip()))
+        self.assertTrue(uses)
+        pin = re.compile(r"^[A-Za-z0-9_.+/-]+@[0-9a-f]{40}\s+#\s+v\d+\.\d+\.\d+$")
+        for i, value in uses:
+            with self.subTest(line=i, uses=value):
+                self.assertRegex(value, pin)
+
+    def test_keystore_decode_disables_xtrace(self):
+        workflow = (ROOT / ".github/workflows/release.yml").read_text()
+        # The decode step is the only place the keystore bytes are in a shell command.
+        start = workflow.find("Decode the keystore to the runner's temp dir")
+        self.assertGreater(start, 0)
+        step = workflow[start:]
+        nxt = step.find("\n      - ")
+        self.assertGreater(nxt, 0)
+        step = step[:nxt]
+        decode_at = step.find("base64 -d")
+        self.assertGreater(decode_at, 0)
+        self.assertIn("set +x", step[:decode_at])
+        commands = [ln for ln in step.splitlines() if ln.strip() and not ln.lstrip().startswith("#")]
+        self.assertTrue(any(ln.strip() == "set +x" for ln in commands))
+        self.assertFalse(any("set -x" in ln for ln in commands))
+        # The keystore env is piped into base64 -d (redirected to a file), never echoed.
+        self.assertIn("printf '%s' \"$RELEASE_KEYSTORE_B64\" | base64 -d >", step)
+        self.assertNotRegex(step, r"echo\s+.*\$RELEASE_KEYSTORE_B64")
 
     def test_debug_cert_matches_ci_yml(self):
         self.assertIn(R.DEBUG_CERT_SHA256, (ROOT / ".github/workflows/ci.yml").read_text())

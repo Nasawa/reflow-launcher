@@ -13,6 +13,7 @@ on your phone and the file updates. Edit the file on your computer (or let an ag
 - The app doesn't fetch from the internet yet. Widgets can show remote data that your agent fetches and writes into
   the folder. A later release may let widgets fetch directly, only with your approval.
 - Status: architecture and UX specs are done. See [ARCHITECTURE.md](ARCHITECTURE.md) and [docs/ux.md](docs/ux.md).
+- Draft [1.0 release notes](docs/release-notes/v1.0.0.md): what's in 1.0, known gaps, and how to install or check a download. Moving from Config Launcher: [rename notes](docs/release-notes/release-notes-reflow-rename.md).
 
 ## Editing launcher.json (for agents and humans)
 
@@ -292,7 +293,7 @@ enters the repo, the build box or an issue. One key signs Reflow everywhere (Git
 later), because Android only installs an update signed by the same key. Plan and backups: #254.
 
 **Check a download** before installing. The SHA-256 must equal the release certificate fingerprint below (it's also in
-every release note and in `release-cert.sha256`):
+the [1.0 release notes](docs/release-notes/v1.0.0.md) and in `release-cert.sha256`):
 
 ```
 apksigner verify --print-certs reflow-launcher-1.0.0.apk | grep "SHA-256"
@@ -301,7 +302,7 @@ apksigner verify --print-certs reflow-launcher-1.0.0.apk | grep "SHA-256"
 Release certificate SHA-256: *not yet generated; it's added here and to `release-cert.sha256` before `v1.0.0-rc1`.*
 
 Debug and release builds are signed by different keys, so neither installs over the other. Moving from a dev build to
-the first release candidate takes one reinstall (the rc1 notes give the steps); after that, release builds update in
+the first release candidate takes one reinstall (the [1.0 release notes](docs/release-notes/v1.0.0.md) give the steps); after that, release builds update in
 place.
 
 **How CI signs.** Pushing a `v*` tag runs `.github/workflows/release.yml` in the GitHub environment `release`, which
