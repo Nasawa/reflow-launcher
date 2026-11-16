@@ -29,3 +29,9 @@ All agents push through the same GitHub account, so the account shown as author 
 - The ⋮ menu shows `Version <versionName>`, which must match the GitHub Release tag without the `v`. CI runs `scripts/test_version.py` and, after assemble, `scripts/version.py --check-apk` on the debug and release APKs so a tagged build's `versionName` matches its tag.
 - Agents do not create tags or releases.
 
+## Release signing (#254)
+
+- Release APKs are signed only by `.github/workflows/release.yml`, on a `v*` tag, in the protected GitHub environment `release` (4 secrets, Christopher approves each run). The key never enters the repo, the box or an issue; don't ask for it and don't generate a stand-in in CI.
+- `release-cert.sha256` pins the release certificate's SHA-256 (public). The workflow fails unless the APK verifies with v2 + v3 and its signer equals the pin (`scripts/release_check.py`, tests in `scripts/test_release_check.py`), and unless the APK's version equals the tag (`version.py --check-apk --expect-tag`).
+- Without the `RELEASE_*` env vars, `assembleRelease` is unsigned (`app-release-unsigned.apk`). Never sign a release with `app/debug.keystore`.
+

@@ -1,0 +1,5 @@
+# Reflow Launcher release signing certificate, SHA-256 (#254). Public data, not a secret.
+# CI's tag workflow (.github/workflows/release.yml) fails unless the release APK's signer matches this.
+# One line, 64 hex digits (colons optional). Empty until the release key exists: after generating it, put
+# the "SHA-256 digest" from `keytool -list -v -keystore reflow-release.p12 -alias reflow` (or from
+# `apksigner verify --print-certs` on a signed APK) on the next line. See README "Release builds: signing key".
