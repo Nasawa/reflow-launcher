@@ -566,7 +566,9 @@ page dim. An accepted drop settles into its cell in 150 ms. With reduced motion,
   no highlight and springs back.
 - The plate is a 12 dp rounded `surfaceContainerHigh` rect with an 8 dp shadow; the lifted item draws at 0.92 alpha.
 - The tick is `CLOCK_TICK` with the default flags (the system touch-feedback setting decides); none when leaving to no target.
-- The accepted drop animates first and writes after. The §4.1 cell outlines are the grid: no second grid is drawn.
+- The accepted drop animates first and writes after. The lifted item then stays drawn at the target until the frame
+  with the committed layout has drawn (at most 1 s), so it never shows back in its old cell. The §4.1 cell outlines are
+  the grid: no second grid is drawn.
 
 There's no automatic reflow: other items never move to make room (keeps the file diff minimal and predictable). An
 empty page is deleted when you leave edit mode.

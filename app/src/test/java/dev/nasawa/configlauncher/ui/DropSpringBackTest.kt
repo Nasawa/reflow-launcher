@@ -129,6 +129,8 @@ class DropSpringBackTest {
         assertTrue("the write waits for the settle (§17 Q6 hold)", engine.dragging)
         rule.mainClock.advanceTimeBy(DragController.SETTLE_MS + 32L); rule.waitForIdle()
         assertEquals(listOf<Edit>(Edit.MoveToCell("a", "home", 3, 3)), submitted)
+        assertTrue("held at the target until the tile is laid out there (no tiles here: the timeout)", drag.landing)
+        rule.mainClock.advanceTimeBy(DragController.LANDING_TIMEOUT_MS + 32L); rule.waitForIdle()
         assertEquals(0, cancelled)
         assertNull("no spring-back on success", drag.dragged)
         assertFalse(drag.returning); assertFalse(engine.dragging)

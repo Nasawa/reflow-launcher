@@ -228,7 +228,50 @@ class DragStateTest {
         assertTrue("scaling 1.15 → 1.0: $k", k > 1f && k < DragController.LIFT_SCALE)
         ms(DragController.SETTLE_MS.toLong())
         assertEquals(listOf<Edit>(Edit.MoveToCell("a", "home", 2, 1)), submitted)
-        assertNull(drag.dragged); assertFalse(drag.settling); assertFalse(engine.dragging); assertEquals(0, cancelled)
+        assertFalse(drag.settling); assertFalse(engine.dragging); assertEquals(0, cancelled)
+        assertTrue("held at the target until the new layout has drawn", drag.landing)
+    }
+
+    // --- landing: no frame shows the tile back in its old cell ---
+
+    private fun landOn21() {
+        rule.runOnIdle { drag.start(item, tile) }
+        raised()
+        rule.runOnIdle { drag.move(Offset(200f, 100f)); drag.drop() }
+        ms(DragController.SETTLE_MS + 32L)
+        assertEquals(1, submitted.size); assertTrue(drag.landing)
+    }
+
+    @Test fun landingHoldsTheOverlayAtTheTargetUntilTheTileIsLaidOutThereThenOneFrame() {
+        landOn21()
+        val held = drag.liftedOriginInRoot.center + drag.visualOffset
+        assertEquals("at the target's centre", Offset(250f, 150f), held)
+        assertEquals(1f, drag.visualScale, 0f)
+        rule.runOnIdle { drag.tilePositioned(item, tile) } // the old node relaid out in place: not the commit
+        rule.mainClock.advanceTimeByFrame(); rule.waitForIdle()
+        assertTrue("still held", drag.landing); assertNotNull(drag.dragged)
+        rule.runOnIdle { drag.detached("a", null) } // the old node leaving is the move itself
+        assertTrue(drag.landing)
+        rule.runOnIdle { drag.tilePositioned(item, Rect(200f, 100f, 300f, 200f)) } // laid out in (2,1)
+        assertTrue("that frame still draws the overlay", drag.landing)
+        rule.mainClock.advanceTimeByFrame(); rule.waitForIdle()
+        assertFalse(drag.landing); assertNull(drag.dragged)
+        assertEquals(1, submitted.size); assertEquals(0, cancelled)
+    }
+
+    @Test fun landingGivesUpAfterTheTimeoutWhenTheTileNeverMoves() {
+        landOn21()
+        ms(DragController.LANDING_TIMEOUT_MS - 100)
+        assertTrue(drag.landing)
+        ms(200)
+        assertFalse(drag.landing); assertNull(drag.dragged); assertEquals(1, submitted.size)
+    }
+
+    @Test fun aNewDragDuringLandingEndsItWithoutASecondWrite() {
+        landOn21()
+        val other = ResolvedItem(AppItem("b", "p.b", x = 1, y = 0), null)
+        rule.runOnIdle { drag.start(other, Rect(100f, 0f, 200f, 100f)) }
+        assertFalse(drag.landing); assertEquals(other, drag.dragged); assertEquals(1, submitted.size)
     }
 
     @Test fun settleEndsOverTheTargetCell() {
@@ -243,7 +286,9 @@ class DragStateTest {
     @Test fun reducedMotionWritesAtOnce() {
         reduced = true
         rule.runOnIdle { drag.start(item, tile); drag.move(Offset(200f, 100f)); drag.drop() }
-        assertEquals(1, submitted.size); assertNull(drag.dragged); assertFalse(drag.settling)
+        assertEquals(1, submitted.size); assertFalse(drag.settling)
+        assertTrue("no settle, but still no flicker: held at the target", drag.landing)
+        assertEquals(Offset(250f, 150f), drag.liftedOriginInRoot.center + drag.visualOffset)
     }
 
     @Test fun leavingCompositionMidSettleStillWritesOnce() {

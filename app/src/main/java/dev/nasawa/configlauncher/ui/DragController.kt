@@ -61,6 +61,8 @@ import dev.nasawa.configlauncher.model.ResolvedItem
 import dev.nasawa.configlauncher.store.ConfigEngine
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import androidx.compose.runtime.withFrameNanos
 import kotlinx.coroutines.launch
 
 /**
@@ -109,6 +111,14 @@ class DragController(private val engine: () -> ConfigEngine, private val onCance
     var returning by mutableStateOf(false); private set
     /** #282: true while an accepted drop settles into its target ([SETTLE_MS]); [submit] runs after it. */
     var settling by mutableStateOf(false); private set
+    /**
+     * #282 (Pragma, no landing flicker): after an accepted drop is submitted the overlay stays at the target until the
+     * tile has been laid out in its new place and that frame has drawn (or [LANDING_TIMEOUT_MS] passes).
+     */
+    var landing by mutableStateOf(false); private set
+    private var landingKey: String? = null
+    private var landingSeen = false
+    private var landingJob: Job? = null
     private var settleT by mutableFloatStateOf(0f)
     private var settleFrom = Offset.Zero
     private var settleFromScale = 1f
@@ -153,18 +163,18 @@ class DragController(private val engine: () -> ConfigEngine, private val onCance
     /** The lifted tile's offset from [liftedOriginInRoot] and its scale, as the [DragOverlay] draws it. */
     val visualOffset: Offset get() = when {
         dragged == null -> Offset.Zero
-        settling -> settleFrom + (settleTo - settleFrom) * settleT
+        settling || landing -> settleFrom + (settleTo - settleFrom) * settleT
         else -> liftedOffset() * (raise * lift)
     }
     val visualScale: Float get() = when {
         dragged == null -> 1f
-        settling -> settleFromScale + (1f - settleFromScale) * settleT
+        settling || landing -> settleFromScale + (1f - settleFromScale) * settleT
         else -> 1f + (LIFT_SCALE - 1f) * raise * lift
     }
     /** #282: how much of the lifted look (plate, shadow, 0.92 alpha) shows: 1 lifted, 0 at rest. */
     val liftedness: Float get() = when {
         dragged == null -> 0f
-        settling -> 1f - settleT
+        settling || landing -> 1f - settleT
         else -> raise * lift
     }
 
@@ -192,7 +202,7 @@ class DragController(private val engine: () -> ConfigEngine, private val onCance
     }
 
     fun move(delta: Offset) {
-        if (returning || settling || dragged == null) return
+        if (returning || settling || landing || dragged == null) return
         offset += delta
         val t = targetAt(fingerInRoot)
         if (t != null && t.edit != target?.edit) tick() // a new cell or slot; leaving to "no target" is silent
@@ -201,7 +211,9 @@ class DragController(private val engine: () -> ConfigEngine, private val onCance
 
     private fun end() {
         returnJob?.cancel(); returnJob = null; raiseJob?.cancel(); raiseJob = null; settleJob?.cancel(); settleJob = null
+        landingJob?.cancel(); landingJob = null
         returning = false; settling = false; settleT = 0f; settleEdit = null
+        landing = false; landingKey = null; landingSeen = false
         dragged = null; offset = Offset.Zero; lift = 1f; raise = 1f; liftedVisual = null; target = null
     }
 
@@ -209,15 +221,43 @@ class DragController(private val engine: () -> ConfigEngine, private val onCance
 
     /** Finishes a running spring-back at once (nothing lifted afterwards); a settling drop lands and is written now. */
     fun settle() {
-        if (returning) end()
+        if (returning || landing) end()
         if (settling) land()
     }
 
-    /** The accepted drop's write, after its settle animation (or at once): end the lift, then [submit]. */
+    /**
+     * The accepted drop's write, after its settle animation (or at once). [submit] runs first; the overlay then stays
+     * at the target ([landing]) until [tilePositioned] reports the tile in its new place and one more frame has
+     * started, so the tile never shows in its old cell. Without a scope: end, then submit (as before).
+     */
     private fun land() {
         val e = settleEdit ?: return
-        end(); engine().dragging = false
+        val item = dragged ?: return
+        engine().dragging = false
+        val s = scope
+        if (s == null) { end(); submit(e); return }
+        settleJob = null // land() may run from that job's finally; don't cancel it from here
+        settleT = 1f; settling = false; settleEdit = null
+        landing = true; landingKey = key(item); landingSeen = false
         submit(e)
+        var job: Job? = null
+        job = s.launch {
+            try { delay(LANDING_TIMEOUT_MS) } finally { if (landing && landingJob === job) end() }
+        }
+        landingJob = job
+        if (job.isCompleted && landing) end()
+    }
+
+    internal fun tilePositioned(item: ResolvedItem, bounds: Rect) = tilePositioned(key(item), bounds)
+
+    /** Every tile reports its unclipped root bounds after layout; the landing tile in a new place ends the hold. */
+    internal fun tilePositioned(key: String, bounds: Rect) {
+        if (!landing || landingSeen || key != landingKey || bounds == liftedOriginInRoot) return
+        landingSeen = true
+        val s = scope ?: run { end(); return }
+        val hold = landingJob
+        // This frame draws the overlay over the tile's new place; clear it at the start of the next one.
+        s.launch { withFrameNanos { }; if (landing && landingJob === hold) end() }
     }
 
     /**
@@ -226,7 +266,7 @@ class DragController(private val engine: () -> ConfigEngine, private val onCance
      * the scope and the `finally` clears the lift.
      */
     private fun springBack() {
-        if (dragged == null || returning || settling) return
+        if (dragged == null || returning || settling || landing) return
         engine().dragging = false
         onCancel()
         target = null
@@ -250,7 +290,7 @@ class DragController(private val engine: () -> ConfigEngine, private val onCance
      * §17 Q6: a cancelled drag has no pending op, so a held incoming file is applied right away.
      * A pointer cancel (#214 Step.CANCEL) springs back like a refused drop (#212).
      */
-    fun cancel() { if (returning || settling) return; springBack() }
+    fun cancel() { if (returning || settling || landing) return; springBack() }
 
     /**
      * The gesture coroutine ended mid-drag (tile left composition, Activity destroyed / recreated):
@@ -258,6 +298,7 @@ class DragController(private val engine: () -> ConfigEngine, private val onCance
      * drop that is only settling is already decided, so it lands (is written) at once instead.
      */
     fun cancelNow() {
+        if (landing) { end(); return } // already written
         if (settling) { land(); return }
         if (returning) { end(); return }
         if (dragged == null) return
@@ -267,7 +308,11 @@ class DragController(private val engine: () -> ConfigEngine, private val onCance
     }
 
     /** The tile for [id]/[app] left composition (recreate, reload, page disposed): a drag on it ends at once. */
-    internal fun detached(id: String, app: Any?) { if (dragged?.item?.id == id && dragged?.app == app) cancelNow() }
+    internal fun detached(id: String, app: Any?) {
+        // #282: while landing, the old node leaving is the move itself; the overlay waits for the new one.
+        if (landing) return
+        if (dragged?.item?.id == id && dragged?.app == app) cancelNow()
+    }
 
     /** [item] is the lifted tile, during the drag, its settle and its spring-back (#282: its source shows a ghost). */
     fun isLifted(item: ResolvedItem): Boolean = dragged?.item?.id == item.item.id && dragged?.app == item.app
@@ -306,17 +351,17 @@ class DragController(private val engine: () -> ConfigEngine, private val onCance
 
     fun drop() {
         dragged ?: return
-        if (returning || settling) return
+        if (returning || settling || landing) return
         val t = targetAt(fingerInRoot)
         target = null
         if (t == null) { springBack(); return }
         raiseJob?.cancel(); raiseJob = null
         settleEdit = t.edit
+        settleTo = t.rect.center - liftedOriginInRoot.center
         val s = scope
-        if (s == null || reducedMotion()) { land(); return }
+        if (s == null || reducedMotion()) { settleFrom = settleTo; settleFromScale = 1f; land(); return }
         // Animate first, write after (Pragma): submitting first would recompose the tile in its new cell and cut this.
         settleFrom = visualOffset; settleFromScale = visualScale
-        settleTo = t.rect.center - liftedOriginInRoot.center
         settleT = 0f; settling = true
         var job: Job? = null
         job = s.launch {
@@ -338,6 +383,8 @@ class DragController(private val engine: () -> ConfigEngine, private val onCance
         /** #282: the lift eases in over 120 ms; an accepted drop settles over 150 ms. */
         const val RAISE_MS = 120
         const val SETTLE_MS = 150
+        /** #282: the longest the landing overlay waits for the committed layout (a refused write never moves the tile). */
+        const val LANDING_TIMEOUT_MS = 1_000L
         /** #282: the source cell's ghost, and the lifted tile's alpha. */
         const val GHOST_ALPHA = 0.3f
         const val LIFTED_ALPHA = 0.92f
@@ -363,7 +410,10 @@ class DragController(private val engine: () -> ConfigEngine, private val onCance
         if (visual != null) visuals[key] = visual else visuals.remove(key)
         val isMe = isLifted(item)
         return this
-            .onGloballyPositioned { rects[key] = it.boundsInRoot(); unclipped[key] = Rect(it.localToRoot(Offset.Zero), it.size.toSize()) }
+            .onGloballyPositioned {
+                rects[key] = it.boundsInRoot(); val u = Rect(it.localToRoot(Offset.Zero), it.size.toSize()); unclipped[key] = u
+                tilePositioned(key, u)
+            }
             // #212/#214: leaving composition sends a pointer cancel before the gesture coroutine ends; this
             // makes that path instant (no spring-back toward a layout that is gone) whichever runs first.
             .then(DetachElement(this@DragController, item.item.id, item.app))

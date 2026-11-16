@@ -217,16 +217,37 @@ class DragOverlayHomeTest {
     /** Lands on the dock: MoveToDock is written, and the overlay is gone once nothing is lifted. */
     private fun landing(case: Case) {
         overDock(case)
+        val rest = source()
         val before = store.engine.state.value.config
         compose.onRoot().performTouchInput { up() }
         frames(2)
         assertNull("#282: the highlight clears at the drop", target())
         assertTrue("#282: an accepted drop settles before it writes", overlay() != null && store.engine.dragging)
-        frames(DragController.SETTLE_MS / 16 + 3)
-        assertFalse(store.engine.dragging)
-        assertNull("landed: the overlay goes", overlay())
+        // Pragma (#288): no frame may show the tile back in its old cell: until the overlay goes, it covers the target.
+        val oldCellShown = {
+            overlay() == null && compose.onAllNodes(hasText("Second tile") or hasContentDescription("Second tile", substring = true))
+                .fetchSemanticsNodes().any { SemanticsActions.OnClick in it.config && it.boundsInRoot == rest }
+        }
+        val committed = { store.engine.state.value.config.dock.orEmpty().any { it.id == "a-second" } }
+        repeat(DragController.SETTLE_MS / 16 + 3) {
+            compose.mainClock.advanceTimeByFrame(); compose.waitForIdle()
+            assertFalse("settle frame $it: the tile is never back in its old cell", oldCellShown())
+            if (overlay() == null) assertTrue("the overlay only goes once the edit is committed", committed())
+        }
+        assertFalse("written after the settle", store.engine.dragging)
+        // The write lands off the main thread; with the frame clock stopped, a held overlay stays held meanwhile.
+        compose.waitUntil(5_000) { committed() }
+        // ...and until the screen's state has it (the ViewModel combines on another thread), so the frames below are
+        // what the device would draw next, not a race against that thread.
+        val vm = androidx.lifecycle.ViewModelProvider(compose.activity)[HomeViewModel::class.java]
+        compose.waitUntil(5_000) { vm.ui.value.layout.dock.any { it.item.id == "a-second" } }
+        for (i in 0 until 20) {
+            if (overlay() == null) break
+            compose.mainClock.advanceTimeByFrame(); compose.waitForIdle()
+            assertFalse("landing frame $i: the tile is never back in its old cell", oldCellShown())
+        }
+        assertNull("the overlay goes once the new layout has drawn, well before the timeout", overlay())
         compose.mainClock.autoAdvance = true
-        compose.waitUntil(5_000) { store.engine.state.value.config.dock.orEmpty().any { it.id == "a-second" } }
         val after = store.engine.state.value.config
         assertEquals("MoveToDock written", listOf("d-settings", "a-second").toSet(), after.dock.orEmpty().map { it.id }.toSet())
         assertTrue("before: on its page", before.pages.first { it.id == "second" }.items.any { it.id == "a-second" })
