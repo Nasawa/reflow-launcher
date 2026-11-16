@@ -285,6 +285,44 @@ This key is public and proves nothing about who built an APK. Never use it for r
 release key. Builds signed with the old per-machine keys (up to v0.0.1-dev2) need one uninstall before the first build
 with this key.
 
+## Release builds: signing key
+
+Release APKs (from `v1.0.0-rc1` on) are signed with Reflow's private release key, held only by Christopher. It never
+enters the repo, the build box or an issue. One key signs Reflow everywhere (GitHub Releases now, F-Droid and Play
+later), because Android only installs an update signed by the same key. Plan and backups: #254.
+
+**Check a download** before installing. The SHA-256 must equal the release certificate fingerprint below (it's also in
+every release note and in `release-cert.sha256`):
+
+```
+apksigner verify --print-certs reflow-launcher-1.0.0.apk | grep "SHA-256"
+```
+
+Release certificate SHA-256: *not yet generated; it's added here and to `release-cert.sha256` before `v1.0.0-rc1`.*
+
+Debug and release builds are signed by different keys, so neither installs over the other. Moving from a dev build to
+the first release candidate takes one reinstall (the rc1 notes give the steps); after that, release builds update in
+place.
+
+**How CI signs.** Pushing a `v*` tag runs `.github/workflows/release.yml` in the GitHub environment `release`, which
+holds 4 secrets: `RELEASE_KEYSTORE_B64` (`base64 -w0 reflow-release.p12`), `RELEASE_STORE_PASSWORD`,
+`RELEASE_KEY_ALIAS` (`reflow`) and `RELEASE_KEY_PASSWORD` (the same as the store password for PKCS12). The environment
+allows deployments only from `v*` tags and needs Christopher's approval, so PR and branch runs never see the key. The
+job decodes the keystore to the runner's temp dir, runs `assembleRelease`, and fails unless `apksigner` (with `--min-sdk-version 24`, so v2 is checked too) shows
+the v2 and v3 schemes and the signer equals `release-cert.sha256` (`scripts/release_check.py`). It also checks the APK's
+version against the tag, then attaches `reflow-launcher-<version>.apk` and its `.sha256` to the tag's Release. A
+missing secret or fingerprint fails the job with its name; it never falls back to the debug key.
+
+Gradle reads the key only from `RELEASE_KEYSTORE_PATH`, `RELEASE_STORE_PASSWORD`, `RELEASE_KEY_ALIAS` and
+`RELEASE_KEY_PASSWORD`. With none set (local builds, ordinary CI), `assembleRelease` gives an unsigned
+`app-release-unsigned.apk`. With only some set, the build fails.
+
+## Version numbers
+
+The version in the ⋮ menu (`Version 1.0.0-rc1`) is the same as the GitHub Release tag without the leading `v`. It is
+taken from that tag at build time; `versionCode` rises with every tag so updates install over older builds. Untagged
+local builds show `Version 0.0.0-dev`. The rule is in `AGENTS.md` and `scripts/version.py`.
+
 ## Debug builds: pushing a config in app-only mode
 
 In app-only mode ("Skip for now"), launcher.json lives in app-private storage at
