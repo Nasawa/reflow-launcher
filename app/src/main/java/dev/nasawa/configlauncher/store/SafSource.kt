@@ -10,8 +10,9 @@ import java.io.IOException
 /**
  * launcher.json inside a user-picked SAF tree (persisted READ|WRITE grant, no storage permission).
  * SAF has no atomic replace, so writes follow AQ-4 ([SafWrites]): write `.configlauncher/launcher.json.tmp`
- * (or `.launcher.json.tmp` in the root while `.configlauncher` is unusable, #251), verify, truncate-write
- * launcher.json ("wt"), verify, restore from temp on failure.
+ * (or `.launcher.json.<8hex>.tmp` in the root while `.configlauncher` is unusable, #251), verify, truncate-write
+ * launcher.json ("wt"), verify, restore from temp on failure. A leftover root temp is restored or kept by the
+ * start sweep if it's the only valid copy (#251, #263).
  */
 class SafSource(private val resolver: ContentResolver, val treeUri: Uri, private val journal: TempJournal = TempJournal.NONE) : ConfigSource {
     private val rootDocId = DocumentsContract.getTreeDocumentId(treeUri)

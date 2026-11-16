@@ -163,7 +163,7 @@ Principle: nothing in the file ever builds an Intent. The launcher only launches
 
 ## 5. Store fault injection (fake `DocumentAccess`, A§5 Atomic writes, A§11, A§15 OQ-18, AQ-4)
 
-Write sequence under test: write `.configlauncher/launcher.json.tmp` and verify by reading back → `"wt"` write to `launcher.json` and verify → on failure, restore from tmp → on failure, B5 Retry. The in-memory model and `last-good.json` keep the edit.
+Write sequence under test: write `.configlauncher/launcher.json.tmp` (or, when `.configlauncher` can't be used, a root temp `.launcher.json.<8hex>.tmp` or `.AGENTS.md.<8hex>.tmp`) and verify by reading back → `"wt"` write to `launcher.json` and verify → on failure, restore from tmp → on failure, B5 Retry. If a kill leaves the target empty or invalid and the temp is valid, the start sweep restores from that temp or keeps it as the only copy (#251, #263). The in-memory model and `last-good.json` keep the edit.
 
 | ID | Fault injected | Expected | Level |
 |---|---|---|---|
@@ -486,6 +486,20 @@ then the only check is O0.
 Manual (TalkBack and keyboard, one tablet in landscape and one RTL point): focus order is rail head → banner → notice row
 → page label or title bar → grid in reading order → page dots → rail dock items top to bottom, whichever side the rail
 is on. D-pad from a grid cell next to the rail moves to the nearest rail slot and back. Side margins take no focus.
+
+## 21. Card placeholder in release builds (#257)
+
+Until card rendering lands in 1.1, a release build must not show an approved card as an empty box or an approval prompt. Covered by `CardPlaceholderTest`, `CardPlaceholderStatusTest`, `CardPlaceholderTileTest`, and a release-APK device pass (Grace, #265).
+
+Copy to check (also in ux.md §17.13):
+
+| Resource / name | English | Where |
+|---|---|---|
+| `tile_later_version` | `Cards arrive in a later version.` | On-screen placeholder tile line |
+| `tile_later_version_a11y` | `%1$s, card, %2$s` | TalkBack. `%1$s` is the title, or the element id if there is no title; `%2$s` is `tile_later_version`. Example: `Weather, card, Cards arrive in a later version.` |
+| `CardPlaceholder.warning` | `elements[N]: card "<id>" isn't shown in this version of Reflow Launcher. It stays in the file.` | `status.json` / Warnings list, one line per shown card. Built in code, not `strings.xml`. |
+
+**Release APK:** each shown card is the plain, non-interactive placeholder (TalkBack and tile line as above). A skipped card (`requires` too high, or an unknown kind) still uses `tile_update` (`Update Reflow Launcher to show this`). No Allow sheet, no B9, no Widget permissions in the ⋮ or long-press menu. Debug builds keep the consent tile and live target.
 
 ## Open questions (v3)
 

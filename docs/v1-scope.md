@@ -18,7 +18,7 @@ This scope is based on main `d37afdb` (6 commits after the `v0.0.1-dev9` tag at 
 - **Christopher's earlier answer:** widgets are "critical to the end vision, not a v1 gate" (ARCHITECTURE §18.1, §14 Q9).
 - **A lean 1.0 is still useful to an AI:** pages, dock, drawer rules, folders, title bar, status.json, apps.json, AGENTS.md and RELOAD are all done.
 
-**The one thing 1.0 must not do** is ship half a feature. A card that asks for your OK and then draws nothing looks broken. So **N5, [#257](https://github.com/Nasawa/reflow-launcher/issues/257)** is a 1.0 must-have: until 1.1, release builds show cards honestly as "not drawn yet".
+**The one thing 1.0 must not do** is ship half a feature. A card that asks for your OK and then draws nothing looks broken. So **N5, [#257](https://github.com/Nasawa/reflow-launcher/issues/257)** is a 1.0 must-have: until 1.1, release builds show cards honestly as "not shown yet".
 
 ## 2. Must-have for 1.0 (3 open issues + #253–#257)
 

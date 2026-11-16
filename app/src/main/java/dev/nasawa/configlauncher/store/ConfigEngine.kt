@@ -103,7 +103,7 @@ class ConfigEngine(
     val consent: dev.nasawa.configlauncher.consent.ConsentStore? = null,
     /**
      * #257: debug (default) keeps consent and live-card behaviour. Release builds pass false so cards
-     * get a placeholder tile and a "not drawn in this version" warning. Approvals in [consent] are
+     * get a placeholder tile and a "not shown in this version" warning. Approvals in [consent] are
      * still settled and never cleared. 1.1 removes this when #140 and #141 land.
      */
     private val cardsLive: Boolean = dev.nasawa.configlauncher.BuildConfig.CARDS_LIVE,
