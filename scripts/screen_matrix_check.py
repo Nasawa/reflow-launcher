@@ -1796,11 +1796,31 @@ def cmd_check(d):
     return 0
 
 
+def probe_tally(d, probe):
+    """`<probe>.json` results (screen_matrix_dnd.py score) as 'N PASS, N FAIL, N n/a', or why there are none."""
+    try:
+        with open(os.path.join(d, f'{probe}.json')) as f:
+            res = json.load(f)['results']
+    except (OSError, ValueError, KeyError, TypeError):
+        return f'no {probe}.json (probe did not run or was not scored; see run.txt)'
+    n = {True: 0, False: 0, None: 0}
+    for r in res:
+        n[r.get('ok')] = n.get(r.get('ok'), 0) + 1
+    fails = [r.get('id', '?') for r in res if r.get('ok') is False]
+    return f"{n[True]} PASS, {n[False]} FAIL, {n[None]} n/a" + (f" ({', '.join(fails)})" if fails else '')
+
+
 def cmd_summarize(out):
-    rows, bad = [], 0
+    rows, bad, probes = [], 0, []
     for name in sorted(os.listdir(out)):
         p = os.path.join(out, name, 'result.json')
         if not os.path.exists(os.path.join(out, name, 'meta.txt')):
+            continue
+        po = meta_of(os.path.join(out, name)).get('probe_only')
+        if po:
+            # Probe-only point (CI dnd shard, MATRIX_PROBES=dnd-only): no checker by design, and its F*/L* verdict
+            # comes from the same point in its own shard. Listed apart, advisory, never counted as a verdict row.
+            probes.append(f"| {name} | {po} | {probe_tally(os.path.join(out, name), po)} |")
             continue
         if not os.path.exists(p):
             bad += 1
@@ -1814,9 +1834,12 @@ def cmd_summarize(out):
         rows.append(f"| {r['point']} | {r['verdict']} | {', '.join(f) or '-'} | {', '.join(a) or '-'} | {', '.join(k) or '-'} |")
     md = ['# Screen matrix summary', '', f'{len(rows)} points, {bad} not PASS (FAIL = a blocking check failed; INCOMPLETE = a blocking check could not run).', '',
           '| point | verdict | blocking fails | advisory/pending fails | blocking checks not run |', '|---|---|---|---|---|'] + rows
+    if probes:
+        md += ['', f'## Probe-only points ({len(probes)}, advisory; see each point\'s probe report)', '',
+               '| point | probe | report |', '|---|---|---|'] + probes
     open(os.path.join(out, 'summary.md'), 'w').write('\n'.join(md) + '\n')
     print('\n'.join(md))
-    return 1 if bad or not rows else 0
+    return 1 if bad or not (rows or probes) else 0
 
 
 if __name__ == '__main__':

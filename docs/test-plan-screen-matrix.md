@@ -262,20 +262,29 @@ side nav/cutout is not a layout bias (#197).
 
 **CI** (`.github/workflows/screen-matrix.yml`, GitHub-hosted `ubuntu-latest` with KVM, free for this public repo):
 - **Triggers:**
-  - `workflow_dispatch`, with inputs `shards` (comma list or `all`), `points` (an id regex), and `gate`
-    (`dev7` advisory L*/large-G*, or `dev8` blocking; default `dev7`).
+  - `workflow_dispatch`, with inputs `shards` (comma list or `all`), `points` (an id regex), `gate`
+    (`dev7` advisory L*/large-G*, or `dev8` blocking; default `dev7`), and `probes` (`dnd` = the live
+    drag-and-drop / pager probe, #187).
   - Pushes of `v*-dev*` / `v*-rc*` tags, so `v0.0.1-dev7` runs it; a tag whose name contains `dev8` forces gate=dev8.
   - A PR getting the label `screen-matrix` (the label exists). Only the `labeled` event fires: pushing to a labelled
     PR doesn't rerun it, so re-apply the label or dispatch.
   - Not on every push or PR. The cheap per-PR smoke stays in emulator-smoke.yml.
 - **Jobs:**
-  1. `plan` picks the shards.
+  1. `plan` picks the shards with `scripts/screen_matrix_plan.py` (tests: `scripts/test_screen_matrix_plan.py`).
   2. `build` runs assembleDebug and uploads the APK (~6 min).
   3. One `shard` job per image group, with `reactivecircus/android-emulator-runner@v2.38.0`, `disable-animations`,
      4 GB RAM, a 60 min timeout, Pillow (TH1) and an AVD panel (`-skin`) per shard: small 720x1440, phones 1344x2992,
      tablets 1600x2560, fold 2208x2400. The runner's default panel is 320x640, and Android clamps `wm size` to a
      multiple of the panel (2× on API 29, 1920 px on API 35/36 in run 1), so run 1's large points ran smaller (X0).
-  4. `summary` merges `result.json` into the job summary and fails if any point isn't PASS.
+     - Shards: small-a, small-b, phones, tablets, fold, and **dnd** when `probes` has `dnd` and tablets is in the run
+       (or `shards=dnd`). The dnd shard uses the tablets image and runs the tablets rows that match `DND_POINTS` with
+       `MATRIX_PROBES=dnd-only`: seed, the DnD / pager probe, crash log; no F3–F7 and no checker, because the same
+       points get their verdict in the tablets shard. The tablets shard then runs without the probe. Before this
+       split the probe ran inside tablets and outran 60 min, so PR #246 had raised that shard to 90 min.
+     - Phone DnD points (phone-land, p411, rtl-phone-*) still run the probe inline in the phones shard.
+  4. `summary` merges `result.json` into the job summary and fails if any point isn't PASS. Probe-only points
+     (`probe_only=dnd` in `meta.txt`) are listed in their own advisory table with the probe's PASS / FAIL / n/a
+     tally and never count toward the verdict.
 - **Estimate** (KVM; made before run 1, kept for comparison):
   - Each shard spends ~5 min on runner setup, image download and boot, then ~2.5 min per point.
   - small-a ≈ 20 min, small-b ≈ 20, phones ≈ 23, tablets ≈ 25, fold ≈ 15.
