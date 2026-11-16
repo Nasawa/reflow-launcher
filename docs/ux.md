@@ -580,7 +580,7 @@ queued as an ID-based operation (`Move`, `Add`, `Remove`, `Rename`, `CreateFolde
       `status.json`):
       - `Couldn't finish saving <file> after the app was stopped: the new version is kept in <temp>. Copy it over <file> to keep your last edit.`
       - `launcher.json has problems, and the app was stopped while saving it: your last edit on the phone is kept in <temp>.`
-      - `An older version of the app left .configlauncher/<file>.tmp, which doesn't match <file>. It's kept in case it's your only copy; delete it once you don't need it.`
+      - `An older version of the app left .configlauncher/<file>.tmp, and it doesn't match <file>. It's kept in case it's your only copy. Delete it once you don't need it.`
         (A fixed-name temp from a pre-#274 build has no recorded hash, so the app never restores from it and never
         treats it as outdated: your current file always wins. It's deleted silently only when it's empty, identical
         to the file, or an unedited shipped `AGENTS.md`.)

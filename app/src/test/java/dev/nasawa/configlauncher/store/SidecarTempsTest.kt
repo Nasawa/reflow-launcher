@@ -217,6 +217,19 @@ class SidecarTempsTest {
 
     private fun kept(name: String, target: String) = SafWrites.legacyKeptWarning(name, target)
 
+    @Test fun legacyKeptLineIsPragmasPlainSentences() {   // Pragma's #276 copy check: no semicolon, three sentences
+        assertEquals(
+            "An older version of the app left .configlauncher/AGENTS.md.tmp, and it doesn't match AGENTS.md. " +
+                "It's kept in case it's your only copy. Delete it once you don't need it.",
+            kept("AGENTS.md.tmp", "AGENTS.md"),
+        )
+        assertEquals(
+            "An older version of the app left .configlauncher/launcher.json (1).tmp, and it doesn't match launcher.json. " +
+                "It's kept in case it's your only copy. Delete it once you don't need it.",
+            kept("launcher.json (1).tmp", "launcher.json"),
+        )
+    }
+
     /** Plants [cur] (null: no file) and a legacy temp [tmp] for [target], runs two starts, and checks nothing was lost. */
     private fun keptCase(target: String, cur: ByteArray?, tmp: ByteArray) {
         val s = setup()

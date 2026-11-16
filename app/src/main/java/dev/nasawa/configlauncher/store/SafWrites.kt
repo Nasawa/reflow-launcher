@@ -307,7 +307,7 @@ internal class SafWrites(
         fun legacySidecarTarget(displayName: String): String? = LEGACY_SIDECAR.matchEntire(displayName)?.groupValues?.get(1)
         /** #274: the ▲ line for a kept pre-#274 sidecar temp (ux.md §4.3, AQ-4). */
         fun legacyKeptWarning(tmpName: String, target: String) =
-            "An older version of the app left $DIR_NAME/$tmpName, which doesn't match $target. It's kept in case it's your only copy; delete it once you don't need it."
+            "An older version of the app left $DIR_NAME/$tmpName, and it doesn't match $target. It's kept in case it's your only copy. Delete it once you don't need it."
         /** #262: starts in a row a journaled temp may fail to settle before its entry (never the file) is dropped. */
         const val MAX_STRIKES = 5
         /** The root files that go through [writeVerified] (launcher.json, AGENTS.md). */
