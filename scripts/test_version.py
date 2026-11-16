@@ -88,6 +88,24 @@ class ParseTag(unittest.TestCase):
         with self.assertRaises(V.VersionError):
             V.parse_tag("v2148.0.0")
 
+    def test_play_max_version_code(self):
+        # #264 review: Play's max versionCode is 2100000000, and it must stay below int32 max.
+        self.assertEqual(V.VERSION_CODE_MAX, 2_100_000_000)
+        self.assertLess(V.VERSION_CODE_MAX, 2**31 - 1)
+        self.assertEqual(_code("v2099.99.99"), 2_099_999_999)
+        for tag in ("v2100.0.0-dev1", "v2100.0.0", "v2100.0.0-rc1", "v2147.48.36", "v2147.0.0", "v9999.0.0"):
+            with self.subTest(tag=tag):
+                with self.assertRaises(V.VersionError):
+                    V.parse_tag(tag)
+
+    def test_major_cap_fits_under_play_max(self):
+        # Every tag the grammar accepts at MAJOR_MAX stays <= the Play max; MAJOR_MAX + 1 never fits.
+        top = f"v{V.MAJOR_MAX}.{V.MINOR_MAX}.{V.PATCH_MAX}"
+        self.assertLessEqual(_code(top), V.VERSION_CODE_MAX)
+        self.assertGreater((V.MAJOR_MAX + 1) * 1_000_000 + 1, V.VERSION_CODE_MAX)
+        with self.assertRaises(V.VersionError):
+            V.parse_tag(f"v{V.MAJOR_MAX + 1}.0.0-dev1")
+
     def test_normalize_tag(self):
         self.assertEqual(V.normalize_tag("1.0.0-rc1"), "v1.0.0-rc1")
         self.assertEqual(V.normalize_tag("v1.0.0-rc1"), "v1.0.0-rc1")
@@ -159,6 +177,69 @@ class Resolve(unittest.TestCase):
             git("tag", "v1.0.0-rc1")
             git("tag", "v1.0.0")
             self.assertEqual(V.resolve(repo, {"REFLOW_TAG": "", "GITHUB_REF": ""}), V.parse_tag("v1.0.0"))
+
+
+class ExpectTag(unittest.TestCase):
+    """#264 review: on tag jobs CI compares the APK with github.ref_name, not with resolve()."""
+
+    def setUp(self):
+        self._orig = V.apk_version
+        self.apk_says = ("0.0.0-dev", 1)
+        V.apk_version = lambda apk: self.apk_says
+
+    def tearDown(self):
+        V.apk_version = self._orig
+
+    def test_matching_apk_passes(self):
+        self.apk_says = ("1.0.0-rc1", 1000051)
+        self.assertEqual(V.check_apk_against_tag(Path("x.apk"), "v1.0.0-rc1"), ("1.0.0-rc1", 1000051))
+        self.assertEqual(V.check_apk_against_tag(Path("x.apk"), "1.0.0-rc1"), ("1.0.0-rc1", 1000051))
+
+    def test_untagged_stamp_fails_on_a_tag_job(self):
+        # resolve() without GITHUB_REF would agree with this APK; the direct check must not.
+        self.apk_says = V.untagged()
+        with self.assertRaises(V.VersionError) as e:
+            V.check_apk_against_tag(Path("x.apk"), "v1.0.0-rc1")
+        self.assertIn("does not match the tag v1.0.0-rc1", str(e.exception))
+
+    def test_wrong_code_fails(self):
+        self.apk_says = ("1.0.0-rc1", 1)
+        with self.assertRaises(V.VersionError):
+            V.check_apk_against_tag(Path("x.apk"), "v1.0.0-rc1")
+
+    def test_ignores_env(self):
+        # Even with REFLOW_TAG pointing at the APK's version, the expected tag wins.
+        self.apk_says = ("1.0.0-rc2", 1000052)
+        old = os.environ.get("REFLOW_TAG")
+        os.environ["REFLOW_TAG"] = "v1.0.0-rc2"
+        try:
+            with self.assertRaises(V.VersionError):
+                V.check_apk_against_tag(Path("x.apk"), "v1.0.0-rc1")
+        finally:
+            if old is None:
+                os.environ.pop("REFLOW_TAG", None)
+            else:
+                os.environ["REFLOW_TAG"] = old
+
+    def test_bad_tag_fails(self):
+        with self.assertRaises(V.VersionError):
+            V.check_apk_against_tag(Path("x.apk"), "nightly")
+
+    def test_cli_expect_tag_needs_check_apk(self):
+        r = subprocess.run(
+            [sys.executable, str(HERE / "version.py"), "--expect-tag", "v1.0.0"],
+            cwd=ROOT, capture_output=True, text=True,
+        )
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("--expect-tag needs --check-apk", r.stderr)
+
+    def test_cli_empty_expect_tag_fails(self):
+        r = subprocess.run(
+            [sys.executable, str(HERE / "version.py"), "--check-apk", "x.apk", "--expect-tag", ""],
+            cwd=ROOT, capture_output=True, text=True,
+        )
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("--expect-tag is empty", r.stderr)
 
 
 class OutputAndBadging(unittest.TestCase):
