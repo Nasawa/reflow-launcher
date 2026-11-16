@@ -30,7 +30,7 @@ class UserStringsTest {
             Msg(R.string.folder_hidden_notice_file, "AGENTS.md").resolve(res))
         assertEquals("Can't replace AGENTS.md because the storage app hides .configlauncher. To fix it, choose the folder again from internal storage.",
             Msg(R.string.agent_docs_replace_hidden).resolve(res)) // #262
-        assertEquals("Can't replace AGENTS.md: a backup of your file couldn't be kept.",
+        assertEquals("Can't replace AGENTS.md because a backup of your edits couldn't be saved. Your file wasn't changed.",
             Msg(R.string.agent_docs_replace_failed).resolve(res))
         assertEquals("Your broken launcher.json was saved to .configlauncher/broken/.", Msg(R.string.broken_saved_folder).resolve(res))
         assertEquals("Turn on \"Include work apps in config\" to use this.", res.getString(R.string.work_disabled))
