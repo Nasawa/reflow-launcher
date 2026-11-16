@@ -97,6 +97,18 @@ class TimedLongPressTest {
         assertEquals(Step.CANCEL, lp().next(near, pressed = false, consumed = true, time = 1_500))
     }
 
+    @Test fun exactlyTheSlopIsStillNear() {   // ux.md: "more than 8 dp"
+        val at = Offset(108f, 100f) // exactly 8 px
+        assertEquals(Step.PASS, lp().next(at, pressed = true, time = 1_100))
+        assertEquals(Step.WAIT, lp().next(at, pressed = true, time = 1_250))
+        assertEquals(Step.TAP, lp().next(at, pressed = false, time = 1_100))
+    }
+
+    @Test fun aConsumedMoveAtTheTimeoutIsNoLongerACancel() {   // `t < menuMs`: from the timeout on, the old post-timeout rules
+        assertEquals(Step.WAIT, lp().next(near, pressed = true, consumed = true, time = 1_400))
+        assertEquals(Step.CANCEL, lp().next(near, pressed = true, consumed = true, time = 1_399))
+    }
+
     @Test fun nonDraggableTilesKeepTheOldTimeout() {   // folder children / drawer tiles: no drag, pager free until the timeout
         assertEquals(Step.PASS, lp(canDrag = false).next(near, pressed = true, time = 1_300))
         assertEquals(Step.SWIPE, lp(canDrag = false).next(far, pressed = true, time = 1_300))
