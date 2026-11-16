@@ -10,7 +10,7 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import java.io.File
 
-/** #257: release builds write a per-card "not drawn" warning and leave stored approvals alone. */
+/** #257: release builds write a per-card "not shown" warning and leave stored approvals alone. */
 class CardPlaceholderStatusTest {
     @get:Rule val tmp = TemporaryFolder()
 

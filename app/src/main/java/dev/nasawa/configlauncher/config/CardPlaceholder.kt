@@ -6,7 +6,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
 /**
- * #257 (N5): in a release build, a shown card keeps its cells but isn't drawn. Debug still shows the consent
+ * #257 (N5): in a release build, a shown card keeps its cells but isn't shown. Debug still shows the consent
  * tile and live target ([dev.nasawa.configlauncher.BuildConfig.CARDS_LIVE]). 1.1 removes the flag when #140
  * and #141 land.
  */
