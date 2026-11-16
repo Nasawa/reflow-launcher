@@ -2080,6 +2080,8 @@ builds S3-C from it.
 | `tile_off` | `Turned off` | — | R · S3 | Consent tile reason (user turned it off) |
 | `tile_update` | `Update Reflow Launcher to show this` | — | R · S3 | Tile reason: `requires` too high or unknown kind |
 | `tile_update_hint` | `This widget needs a newer Reflow Launcher. It stays in your layout file.` | — | R · S3 | Hint sheet from the tile above |
+| `tile_later_version` | `Cards arrive in a later version.` | — | R · S3 | Release-build placeholder tile line (#257). Hidden at 1×1 |
+| `tile_later_version_a11y` | `%1$s, card, %2$s` | 1 = title, or the element id; 2 = `tile_later_version` (`Cards arrive in a later version.`) | A · S3 | TalkBack for the placeholder tile. No "Double-tap to review." |
 | `tile_a11y` | `%1$s, widget, %2$s. Double-tap to review.` | 1 = name (title, or the element id, §17.2), 2 = reason in lower case (e.g. `needs your OK`) | A · S3 | Consent tile node |
 | `widget_sheet_source_file` | `Widget · from launcher.json` | — | R · S3 | Long-press item sheet subtitle |
 | `widget_action_review` | `Review` | — | R · S3 | Item sheet action and tile custom action (consent tile) |
@@ -2224,6 +2226,7 @@ to expand. Each http entry stays in full and gets its own note line under the li
 
 | Name (in code) | English | Placeholders | Stage |
 |---|---|---|---|
+| `CardPlaceholder.warning` | `%1$s: card "%2$s" isn't shown in this version of Reflow Launcher. It stays in the file.` | 1 = path (`elements[N]`), 2 = element id | S3 (release, #257) |
 | `warn_consent_pending` | `%1$s: widget "%2$s" is waiting for approval on this phone. It isn't shown until then.` | 1 = path, 2 = name (title, or the element id) | S3 |
 | `warn_consent_again` | `%1$s: widget "%2$s" asks for more access and is waiting for approval on this phone. It isn't shown until then.` | same | S3 |
 | `warn_consent_off` | `%1$s: widget "%2$s" is turned off on this phone.` | same | S3 |
@@ -2368,7 +2371,7 @@ All seven are answered in ARCHITECTURE §16 and applied above:
 | AQ-1 | ✅ `launcher.json`, schema at `schema/launcher-config.v1.schema.json` (+ `schema/examples/`) |
 | AQ-2 | ✅ Canonical reformat on every launcher write. `x-` keys kept, other unknown keys invalid, key order not preserved. Reloads never write |
 | AQ-3 | ✅ Errors reject the whole file (last working layout kept, B2). Grid 2–12 × 2–12 |
-| AQ-4 | ✅ Temp write + verify, then `"wt"` write + verify, restore on failure. No SAF rename relied on |
+| AQ-4 | ✅ Temp write + verify, then `"wt"` write + verify, restore on failure. No SAF rename relied on. Normally `.configlauncher/launcher.json.tmp`; when that folder can't be used, a root temp `.launcher.json.<8hex>.tmp` (or `.AGENTS.md.<8hex>.tmp`). The start sweep restores or keeps a leftover temp if it's the only valid copy (#251, #263) |
 | AQ-5 | ✅ Separate `id`, `package`, `activity`, `profile` (`personal`/`work`). Private space never written |
 | AQ-6 | ✅ Hash check before writing, replay by ID. Hash, not `revision`, is the conflict key. Since §18.2 the merge is automatic, and B6 only appears with `Ask before merging` |
 | AQ-7 | ✅ App-private `last-good.json`, survives process death and reboots, not uninstall |
