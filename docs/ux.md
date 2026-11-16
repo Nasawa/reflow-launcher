@@ -567,6 +567,17 @@ queued as an ID-based operation (`Move`, `Add`, `Remove`, `Rename`, `CreateFolde
    2. Truncate-write `launcher.json` (`"wt"`), and read it back to verify.
    3. On failure, restore `launcher.json` from the temp copy. If that also fails → banner B5 with `Retry`. The edit stays
       on screen and in the app's last working copy.
+   4. **Leftover temps on start** (#251, #263, #274). A save the app was stopped in the middle of leaves its temp. The
+      next start restores the file from a journaled temp when the file is empty or a prefix of it, then deletes the
+      temp. When it can't, the temp is kept and one ▲ line is added to the problem banner's Warnings list (and
+      `status.json`):
+      - `Couldn't finish saving <file> after the app was stopped: the new version is kept in <temp>. Copy it over <file> to keep your last edit.`
+      - `launcher.json has problems, and the app was stopped while saving it: your last edit on the phone is kept in <temp>.`
+      - `An older version of the app left .configlauncher/<file>.tmp, which doesn't match <file>. It's kept in case it's your only copy; delete it once you don't need it.`
+        (A fixed-name temp from a pre-#274 build has no recorded hash, so the app never restores from it and never
+        treats it as outdated: your current file always wins. It's deleted silently only when it's empty, identical
+        to the file, or an unedited shipped `AGENTS.md`.)
+      `<temp>` is the temp's name, with `.configlauncher/` in front for a temp in that folder.
 5. Remember the hash, so our own write never triggers a reload. Update the app-private last working copy. The previous
    version goes to app-private history (last **10**), which is recoverable in Settings → `Restore previous layout`.
 

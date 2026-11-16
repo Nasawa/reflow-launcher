@@ -115,6 +115,9 @@ internal class SafWrites(
             dirs.createScratch(dirs.ensure(rootDocId, DIR_NAME, Document.MIME_TYPE_DIR), BIN, tmpName)
         } catch (e: AccessLostException) { throw e } catch (_: IOException) { null }
         val tmp = sidecarTmp ?: dirs.createScratch(rootDocId, BIN, tmpName)
+        // #274: a fixed-name sidecar temp from a pre-#274 build that is identical to the target (or a shipped
+        // AGENTS.md) goes before the target changes; one that differs is kept, as on start.
+        if (sidecarTmp != null) runCatching { sweepSidecarDir(rootDocId, only = name, legacyOnly = true) }
         var keepTmp = false
         try {
             // Journaled inside the try, so a journal that can't be written still gets the temp deleted (finally).
@@ -152,12 +155,8 @@ internal class SafWrites(
             else if (runCatching { tree.delete(tmp) }.getOrDefault(false)) runCatching { journal.remove(treeKey, tmp) }
             // A failed delete stays in the journal for the next start's sweep.
         }
-        // Saved through `.configlauncher`: an exact-name root temp from a 7803222 build is no longer needed, and a
-        // fixed-name sidecar temp from a pre-#274 build is settled by the same rules as on start.
-        if (sidecarTmp != null) {
-            runCatching { sweepLegacy(rootDocId, name) }
-            runCatching { sweepSidecarDir(rootDocId, only = name) }
-        }
+        // Saved through `.configlauncher`: an exact-name root temp from a 7803222 build is no longer needed.
+        if (sidecarTmp != null) runCatching { sweepLegacy(rootDocId, name) }
     }
 
     /**
@@ -184,8 +183,9 @@ internal class SafWrites(
      * Then `.configlauncher/` itself is listed (only if the root listing shows it; it's never created here):
      * - an unjournaled `.<name>.<8 hex>.tmp` that is still empty (a kill between create and journal write) is deleted;
      *   one with bytes is left alone (it may be a temp a failed save kept and named as the only copy);
-     * - a fixed-name `launcher.json.tmp` / `AGENTS.md.tmp` from a pre-#274 build (or its ` (N)` copy) is settled by
-     *   [settleLegacySidecar].
+     * - a fixed-name `launcher.json.tmp` / `AGENTS.md.tmp` from a pre-#274 build (or its ` (N)` copy) is never restored
+     *   from; it's deleted only when empty, identical to the target or a shipped AGENTS.md, else kept with a ▲ line
+     *   ([settleLegacySidecar]).
      */
     fun sweepRootTemps(rootDocId: String): List<String> = synchronized(lock) {
         val warnings = mutableListOf<String>()
@@ -246,7 +246,7 @@ internal class SafWrites(
     }.getOrDefault(false)
 
     /** #274: the listing part of the start sweep for `.configlauncher/` (see [sweepRootTemps]); [only]: one target. */
-    private fun sweepSidecarDir(rootDocId: String, only: String? = null): List<String> {
+    private fun sweepSidecarDir(rootDocId: String, only: String? = null, legacyOnly: Boolean = false): List<String> {
         val dir = tree.list(rootDocId)[DIR_NAME]?.takeIf { it.mime == Document.MIME_TYPE_DIR } ?: return emptyList()
         val journaled = journal.list(treeKey).toSet()
         val warnings = mutableListOf<String>()
@@ -255,7 +255,7 @@ internal class SafWrites(
             try {
                 val target = tempTarget(n)
                 if (target != null) {
-                    if (only != null && target != only) continue
+                    if (legacyOnly || (only != null && target != only)) continue
                     val info = tree.info(c.docId) ?: continue
                     if (info.mime != Document.MIME_TYPE_DIR && info.size == 0L && tree.read(c.docId)?.isEmpty() == true) tree.delete(c.docId)
                     continue
@@ -270,43 +270,25 @@ internal class SafWrites(
 
     /**
      * #274: a fixed-name `.configlauncher/<name>.tmp` (or a provider's ` (N)` copy of it) left by a pre-#274 build.
-     * Those builds staged every save there and never deleted it, and wrote no hash anywhere, so it holds the bytes of
-     * the last save that got as far as the temp. It's deleted only when it can't be the only copy of anything:
-     * - it's empty, or byte-identical to the target: deleted;
-     * - the target is empty or a strict prefix of it and it looks complete (launcher.json parses, AGENTS.md is
-     *   non-empty): a save was killed mid target write, so the target is restored from it, verified, and only then is
-     *   it deleted; a failed restore keeps it with a Warnings line;
-     * - the target is there, non-empty and not a prefix (and, for launcher.json, parses): the target was saved or
-     *   edited since, so this is a superseded copy those builds would have overwritten on the next save: deleted
-     *   (the same rule the #263 sweep applies to a journaled temp);
-     * - an AGENTS.md copy that is exactly a shipped template ([AgentDocs.SHIPPED_SHA256]): the app can write it again
-     *   (Add agent instructions), so it's deleted even when AGENTS.md is gone (the user deleted it; never re-created);
-     * - anything else (the target is missing, or launcher.json doesn't parse, or the copy looks incomplete): kept,
-     *   with a Warnings line naming it, and settled on a later start once that changes.
-     * Never a folder.
+     * Those builds staged every save there, never deleted it and recorded no hash, so nothing says whether it is a
+     * complete copy, a torn one, or an older version the user has since shortened or edited (Grace, #276 NO-GO at
+     * 5fa0299). The user's current file always wins: it is never restored from, for either file, even when the target
+     * is empty, missing or invalid, and it is never deleted as "outdated". It's deleted only when that loses nothing:
+     * - it's empty;
+     * - it's byte-identical to the target;
+     * - (AGENTS.md only) it's byte-identical to a shipped template ([AgentDocs.SHIPPED_SHA256]): the app can write that
+     *   again (Add agent instructions); a deleted AGENTS.md is still never re-created.
+     * Anything else is kept, with a Warnings (▲) line naming it, every start until the user deletes it (or it comes to
+     * match the target). Never a folder. Journaled temps don't come here ([sweepOne], #263 rules).
      */
     private fun settleLegacySidecar(rootDocId: String, id: String, tmpName: String, target: String): String? {
         val info = tree.info(id) ?: return null
         if (info.mime == Document.MIME_TYPE_DIR) return null
         val temp = tree.read(id) ?: return null
-        val shown = "$DIR_NAME/$tmpName"
-        val doc = tree.list(rootDocId)[target]?.takeIf { it.mime != Document.MIME_TYPE_DIR }
-        val current = doc?.let { tree.read(it.docId) }
-        val keep = "An older version of the app left $shown, which doesn't match $target. It's kept in case it's your only copy; delete it once you don't need it."
-        val delete = when {
-            temp.isEmpty() -> true
-            current != null && current.contentEquals(temp) -> true
-            current != null && (current.isEmpty() || temp.startsWith(current)) -> {
-                if (!looksComplete(target, temp)) return keep
-                val restored = runCatching { tree.write(doc!!.docId, temp); tree.read(doc.docId)?.contentEquals(temp) == true }.getOrDefault(false)
-                if (!restored) return "Couldn't finish saving $target after the app was stopped: the new version is kept in $shown. Copy it over $target to keep your last edit."
-                true
-            }
-            current != null && (target != SafSource.FILE || ConfigCodec.decode(current) is ParseResult.Ok) -> true
-            target == AgentDocs.NAME && ConfigCodec.sha256(temp) in AgentDocs.SHIPPED_SHA256 -> true
-            else -> false
-        }
-        if (!delete) return keep
+        val current = tree.list(rootDocId)[target]?.takeIf { it.mime != Document.MIME_TYPE_DIR }?.let { tree.read(it.docId) }
+        val delete = temp.isEmpty() || (current != null && current.contentEquals(temp)) ||
+            (target == AgentDocs.NAME && ConfigCodec.sha256(temp) in AgentDocs.SHIPPED_SHA256)
+        if (!delete) return legacyKeptWarning(tmpName, target)
         tree.delete(id)
         return null
     }
@@ -323,6 +305,9 @@ internal class SafWrites(
         private val LEGACY_SIDECAR = Regex("""(launcher\.json|AGENTS\.md)(?: \(\d+\))?\.tmp(?: \(\d+\))?""")
         /** The root file a pre-#274 sidecar temp named [displayName] belongs to, or null. */
         fun legacySidecarTarget(displayName: String): String? = LEGACY_SIDECAR.matchEntire(displayName)?.groupValues?.get(1)
+        /** #274: the ▲ line for a kept pre-#274 sidecar temp (ux.md §4.3, AQ-4). */
+        fun legacyKeptWarning(tmpName: String, target: String) =
+            "An older version of the app left $DIR_NAME/$tmpName, which doesn't match $target. It's kept in case it's your only copy; delete it once you don't need it."
         /** #262: starts in a row a journaled temp may fail to settle before its entry (never the file) is dropped. */
         const val MAX_STRIKES = 5
         /** The root files that go through [writeVerified] (launcher.json, AGENTS.md). */
