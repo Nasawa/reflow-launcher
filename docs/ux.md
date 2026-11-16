@@ -526,7 +526,14 @@ size, with no special case. Font 2.0 on the open fold ellipsizes labels to about
 ## 4. Edit mode and drag
 
 ### 4.1 Entering and leaving
-- Enter: `Edit layout` from any long-press menu, or long-press and **drag** an item (drag starts after 300 ms + 8 dp of movement).
+- Enter: `Edit layout` from any long-press menu, or hold and **drag** an item (#280). A drag starts when the finger
+  moves more than 8 dp after a short hold: **half the system long-press timeout** (200 ms at the default 400 ms; it
+  scales with the user's touch-and-hold delay). A haptic tick (`HapticFeedbackType.LongPress`, per the system
+  touch-feedback setting) marks the start (#281). Tap, item sheet and pager stay apart:
+  - moved past 8 dp **before** the hold → page swipe or swipe-up, never a drag or a sheet;
+  - moved past 8 dp **after** the hold → drag (from then on the gesture is the tile's; the pager can't take it);
+  - released without moving 8 dp → **tap** before the long-press timeout (even after the hold), **item sheet** at or after it.
+  Drawer tiles, folder children and other tiles that can't drag keep the full timeout: no early hold.
 - On screen: a top bar replaces the banner slot: `Editing layout` on the left, **`Done`** button on the right. Every
   cell shows a faint outline (white 16 %), so empty cells are visible. No jiggle animation (§12 reduced motion).
 - Leave: `Done`, Back, Home, or 30 s with no interaction.

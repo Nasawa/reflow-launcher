@@ -417,17 +417,17 @@ Report anything that differs, with a screenshot.
 
 | ID | Case | Expected | Auto |
 |---|---|---|---|
-| LP-1 | Tap a home app, shortcut or dock tile (< long-press timeout). | Launches. No sheet. | R `LongPressGestureTest.tapLaunches` |
-| LP-2 | Stationary long-press (≥ `ViewConfiguration.longPressTimeout`, ~400–500 ms; jitter < 8 dp), release. | Item sheet opens with the **real app name and package** (even with a `label` override, A§15 #11), `Edit layout`, `App info`, `Remove from home`. **Nothing launches** on release. | R `longPressDoesNotLaunch`, E `scripts/longpress-smoke.sh` |
+| LP-1 | Tap a home app, shortcut or dock tile (< long-press timeout, including a still hold past the #280 drag hold). | Launches. No sheet. | R `LongPressGestureTest.tapLaunches`, `DragStartTest.releaseBetweenTheHoldAndTheTimeoutIsStillATap` |
+| LP-2 | Stationary long-press (≥ `ViewConfiguration.longPressTimeout`, ~400–500 ms; jitter < 8 dp), release. | Item sheet opens with the **real app name and package** (even with a `label` override, A§15 #11), `Edit layout`, `App info`, `Remove from home`. **Nothing launches** on release. | R `longPressDoesNotLaunch`, `DragStartTest.stationaryHoldPastTheTimeoutStillOpensTheSheet`, E `scripts/longpress-smoke.sh` |
 | LP-3 | Long-press on a folder tile; on a shortcut tile. | Same item sheet (folder: label + member count; shortcut: owning app's real name/package). | R/M |
-| LP-4 | Hold then move > 8 dp (after 300 ms). | Drag starts (lifted tile), no sheet. Release on a new cell writes once. Moving back to the origin before release is still a drag, not a menu. | R (state machine) + M |
-| LP-5 | Move > 8 dp *before* the timeout. | Page swipe / scroll, neither drag nor sheet. | M |
+| LP-4 | Hold then move > 8 dp after the drag hold (#280: half `ViewConfiguration.longPressTimeout`, 200 ms at the default 400 ms). | Drag starts (lifted tile) before the long-press timeout, no sheet. Release on a new cell writes once. Moving back to the origin before release is still a drag, not a menu. Jitter < 8 dp after the hold is the tile's, so the pager can't take the gesture. | R `TimedLongPressTest`, `DragStartTest.moveAfterTheShortHoldStartsADragBeforeTheLongPressTimeout` + M (feel on hardware, #253) |
+| LP-5 | Move > 8 dp *before* the drag hold (non-draggable tiles: before the timeout). | Page swipe / scroll, neither drag nor sheet. | R `TimedLongPressTest.moveBeforeTheHoldIsASwipeNotADrag`, `DragStartTest.moveBeforeTheHoldPagesAndNeverDrags` + M |
 | LP-6 | Long-press empty grid space. | Home menu: `Edit layout`, `Reload layout`, `Settings` (app-only mode adds `Choose folder`). | E/M |
 | LP-7 | Long-press a drawer app. | `Add to home` (first free cell, page 1 onward, else a new page), `Hide` (one write), `App info`. Work apps: `Add to home` only with "Include work apps". Drawer tiles don't drag from a stationary hold. | R/E |
 | LP-8 | Long-press a folder child (open folder sheet). | Item sheet for the child; no launch. | R/M |
 | LP-9 | Long-press a private-space app (A§17 Q13). | Only the system actions (`App info`); no `Add to home`, not draggable. | M (API 35+) |
 | LP-10 | Item sheet actions: `Remove from home` (one write; folder → Undo snackbar per ux §14 R3), `App info` (opens system app details for the right user/profile), `Edit layout` (enters edit mode). | As described; one write per action. | R/M |
-| LP-11 | Haptics. | ux.md doesn't specify haptics. **Not tested**: if added, expect `HapticFeedbackType.LongPress` at the threshold only, not on tap. Noted as an open question. | — |
+| LP-11 | Haptics (#281). | One `HapticFeedbackType.LongPress` tick through `LocalHapticFeedback` when a drag starts: once per drag, none per move, none on a tap or the item sheet. The system touch-feedback setting decides whether it buzzes (default flags, never forced). | R `DragStartTest.oneLongPressHapticPerDragStart` + M (on, then touch feedback off) |
 | LP-12 | TalkBack: double-tap-and-hold on a tile; the tile node exposes `AccessibilityAction.ACTION_LONG_CLICK` **on the same merged node that carries the label**. | Opens the same sheet. The label isn't a separate focus stop without actions. | R `tileExposesLongClickAction` |
 | LP-13 | TalkBack custom actions (ux.md §12): `Move to…`, `Add to folder…`, `Move to dock`, `Remove from home`, `Hide`. | Present on every placed item; each is one write. | R (semantics `CustomActions`) |
 | LP-14 | Back / Home while a sheet or menu is open. | Back closes it; Home closes it and leaves edit mode (ux §14 R4). | M/E |

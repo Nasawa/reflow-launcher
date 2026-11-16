@@ -140,6 +140,7 @@ fun HomeScreen(vm: HomeViewModel) {
     val drag = remember { DragController({ vm.store.engine }, onCancel = { vm.store.pollNow() }, onStart = { editing = true }) { vm.store.edit(it) } }
     // #212: a refused drop springs back on this composition's frame clock (instant with reduced motion).
     drag.scope = rememberCoroutineScope(); drag.reducedMotion = { ReducedMotion.on(ctx) }
+    WireDragHaptics(drag) // #281: a tick when a drag starts, per the system touch-feedback setting
     var cloudUri by remember { mutableStateOf<android.net.Uri?>(null) }
     var onboarded by remember { mutableStateOf(vm.store.prefs.onboarded) }
     // #61: default home app. Re-checked on every resume (the user may change it in system settings).
