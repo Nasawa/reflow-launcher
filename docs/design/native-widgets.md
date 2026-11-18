@@ -1,0 +1,217 @@
+# Native widgets: hosting Android AppWidgets (design delta)
+
+**Status:** proposal, 2026-11-18. Author: Archimedes. **Docs only.** It doesn't create issues or change code.
+**Baseline:** main `7dba811` (tag `v1.0.0`).
+**Why now:** Christopher's new top priority, ahead of F-Droid and Play. Reflow needs third-party widgets (weather,
+calendar, Home Assistant, KWGT…) to be a daily driver for store users.
+
+This is a **delta**. The design itself already exists, and this doc doesn't repeat it:
+- [docs/research/widgets.md](../research/widgets.md) §5.1–§5.4: the record shape, sizing rules, the device-local
+  binding table, the bind flow, and restore options.
+- [docs/ux.md](../ux.md) §16 (Pragma, Q-W1–Q-W5): the picker, placeholder states and copy, the bind explanation,
+  resize, the out-of-range cue, sync, and Remove/Move/Undo for elements (§16.7).
+- [docs/design/dynamic-widgets.md](dynamic-widgets.md) §4 "Hosted AppWidgets": AppWidgets are **outside** the card
+  consent model. Android's bind dialog is their consent, and the review list shows them as `Allowed by Android`.
+
+Below: what main already has (§1), what changes compared with those docs (§2), how much is shared with cards (§3),
+decisions for Christopher (§4), and the issue breakdown in build order (§5).
+
+## 1. Exists vs missing on main `7dba811`
+
+| Area | On main | Missing for native widgets |
+|---|---|---|
+| Element container, grid placement block | `Elements.Placement` and `placement()` (`config/Elements.kt:25-33`). The schema base block is `$defs/element` (`schema/launcher-config.v1.schema.json:450+`). | Nothing |
+| Stage 1 cell reservation | `Elements.reserved()` (`Elements.kt:35-40`) reserves cells for shown **and** skipped elements. It's used by edits (`model/Edit.kt:240-250`) and undo merge (`model/UndoMerge.kt:53`). Strict overlap and out-of-grid checks for elements (`config/Validator.kt:157-177`, B2). | Nothing. v1.0 phones already skip an unknown `appWidget` and keep its cells free of apps. |
+| Feature levels | `FEATURE_LEVEL = 4` (`Elements.kt:20`, `scripts/validate.py:36`). Level 3 is "reserved for appWidget". Docs reserve 5 for `windowOverrides` and 6 for `net.fetch`. Neither is built. | A level for `appWidget`. **Not 3** (§2.1). |
+| `appWidget` type | None. `Elements.types` = `TitleBar`, `Card` (`Elements.kt:66`). `AppWidgetHost` is used nowhere in `app/`. | Schema, codec, `validate.py`, fixtures |
+| Host, bindings, bind flow | None. No `AppWidgetHost`/`AppWidgetHostView`/`bindAppWidgetIdIfAllowed` anywhere. No `filesDir/widgets/`. | All of it |
+| Device-local store pattern | `consent/ConsentStore.kt:17-40`: `filesDir/consent/consent.json`, temp + rename, GC of IDs that left the file after each good load. `data_extraction_rules.xml` excludes `consent/` from backup and transfer. | A twin for bindings (same pattern, separate file). `widgets/` needs the same backup exclusion. |
+| Sizing a widget host in cells | `HomeGeometry.widgetHostSizeDp` / `widgetHostOffsetDp` (`ui/HomeGeometry.kt:226-240`). They cap each span at 80 dp × 1.5 per cell and centre it. They're used by cards (`ui/HomeScreen.kt:1062-1086`). | Report that capped size to the provider (`updateAppWidgetSize` / `OPTION_APPWIDGET_SIZES`) |
+| Grid drawing of elements | `PageGrid` draws consent tiles, live targets and #257 placeholders in their cells, and counts their cells as occupied (`HomeScreen.kt:924-1086`). | A fourth list: hosted widgets and their placeholders |
+| Placeholder tile | `CardPlaceholderTile` (`ui/ConsentTile.kt:120`), `CardPlaceholder` (#257/PR #265, `config/CardPlaceholder.kt`). Release builds use it while `CARDS_LIVE=false` (`app/build.gradle.kts:77,84`). | ux.md §16.2 states (`Tap to set up`, `Not installed`, `Tap to allow`, …). Reuse the frame. |
+| Widget long-press sheet | `WidgetItemSheet` (`ConsentTile.kt:238`) with `REVIEW`, `PERMISSIONS`, `EDIT_LAYOUT` only (`consent/ConsentUi.kt:58`). Opened from `HomeScreen.kt:705-713`. | ux.md §16.7.3 actions: `Reconfigure`, `App info`, **`Remove from home`, `Move to…`, `Resize…`** (missing for cards too) |
+| Element edits | `Edit.AddElement`, `Edit.SetElement` (`Edit.kt:42-52`). | Element remove + Undo hold (ux §16.7.1), move with a span collision check (§16.7.2), resize (§16.4). **None exist for any element.** |
+| Widget picker | None. The home menu has Edit layout / Pages / Review / Reload / Settings / Wallpaper (`ui/ItemSheet.kt:97-99`). | ux §16.1 `Widgets` entry and picker |
+| Agent discovery | `apps.json` lists launchable apps (`store/AppsJson.kt`). The template `AGENTS.md:16` says "no `widget`". | A list of installed widget providers so an agent can write a correct `appWidget` (§2.4) |
+| Manifest | `<queries>` only covers `MAIN/LAUNCHER` (`AndroidManifest.xml:6-11`). `allowBackup="false"`. | A `<queries>` entry for `android.appwidget.action.APPWIDGET_UPDATE`, so `getInstalledProviders*` sees providers on Android 11+ (to verify, NW-2). No new permission: `BIND_APPWIDGET` is never requested. |
+
+**In one line:** the file side (placement, reservation, skip rules) is done. The phone side of hosting is entirely
+missing. So are the grid-element edits (remove/move/resize) that ux.md §16.7 specs for *all* elements.
+
+## 2. What changes vs the existing docs
+
+### 2.1 Feature level: `appWidget` takes **5**, not the reserved 3
+A feature level means "this app understands everything up to N". v1.0.0 shipped at **4** without `appWidget`. So
+`requires: 3` would pass the level check on v1.0 and then fall to "unknown type". Worse, an agent reading level 4
+would wrongly assume widgets work. **Ruling:** a level number is fixed when the feature *merges*, in merge order.
+Reserved numbers are proposals. **3 is retired, never used.** `appWidget` = **5**. `windowOverrides` and `net.fetch`
+(designed, not built) take the next free numbers when they land, likely 6 and 7. No shipped app knows 5 or 6, so
+renumbering them costs nothing. NW-1 updates `Elements.kt`, `validate.py`, the schema description, and the level
+mentions in ARCHITECTURE §19, layout-overrides.md §4.1/§8, dynamic-widgets.md §9 and ux.md Q-A6.
+
+**Release gate:** don't tag a release at level 5 until NW-4 (tap-to-set-up) is merged. Otherwise a level-5 phone
+shows widgets it can't bind. No build flag is needed: main isn't released per PR.
+
+### 2.2 Schema: one new element type, `schemaVersion` stays 1
+`$defs/appWidget`: grid-placed, strict keys `id, type, requires, enabled, page, x, y, w, h, content, x-*`;
+`requires` ≥ 5. `content`: `provider {package, class}` (required), `profile` (`personal` | `work`, default
+`personal`), `label` (optional, max 40; used only on the placeholder before the provider is known).
+**Change from research §5.1:** drop `style` for `appWidget` in the first release. Frame-only styling (padding,
+backdrop) has no foreseeable value worth its validator and phone UI. It can come back later as an optional key at
+the next level. Older phones (v1.0, level 4) skip it with "needs feature level 5… Update the app", and the cells stay
+reserved. This path is already shipped and tested.
+
+### 2.3 Load rules (unchanged principles, made explicit)
+- The launcher loads the file it's given. **It never rewrites positions or sizes.** A size outside the provider's
+  min/max renders anyway, with a phone-only warning (ux §16.5). `validate.py` can't know providers and says so, as it
+  does for contrast.
+- Overlap and out-of-grid stay **B2** on main, as for every element today. On a `windowOverrides` layout (when built),
+  an element that doesn't fit is **not shown there**, with a warning (layout-overrides.md §6.1). There's nothing
+  widget-specific about that.
+- A missing provider, a provider in a paused or absent work profile, or an unbound widget → a placeholder in its
+  cells. The element is kept verbatim. A file load **never** opens a system dialog.
+- **No polling.** `AppWidgetHost.startListening` runs on home `onStart` and `stopListening` on `onStop`. Providers
+  push RemoteViews. Provider install, update and removal come from the existing `LauncherApps.Callback`
+  (`apps/InstalledApps.kt:96-106`). Binding GC runs on the existing successful-load event, never on a timer.
+
+### 2.4 What agents see (new, small)
+- **`apps.json` gains `widgets[]`**, the installed providers visible to this phone (same work-profile gate as apps):
+  `{package, class, label, profile, size: {w, h}, minSize, maxSize, resize: "none"|"h"|"v"|"both", configure: "none"|"optional"|"required"}`,
+  with sizes **in cells for this phone's current main grid**. This lets an AI place a widget correctly with no picker.
+  It's one more array in an existing file, not a new file.
+- **`status.json` gains `appWidgets: {"<elementId>": "<state>"}`.** States: `bound`, `needsSetup`, `needsConfig`,
+  `notInstalled`, `paused`, `failed`. Display only, like the consent map. Never the `appWidgetId`.
+- Template `AGENTS.md` and `skills/reflow-launcher/SKILL.md` get a short `appWidget` section. A widget that the file
+  adds shows `Tap to set up` until someone taps it on the phone (or binds silently, decision D1).
+
+### 2.5 Device-local state
+`filesDir/widgets/bindings.json`: `elementId → {appWidgetId, provider, profile, state}`, kept like `ConsentStore`
+(temp + rename, GC after a stable good load, held during the Remove-Undo window per ux §16.7.1). A provider change in
+the file → delete the old ID → `needsSetup`. The `AppWidgetHost` is **app-scoped** (in `ConfigLauncherApp`), so
+activity recreation on rotate, fold or resize (no `configChanges`, `AndroidManifest.xml:19-21`) rebuilds views, not
+bindings. Add `widgets/` to both exclusions in `data_extraction_rules.xml`: a widget ID is meaningless on another
+device unless D2 is chosen.
+
+### 2.6 Superseded or dropped
+- Research §5.5 / ux §16.6 first-party `text`/`clock` widgets: **dropped from this milestone.** Cards (S3) cover
+  config-defined widgets. The picker lists only Android providers.
+- Research §6 stage table and dynamic-widgets.md §9 row 2 "level 3": superseded by §2.1.
+- Research §7 Q-C1–Q-C3 (bind policy, sync, restore) were never answered: their IDs collided with the design doc's
+  Q-C set. They're re-asked below as D1–D2.
+
+## 3. Sharing with dashboard cards (S3, #137, #140–#143)
+**Share exactly one thing: grid-element edits (NW-6).** Remove + Undo with a device-local hold, `Move to…` with a
+span collision check, the `Resize…` sheet, and drag-move of a span. ux.md §16.7 already specs these for every
+grid-placed element, none exist yet, and cards need them anyway. Building them once is clearly cheaper. The
+placeholder **frame** composable is reused too (a refactor, not a feature).
+**Don't share** rendering, consent, data files or `CARDS_LIVE`. Hosted widgets are RemoteViews in an
+`AndroidView`. Cards are Compose with a consent store. Coupling their pipelines buys nothing. S3-E/F/G stay on their
+own track and can land before or after this milestone.
+
+## 4. Decisions for Christopher
+Each has a default, so building can start before he answers. Only NW-4 waits on D1, and only for its last step.
+
+- **D1. Widgets your AI adds: automatic, or tap first?** When an AI adds a widget to the layout file, Android may
+  already trust Reflow for that app (you ticked "Always allow" once). Should Reflow then show the widget right away,
+  or always show a "Tap to set up" box until you tap it on each phone? *Recommended: show it automatically when
+  Android already allows it and the widget needs no setup screen. Otherwise use "Tap to set up".* Why: it's the
+  AI-managed goal with zero pop-ups. A file can never trigger a system dialog either way.
+- **D2. New phone: do you move with Smart Switch or Google restore?** If yes, Reflow could try to bring widgets back
+  set up (only when the widget's app also restores its data, and fiddly on Samsung). If not, after a phone move every
+  widget shows "Tap to set up" once, and layout and positions come back from your file. *Recommended: no restore
+  support. One tap per widget.* Why: it's a lot of code and Samsung-specific testing for a once-every-few-years
+  event, and Lawnchair and Nova don't fully manage it either.
+- **D3. Work-profile widgets in the first release?** Only matters if you use an Android work profile (Samsung Secure
+  Folder doesn't count). *Recommended: personal widgets only at first. Work widgets show "Work widgets aren't
+  supported yet" and keep their place.* Why: it needs a work profile on a test phone and adds paused/unpaused states.
+  It's easy to add later.
+- **D4. Resizing on the phone: drag handles, or a size menu first?** Launcher-style corner handles feel native but
+  are the fiddliest part to get right on real screens. A long-press → `Resize…` menu with width/height − / + buttons
+  works today for touch and TalkBack. *Recommended: the `Resize…` menu in the first release, drag handles as a
+  follow-up (NW-8).* Why: your AI sets sizes in the file anyway, and the menu is needed for accessibility regardless.
+
+## 5. Issue breakdown (build order)
+Prefix `NW-` (native widgets). **Device:** **E** means an emulator or JVM covers it. **R** means it must also run on
+a real device (A51/A53 = One UI; onn = near-stock tablet). No foldable is needed: fold/hinge cases are covered by
+the existing emulator matrix (and the hinge check stays waived).
+
+**NW-1. `appWidget` schema at feature level 5 (no host yet).** *Schema change: yes. New element type, level 5,
+`schemaVersion` 1.*
+Scope: `$defs/appWidget`; `config/AppWidget.kt` `ElementType` (strict keys per §2.2); `validate.py` mirror and level 5;
+fixtures (valid, provider missing class, `style` rejected, `requires: 4` rejected); renumber level mentions (§2.1);
+template `AGENTS.md`/skill section.
+Acceptance: phone and `validate.py` agree on every fixture. A v1.0.0 APK loading a level-5 widget file skips it with
+the "Update the app" warning and keeps the cells (no B2). Write-back round-trips the element verbatim.
+Grace: run `test_validate.py` plus a fixture parity run. Install v1.0.0 and load a file with an `appWidget`, then try
+to drop an app on its cells. **E.**
+
+**NW-2. Widget host and device-local bindings.**
+Scope: app-scoped `AppWidgetHost` (fixed host ID), start/stop with home visibility; `widgets/bindings.json` store
+(ConsentStore pattern); GC after a stable good load; Undo-hold API for NW-6; provider lookup per profile; manifest
+`<queries>` for `APPWIDGET_UPDATE`; `data_extraction_rules` exclusion.
+Acceptance: unit tests for the store (load/save/GC/hold/provider change). A provider is visible via
+`getInstalledProvidersForProfile` on API 30+ with no `QUERY_ALL_PACKAGES`. Bindings survive process death and
+rotation. A bad file (B2) never deletes a binding. Removing an element from the file frees its ID only after the
+next stable load.
+Grace: JVM tests; emulator API 29 + 35 provider listing; `adb shell dumpsys appwidget` shows our host and
+no orphan IDs after a remove and reload. **E**, plus one **R** listing check on the A53 (One UI hides some providers).
+
+**NW-3. Render hosted widgets and placeholders.**
+Scope: `AppWidgetHostView` via `AndroidView` in `PageGrid` cells, using `widgetHostSizeDp` and reporting sizes; ux
+§16.2 placeholder states on the shared frame; long-press on a live widget opens the widget sheet (intercept like
+Launcher3's long-press helper); the pager swipe must not fight scrollable widgets; `status.json` `appWidgets` map;
+§16.5 out-of-range cue and warning; `Not installed` from `LauncherApps.Callback`.
+Acceptance: a bound widget draws at the right size on phone and tablet grids and updates without polling.
+Uninstalling or reinstalling the provider flips the state live. Long-press always opens the sheet, never the widget's
+own click. A horizontal swipe on a non-scrolling widget changes page. Placeholders announce
+`<Label>, widget, <reason>` in TalkBack.
+Grace: emulator with AOSP Clock/Calendar widgets plus the screen matrix (phone, t7, t10, land). **R** on the A53 and
+onn: Google Calendar (scrolling list), Samsung Weather or Google weather, a KWGT widget, HA companion if installed.
+Check long-press vs tap vs swipe, and rotation.
+
+**NW-4. Tap to set up: bind and configure.** *Waits on D1 for the silent-bind step only.*
+Scope: placeholder tap → `bindAppWidgetIdIfAllowed` → explanation sheet once per package (ux §16.3) →
+`ACTION_APPWIDGET_BIND` → required configure activity → bound. Cancel paths (`Tap to allow`, `Tap to finish setup`,
+`deleteAppWidgetId`). `Reconfigure` in the sheet. Binds only while home is resumed. D1 default: silent bind on load
+when allowed and no required configure, never any dialog from a load.
+Acceptance: every §16.2 transition is reachable and reversible. Cancelling never leaks an ID (checked with
+`dumpsys appwidget`). An agent adding six widgets causes zero dialogs. The first widget from a package shows the
+explanation once.
+Grace: emulator for the state machine (AOSP providers with and without configure). **R** on the A53 (Samsung's bind
+dialog, "Always allow", Samsung or Google configure screens, e.g. Calendar account pick) and the onn.
+
+**NW-5. Widget picker and `apps.json` providers.**
+Scope: home long-press `Widgets` (+ edit-mode `+ Widget`) → picker per ux §16.1 (grouped by app, search, previews,
+size chip). Placing at the first free rectangle takes one `AddElement` write, then the NW-4 flow. `apps.json`
+`widgets[]` per §2.4.
+Acceptance: picking a provider writes exactly one element with provider/page/x/y/w/h and default size from
+`targetCell*` (else rounded `minWidth/minHeight`). No room on a page → next page → new page (cap 20). `apps.json`
+sizes match what the picker would place.
+Grace: emulator plus unit tests for size-to-cells and free-rectangle search on the screen-matrix grids. **R**: open
+the picker on the A53 with ~50 providers (scroll performance, preview images) and add 3 widgets end to end.
+
+**NW-6. Grid-element edits (shared with cards).**
+Scope: ux §16.7.1 `Remove from home` + Undo with the device-local hold (bindings *and* consent), §16.7.2 `Move to…`
+for spans, §16.4 `Resize…` sheet (steppers bounded by provider min/max for widgets, by `minSpan`/layouts for cards,
+and by free cells), and edit-mode drag-move of a span. Sheet actions per §16.7.3. New `Edit` ops replay by ID at
+write time.
+Acceptance: each action is one write that changes only that element's keys. Undo restores a widget with no rebind and
+a card with no re-prompt. A collision at write time → `move_element_taken`, no write. TalkBack custom actions match
+§16.7.3.
+Grace: JVM `Edits`/replay tests; emulator for sheets and TalkBack. **R** drag-move of a 4×2 widget on the A51/A53
+(the same hands-on check style as #253).
+
+**NW-7. Release QA pass for native widgets.**
+Scope: Grace's matrix on a signed release APK. Reboot; launcher update over v1.0.0 (cells were reserved, now live);
+reinstall (everything → `Tap to set up`, positions intact); provider update and uninstall; tablet vs phone sizes from
+one file; battery sanity (no wakeups while home is hidden).
+Acceptance: no lost or orphaned IDs after each scenario (`dumpsys appwidget`); no file write from any bind,
+configure or load; the release notes list known gaps (D2/D3/D4 per answers).
+Grace: **R** on the A51, A53 and onn; emulator for the API spread (29, 31, 35).
+
+**Follow-ups, not in the milestone unless the decisions say so:** NW-8 drag-resize handles (D4); NW-9 work-profile
+widgets (D3); NW-10 system-restore remap via `ACTION_APPWIDGET_HOST_RESTORED` (D2); optional frame `style` for
+`appWidget` (next level).
+
+**Critical path for "daily driver":** NW-1 → NW-2 → NW-3 → NW-4 → NW-5 → NW-7. NW-6 can run in parallel after NW-2,
+and it also unblocks cards.
