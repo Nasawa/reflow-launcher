@@ -22,6 +22,8 @@ class ConfigEngineFaultTest {
         var readFails: Exception? = null
         var writeFails: Exception? = null
         var writes = 0
+        /** #317: runs once at the start of the next write(), before its hash re-check: another writer lands then. */
+        var beforeWrite: (() -> Unit)? = null
         /** Called after each stamp(); lets a test change the file between the read and the stability re-check. */
         var onStamp: (Int) -> Unit = {}
         private var stamps = 0
@@ -38,8 +40,10 @@ class ConfigEngineFaultTest {
             if (c.size > maxBytes) throw IOException("larger than cap")
             return c
         }
-        override fun write(bytes: ByteArray) {
+        override fun write(bytes: ByteArray, expectHash: String?) {
             writeFails?.let { throw it }
+            beforeWrite?.let { beforeWrite = null; it() }
+            requireUnchanged(expectHash, content)
             writes++; content = bytes; mtime++
         }
         val sidecars = mutableMapOf<String, ByteArray>()
@@ -201,6 +205,37 @@ class ConfigEngineFaultTest {
         assertTrue(e.retrySave())
         val out = String(src.content!!)
         assertTrue(out.contains("z.z") && out.contains("\"x\": 2"))
+        assertNull(e.state.value.issue)
+    }
+
+    // ---- #317: an external write between the flush's read and its write ----
+
+    private fun two(rev: Int, second: String) =
+        """{"schemaVersion":1,"revision":$rev,"pages":[{"id":"home","items":[{"id":"a","type":"app","package":"a.b","x":0,"y":0},{"id":"$second","type":"app","package":"c.d","x":1,"y":0}]}]}"""
+
+    @Test fun fileChangedBetweenFlushReadAndWriteIsMergedNotOverwritten() = runBlocking {
+        val src = FakeSource().apply { put(two(1, "keep")) }
+        val e = engine(src); e.poll()
+        assertTrue(e.edit(dev.nasawa.configlauncher.model.Edit.Remove("a")))
+        src.beforeWrite = { src.put(two(9, "agent")) }
+        assertTrue(e.flush())
+        val ids = (dev.nasawa.configlauncher.config.ConfigCodec.decode(src.content!!) as dev.nasawa.configlauncher.config.ParseResult.Ok)
+            .config.pages.single().items.map { it.id }
+        assertEquals(listOf("agent"), ids)
+        assertEquals(10L, e.state.value.config.revision)
+        assertEquals("one raced attempt, one merged write", 1, src.writes)
+    }
+
+    @Test fun undoMergeIsCancelledWhenTheFileChangesDuringItsWrite() = runBlocking {
+        val src = FakeSource().apply { put(two(1, "keep")) }
+        val e = engine(src); e.poll()
+        e.edit(dev.nasawa.configlauncher.model.Edit.Remove("a"))
+        src.put(two(5, "agent"))
+        assertTrue(e.flush()); assertTrue(e.state.value.mergeUndo)
+        src.beforeWrite = { src.put(two(7, "agent2")) }
+        assertFalse(e.undoMerge())
+        assertEquals(two(7, "agent2"), String(src.content!!))
+        assertFalse(e.state.value.mergeUndo)
         assertNull(e.state.value.issue)
     }
 }

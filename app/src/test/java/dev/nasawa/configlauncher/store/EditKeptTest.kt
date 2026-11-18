@@ -67,7 +67,13 @@ class EditKeptTest {
     /** launcher.json in app storage whose next [failNext] writes throw (B5), like a provider that's offline. */
     private class Flaky(val inner: LocalFileSource) : ConfigSource by inner {
         var failNext = 0
-        override fun write(bytes: ByteArray) { if (failNext > 0) { failNext--; throw java.io.IOException("provider offline") }; inner.write(bytes) }
+        /** #318: runs once at the start of the next write, before the source's re-check: another writer lands then. */
+        var beforeWrite: (() -> Unit)? = null
+        override fun write(bytes: ByteArray, expectHash: String?) {
+            if (failNext > 0) { failNext--; throw java.io.IOException("provider offline") }
+            beforeWrite?.let { beforeWrite = null; it() }
+            inner.write(bytes, expectHash)
+        }
     }
 
     private class FakeHost(vararg ids: Int) : dev.nasawa.configlauncher.hosted.WidgetBindings.Host {
@@ -126,6 +132,44 @@ class EditKeptTest {
         assertTrue(bindings.isAside("w-a"))
         undo.release(removed)
         assertEquals(listOf(55), host.deleted)
+    }
+
+    /** Engine + [WidgetBindings] + [ElementUndo] as HomeScreen wires them, on [src]. */
+    private class Wired(val e: ConfigEngine, val bindings: dev.nasawa.configlauncher.hosted.WidgetBindings, val host: FakeHost, val undo: dev.nasawa.configlauncher.ui.ElementUndo)
+    private fun wired(src: ConfigSource): Wired {
+        val host = FakeHost(55)
+        val bindings = dev.nasawa.configlauncher.hosted.WidgetBindings(tmp.newFolder(), host)
+        bindings.put("w-a", dev.nasawa.configlauncher.hosted.WidgetBindings.Binding(55,
+            dev.nasawa.configlauncher.hosted.WidgetBindings.Provider("com.example", ".W"), "personal", dev.nasawa.configlauncher.hosted.WidgetBindings.State.BOUND))
+        val e = ConfigEngine(src, LastGoodStore(tmp.newFolder()), stabilityMs = 0, bindings = bindings)
+        runBlocking { e.poll() }
+        val hold = object : dev.nasawa.configlauncher.ui.ElementUndo.Hold {
+            override fun hold(id: String) = bindings.hold(id); override fun restore(id: String) = bindings.restore(id)
+            override fun release(id: String) = bindings.release(id); override fun setAside(id: String) = bindings.setAside(id)
+        }
+        val undo = dev.nasawa.configlauncher.ui.ElementUndo({ e.state.value.config }, { ed -> runBlocking { e.edit(ed).also { e.flush() } } }, listOf(hold)) { ed, onKept, onUnkept ->
+            e.editKept(ed, onUnkept, onKept)
+        }
+        return Wired(e, bindings, host, undo)
+    }
+
+    @Test fun anAgentWriteRacingTheUndoWriteSetsTheBindingAsideBeforeTheMergeSkipsIt() = runBlocking {
+        // #318 × #319: the Undo's write runs onKept (ID 55 back), then the source's re-check sees the agent's re-add
+        // (ConcurrentChangeException). The engine merges onto the agent's file, which skips the Restore: 55 must be
+        // aside again by then, never settled onto the agent's w-a.
+        val inner = LocalFileSource(tmp.newFolder()); inner.file.writeText(doc(1, el)); inner.file.setLastModified(1000)
+        val src = Flaky(inner)
+        val w = wired(src)
+        val removed = w.undo.remove("w-a")!!
+        assertTrue(w.bindings.isAside("w-a"))
+        src.beforeWrite = { inner.file.writeText(doc(7, agentEl)); inner.file.setLastModified(5000) }
+        assertEquals(dev.nasawa.configlauncher.ui.ElementUndo.Undone.Back, w.undo.undo(removed))
+        assertEquals("the agent's file, merged", 2 to 2, onDisk(inner).elements!!.single().let(::pos))
+        assertNull("the agent's element never gets the old ID", w.bindings.binding("w-a"))
+        assertTrue(w.bindings.isAside("w-a"))
+        assertNull(w.e.state.value.issue)
+        w.undo.release(removed)
+        assertEquals(listOf(55), w.host.deleted)
     }
 
     @Test fun useFileDropsAWaitingUndo() = runBlocking {

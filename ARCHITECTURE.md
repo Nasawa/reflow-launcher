@@ -87,7 +87,7 @@ Triggered by drag-drop, add-to-home, remove, rename, folder create/merge, and th
 1. The UI applies the mutation to the in-memory model immediately (optimistic) and records it as an `Edit` (op + target IDs) in a pending queue, together with the **base hash** (hash of the file version the model was derived from).
 2. **Debounce:** 750 ms after the last edit, and never during an active drag gesture (the drag end starts the timer). A burst of rearranging becomes one write.
 3. Before writing, re-read the file and compare its hash to the base hash. Different → conflict path (§6).
-4. Serialize canonically, bump `revision`, compute SHA-256, add it to the **self-write set** (last 4 hashes), then write.
+4. Serialize canonically, bump `revision`, compute SHA-256, add it to the **self-write set** (last 4 hashes), then write. The write carries the hash step 3 saw and checks it again right before the target is replaced (#317, below).
 5. When the poller next sees the file, a hash in the self-write set is swallowed (no reload, no flicker). If the file shows a hash that is neither ours nor base, it is an external edit.
 
 **Atomic writes under SAF: the provider limits.**
@@ -100,6 +100,12 @@ Triggered by drag-drop, add-to-home, remove, rename, folder create/merge, and th
 2. Write the same bytes to `launcher.json` with `"wt"`, flush, close, and read back to verify the hash.
 3. If step 2 fails or verification fails, restore from the temp copy with `"wt"`; if that also fails, banner "Couldn't save layout" with Retry, and the in-memory model plus `last-good.json` keep the user's edit.
 4. Update `last-good.json` after verification.
+
+**Writes that land during a save (#317).** Step 3's check and the write are not one operation, and a save on a slow provider takes seconds, so an agent's write can land in between. Neither SAF nor plain files offer compare-and-swap, so the save narrows the gap instead:
+- Every launcher.json write passes the hash the engine decided on (`ConfigSource.write(bytes, expectHash)`; `ABSENT` when there was no file). SAF (`SafWrites`) re-reads the target right after the temp is staged and verified, immediately before the `"wt"` write; app storage re-reads it right before the rename. A different file stops the save before the target is touched (`ConcurrentChangeException`), and the temp is deleted.
+- After the `"wt"` write, a read-back that is neither our bytes, a torn prefix of them, nor the original is another writer's: it's kept (never "restored" over) and the save stops the same way.
+- The engine then starts over from the file as it is now, which differs from the base, so it auto-merges (§18.2, or B6 with `Ask before merging`; `Keep mine` replays again). Our hash leaves the self-write set, status.json is only written for bytes that are the file, and after 3 raced attempts in a row the save ends in B5 with the edit still pending. An Undo whose write races is cancelled; Move layout rolls back.
+- **What's left:** a write landing between that last re-read and the provider opening the target with `"wt"` (one provider call), or one that starts and ends while ours is being written so that ours overwrites it completely, is still not seen. Agents that write, then read status.json, see a hash that isn't their file's and should write again.
 
 The window where another reader could see a half-written `launcher.json` is the duration of one small write (typically < 50 KB, < 10 ms on local storage). Readers on the agent side should treat a parse failure as "retry in a second", which the README will say. If a provider advertises `FLAG_SUPPORTS_RENAME` and we are on local `ExternalStorageProvider`, a future optimization could use rename-based replacement, but v1 keeps one code path.
 

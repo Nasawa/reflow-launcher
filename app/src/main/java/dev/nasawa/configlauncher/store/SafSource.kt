@@ -94,7 +94,7 @@ class SafSource(private val resolver: ContentResolver, val treeUri: Uri, private
     override fun takeNewlySuppressed() = dirs.takeNew()
     override fun clearSuppression() = SafDirs.clearTree(treeUri.toString())
 
-    override fun write(bytes: ByteArray) = writeVerified(FILE, "application/json", bytes, "layout")
+    override fun write(bytes: ByteArray, expectHash: String?) = writes.writeVerified(rootDocId, FILE, "application/json", bytes, "layout", expectHash)
 
     override fun readRoot(name: String, maxBytes: Int): ByteArray? {
         val child = children(rootDocId)[name] ?: return null
