@@ -110,6 +110,18 @@ fun ConsentTile(tile: ConsentUi.Tile, onReview: () -> Unit, modifier: Modifier =
 }
 
 /**
+ * The shared placeholder frame (ux.md §16.2, §17.3): 2 dp inset, rounded 12 dp, white 12 % fill, dashed outline.
+ * Used by the card stand-in (#257) and hosted-widget placeholders (#300).
+ */
+internal fun Modifier.placeholderFrame(outline: Color = Color(0x66FFFFFF)): Modifier = padding(2.dp)
+    .background(Color(0x1FFFFFFF), RoundedCornerShape(12.dp))
+    .drawBehind {
+        val r = 12.dp.toPx()
+        drawRoundRect(outline, cornerRadius = CornerRadius(r, r),
+            style = Stroke(width = 1.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(4.dp.toPx(), 3.dp.toPx()))))
+    }
+
+/**
  * #257: release-build stand-in for a shown card (ux.md §17.3 frame). Plain and non-interactive: no approval
  * prompt, no long-press sheet. TalkBack reads the title (or id) and the later-version line. Title is hidden
  * at 1×1 or 2×1, and the later-version line at 1×1, matching [ConsentTile]; TalkBack still speaks both.
@@ -125,13 +137,7 @@ fun CardPlaceholderTile(tile: CardPlaceholder.Tile, modifier: Modifier = Modifie
     val focus = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
     val focused by focus.collectIsFocusedAsState()
     Box(
-        modifier.fillMaxSize().padding(2.dp)
-            .background(Color(0x1FFFFFFF), RoundedCornerShape(12.dp))
-            .drawBehind {
-                val r = 12.dp.toPx()
-                drawRoundRect(outline, cornerRadius = CornerRadius(r, r),
-                    style = Stroke(width = 1.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(4.dp.toPx(), 3.dp.toPx()))))
-            }
+        modifier.fillMaxSize().placeholderFrame(outline)
             .then(if (focused) Modifier.focusRing() else Modifier)
             .focusable(interactionSource = focus)
             .clearAndSetSemantics { contentDescription = said }

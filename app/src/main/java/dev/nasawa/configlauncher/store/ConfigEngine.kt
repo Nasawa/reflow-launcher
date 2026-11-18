@@ -123,6 +123,15 @@ class ConfigEngine(
     private var mergedHash: String? = null
     private var undoTouched: List<dev.nasawa.configlauncher.model.UndoMerge.Touched> = emptyList()
 
+    /** #300: hosted-widget states and phone-only size warnings for status.json; null in tests that don't need them. */
+    @Volatile var appWidgets: dev.nasawa.configlauncher.hosted.AppWidgetStatus? = null
+
+    /** #300: a provider was installed or removed, a binding changed or the grid's cell size changed: refresh status.json. */
+    suspend fun appWidgetsChanged() = mutex.withLock { emitStatus() }
+
+    /** #300 debug builds: a `.configlauncher/` sidecar for the hands-on session. Best effort. */
+    suspend fun writeDebugSidecar(name: String, bytes: ByteArray) = mutex.withLock { runCatching { source.writeSidecar("", name, bytes) } }
+
     /** While true (drag in progress) inbound reloads are held until drop (OQ-24). */
     @Volatile var dragging = false
     private val mutex = Mutex()
@@ -628,16 +637,20 @@ class ConfigEngine(
             else -> report.mapNotNull { it.warning }
         }
         val widgetWarnings = if (result == "ok" && cardsLive) widgetReader.warnings(dataTargets()) else emptyList()
-        val warnings = (if (result == "ok") statusWarnings + phoneWarnings() + cardWarnings + widgetWarnings else statusWarnings) +
+        val aw = appWidgets.takeIf { result == "ok" }
+        val awConfig = statusConfig
+        val appWidgetMap = if (aw != null && awConfig != null) runCatching { aw.states(awConfig) }.getOrNull() else null
+        val appWidgetWarnings = if (aw != null && awConfig != null) runCatching { aw.warnings(awConfig) }.getOrDefault(emptyList()) else emptyList()
+        val warnings = (if (result == "ok") statusWarnings + phoneWarnings() + cardWarnings + widgetWarnings + appWidgetWarnings else statusWarnings) +
             source.suppressedNames().map(::suppressedWarning) + source.tempWarnings()
         _warnings.value = warnings
         // Release builds still record each card's stored state, but drop the "waiting for approval" sentence
         // so it doesn't contradict the "isn't shown in this version" warning.
         val consentMap = if (consent == null) null else report.associate { it.id to (it.state.key to if (cardsLive) it.warning else null) }
-        val key = "$result|$hash|$statusRevision|${errors.hashCode()}|${warnings.hashCode()}|$backupError|$conflictFiles|$consentMap"
+        val key = "$result|$hash|$statusRevision|${errors.hashCode()}|${warnings.hashCode()}|$backupError|$conflictFiles|$consentMap|$appWidgetMap"
         if (key == lastStatusKey) return
         try {
-            source.writeSidecar("", StatusJson.FILE, StatusJson.encode(result, errors, hash, clock(), backupError, conflictFiles, source.location, revision = statusRevision, warnings = warnings, consent = consentMap))
+            source.writeSidecar("", StatusJson.FILE, StatusJson.encode(result, errors, hash, clock(), backupError, conflictFiles, source.location, revision = statusRevision, warnings = warnings, consent = consentMap, appWidgets = appWidgetMap?.takeIf { it.isNotEmpty() }))
             lastStatusKey = key
         } catch (_: Exception) { /* folder may be read-only or gone; the banner already says so */ }
         noteSuppression()

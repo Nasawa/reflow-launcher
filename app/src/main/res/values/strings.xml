@@ -328,4 +328,15 @@
     <string name="card_a11y">%1$s, widget</string>
     <!-- #162 (§17.13, Pragma): the card changed or left the file while its prompt was open, or Allow was refused. -->
     <string name="consent_changed_snack">\"%1$s\" changed. Review it again.</string>
+    <!-- #300 NW-3 hosted widgets (ux.md §16.2, §16.5). Reasons are exact copy. -->
+    <string name="hosted_tap_to_set_up">Tap to set up</string>
+    <string name="hosted_tap_to_finish">Tap to finish setup</string>
+    <string name="hosted_not_installed">Not installed</string>
+    <string name="hosted_cant_show">Can\'t show this widget</string>
+    <string name="hosted_work_later">Work widgets come later</string>
+    <string name="hosted_retry">Retry</string>
+    <!-- TalkBack. %1$s = label, %2$s = reason. -->
+    <string name="hosted_a11y">%1$s, widget, %2$s</string>
+    <string name="hosted_size_cue_a11y">, size may be wrong</string>
+    <string name="hosted_size_cue_sheet">Size may be wrong for this widget. See Warnings.</string>
 </resources>
