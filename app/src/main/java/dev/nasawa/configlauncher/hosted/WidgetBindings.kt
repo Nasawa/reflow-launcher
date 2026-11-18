@@ -43,6 +43,9 @@ class WidgetBindings(private val dir: File?, private val host: Host) {
     data class Binding(val appWidgetId: Int, val provider: Provider, val profile: String, val state: State)
 
     private val file = dir?.let { File(it, FILE) }
+    private val _version = kotlinx.coroutines.flow.MutableStateFlow(0)
+    /** #300: bumps on every change, so the home grid redraws hosted widgets. */
+    val version: kotlinx.coroutines.flow.StateFlow<Int> = _version
     private var entries: MutableMap<String, Binding> = load()
     private val held = mutableSetOf<String>()
     /** IDs allocated by a bind in progress (NW-4), not yet [put]: never treated as orphans. */
@@ -86,9 +89,26 @@ class WidgetBindings(private val dir: File?, private val host: Host) {
                 else -> next[id] = b
             }
         }
+        val alive = runCatching { host.ids() }.getOrNull()?.toSet()
+        // #308 review (5): Android already deleted the ID (e.g. the provider was uninstalled): the binding is gone too.
+        if (alive != null) next.entries.removeAll { it.value.appWidgetId !in alive }
         val owned = next.values.map { it.appWidgetId }.toSet() + inFlight
-        runCatching { host.ids() }.getOrNull()?.forEach { if (it !in owned) host.delete(it) }
+        alive?.forEach { if (it !in owned) host.delete(it) }
         if (next != entries) { entries = next; save() }
+    }
+
+    /** #308 review (5): drop bindings whose ID Android has deleted (provider uninstalled). Called on package changes. */
+    @Synchronized fun prune() {
+        val alive = runCatching { host.ids() }.getOrNull()?.toSet() ?: return
+        if (entries.values.all { it.appWidgetId in alive }) return
+        entries = entries.filterValues { it.appWidgetId in alive }.toMutableMap()
+        save()
+    }
+
+    /** #309 review: [elementId]'s ID can't be shown any more (Android has no widget for it): free it → `needsSetup`. */
+    @Synchronized fun forget(elementId: String, appWidgetId: Int) {
+        val b = entries[elementId]?.takeIf { it.appWidgetId == appWidgetId } ?: return
+        entries.remove(elementId); host.delete(b.appWidgetId); save()
     }
 
     /** NW-6: keep [elementId]'s binding through the next [settle]s while its Remove can still be undone. */
@@ -129,6 +149,7 @@ class WidgetBindings(private val dir: File?, private val host: Host) {
     }
 
     private fun save() {
+        _version.value++
         val f = file ?: return
         val bytes = buildJsonObject {
             put("version", 1)

@@ -35,7 +35,7 @@ class MainActivity : ComponentActivity() {
 
     // Poll immediately when the user comes home, then every 2 s while visible (ARCHITECTURE.md §4).
     // #299: hosted widgets get updates only while home is visible (no polling).
-    override fun onStart() { super.onStart(); (application as ConfigLauncherApp).widgetHost.start(); vm.store.start() }
+    override fun onStart() { super.onStart(); (application as ConfigLauncherApp).widgetHost.start(); vm.store.start(); vm.refreshWidgets() }
     override fun onStop() { vm.store.stop(); (application as ConfigLauncherApp).widgetHost.stop(); super.onStop() }
 
 }

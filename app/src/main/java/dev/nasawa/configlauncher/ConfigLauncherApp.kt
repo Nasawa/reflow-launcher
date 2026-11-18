@@ -13,4 +13,6 @@ class ConfigLauncherApp : Application() {
     /** #299: app-scoped, so a rotate or resize rebuilds widget views, not bindings. */
     val widgetHost by lazy { dev.nasawa.configlauncher.hosted.WidgetHost(this) }
     val store by lazy { ConfigStore(this, scope, widgetHost) }
+    /** #300: providers, tiles and status for hosted widgets. */
+    val widgets by lazy { dev.nasawa.configlauncher.hosted.WidgetRuntime(this, widgetHost, store.engine.bindings).also { store.engine.appWidgets = it } }
 }

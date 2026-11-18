@@ -115,6 +115,45 @@ fun HomeScreen(vm: HomeViewModel) {
     var consentOpen by remember { mutableStateOf<ConsentUi.Opened?>(null) }
     var updateHint by remember { mutableStateOf(false) }
     var widgetSheet by remember { mutableStateOf<WidgetSheetFor?>(null) }
+    // #300 NW-3: hosted widgets for the file that's showing; redrawn when providers, bindings or the cell size change.
+    val widgets = vm.widgets
+    val widgetsVersion by widgets.version.collectAsStateWithLifecycle()
+    val bindingsVersion by (widgets.bindings?.version ?: kotlinx.coroutines.flow.MutableStateFlow(0)).collectAsStateWithLifecycle()
+    val hostedAll = remember(ui.load.config, widgetsVersion, bindingsVersion) { widgets.tiles(ui.load.config) }
+    if (BuildConfig.DEBUG) LaunchedEffect(hostedAll) {
+        hostedAll.forEach { t -> dev.nasawa.configlauncher.hosted.WidgetRuntime.debug { "${t.id} ${t.state.key} ${t.pkg}/${t.cls} ${t.placement.w}x${t.placement.h}${t.range?.let { r -> " range(below=${r.below} ${r.limitW}x${r.limitH})" } ?: ""}" } }
+    }
+    var hostedSheet by remember { mutableStateOf<dev.nasawa.configlauncher.hosted.HostedWidgets.Tile?>(null) }
+    val hostedScope = rememberCoroutineScope()
+    // Debug builds only: a stand-in for NW-4's bind flow, so the hands-on session can bind (silent if allowed, else
+    // Android's own bind dialog). No configure step. Release builds never offer a tap on `Tap to set up` until NW-4.
+    var debugPending by remember { mutableStateOf<Triple<String, Int, dev.nasawa.configlauncher.hosted.HostedWidgets.Tile>?>(null) }
+    val debugBind = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()) { r ->
+        val (eid, id, t) = debugPending ?: return@rememberLauncherForActivityResult
+        debugPending = null
+        if (r.resultCode == android.app.Activity.RESULT_OK) widgets.debugBound(eid, id, t.pkg, t.cls) else widgets.debugAbandon(id)
+    }
+    fun hostedTap(t: dev.nasawa.configlauncher.hosted.HostedWidgets.Tile): (() -> Unit)? = when (t.state) {
+        dev.nasawa.configlauncher.hosted.HostedWidgets.State.NOT_INSTALLED -> { { hostedSheet = t } }
+        dev.nasawa.configlauncher.hosted.HostedWidgets.State.FAILED -> { { widgets.retry(t.id) } }
+        dev.nasawa.configlauncher.hosted.HostedWidgets.State.NEEDS_SETUP -> if (!BuildConfig.DEBUG) null else { {
+            widgets.info(t.pkg, t.cls)?.let { info ->
+                val (id, ok) = widgets.debugTryBind(info)
+                if (ok) widgets.debugBound(t.id, id, t.pkg, t.cls)
+                else {
+                    debugPending = Triple(t.id, id, t)
+                    runCatching {
+                        debugBind.launch(android.content.Intent(android.appwidget.AppWidgetManager.ACTION_APPWIDGET_BIND)
+                            .putExtra(android.appwidget.AppWidgetManager.EXTRA_APPWIDGET_ID, id)
+                            .putExtra(android.appwidget.AppWidgetManager.EXTRA_APPWIDGET_PROVIDER, info.provider)
+                            .putExtra(android.appwidget.AppWidgetManager.EXTRA_APPWIDGET_PROVIDER_PROFILE, info.profile))
+                    }.onFailure { debugPending = null; widgets.debugAbandon(id) }
+                }
+            }
+            Unit
+        } }
+        else -> null
+    }
     var changedSnack by remember { mutableStateOf<String?>(null) }
     // #257: release builds hide consent, B9 and Widget permissions; shown cards use the later-version tile.
     val cardsLive = BuildConfig.CARDS_LIVE
@@ -474,7 +513,10 @@ fun HomeScreen(vm: HomeViewModel) {
                         onTile = { t -> if (t.reason == ConsentUi.Reason.Update) updateHint = true else openPrompt(t.id ?: "") },
                         live = if (cardsLive) ConsentUi.live(ui.load.config, consentReport, it.id) else emptyList(),
                         placeholders = if (cardsLive) emptyList() else CardPlaceholder.tiles(ui.load.config, it.id),
-                        onWidgetLong = { s -> widgetSheet = s }, onPermissions = { id -> detailFor = id }, windowWidthClass = widthClass) }
+                        onWidgetLong = { s -> widgetSheet = s }, onPermissions = { id -> detailFor = id }, windowWidthClass = widthClass,
+                        hosted = hostedAll.filter { t -> t.placement.page == it.id }, runtime = widgets,
+                        onHostedLong = { t -> hostedSheet = t }, onHostedTap = ::hostedTap,
+                        onCell = { w, h -> if (widgets.setCell(w, h)) hostedScope.launch(kotlinx.coroutines.Dispatchers.IO) { vm.store.engine.appWidgetsChanged() } }) }
                 }
                 } // LocalLabelBackdrop
             } // top part (the top half on a tabletop)
@@ -702,6 +744,14 @@ fun HomeScreen(vm: HomeViewModel) {
                 onDismiss = { consentOpen = null })
         }
         if (updateHint) UpdateHintSheet { updateHint = false }
+        hostedSheet?.let { t ->
+            val installed = remember(t.pkg) { runCatching { ctx.packageManager.getPackageInfo(t.pkg, 0); true }.getOrDefault(false) }
+            HostedWidgetSheet(t, installed,
+                onEditLayout = { hostedSheet = null; editing = true },
+                onAppInfo = { hostedSheet = null; vm.apps.appInfo(t.pkg, null, dev.nasawa.configlauncher.model.Profile.PERSONAL) },
+                onRetry = { hostedSheet = null; widgets.retry(t.id) },
+                onDismiss = { hostedSheet = null })
+        }
         widgetSheet?.let { w ->
             WidgetItemSheet(w.name, w.live != null, reason = w.tile?.takeIf { it.placement.w == 1 && it.placement.h == 1 }?.reason, onAction = { a ->
                 widgetSheet = null
@@ -925,10 +975,13 @@ internal fun PageGrid(page: ResolvedPage, grid: Grid, apps: InstalledApps, drag:
                      tiles: List<ConsentUi.Tile> = emptyList(), onTile: (ConsentUi.Tile) -> Unit = {},
                      live: List<ConsentUi.Live> = emptyList(), placeholders: List<CardPlaceholder.Tile> = emptyList(),
                      onWidgetLong: (WidgetSheetFor) -> Unit = {}, onPermissions: (String) -> Unit = {},
-                     windowWidthClass: HomeGeometry.WidthClass? = null) {
+                     windowWidthClass: HomeGeometry.WidthClass? = null,
+                     hosted: List<dev.nasawa.configlauncher.hosted.HostedWidgets.Tile> = emptyList(), runtime: dev.nasawa.configlauncher.hosted.WidgetRuntime? = null,
+                     onHostedLong: (dev.nasawa.configlauncher.hosted.HostedWidgets.Tile) -> Unit = {}, onHostedTap: (dev.nasawa.configlauncher.hosted.HostedWidgets.Tile) -> (() -> Unit)? = { null },
+                     onCell: (Float, Float) -> Unit = { _, _ -> }) {
     val byCell = page.items.associateBy { (it.item.x ?: 0) to (it.item.y ?: 0) }
     val rows = grid.rows
-    val occupied by rememberUpdatedState(byCell.keys + tiles.flatMap { it.placement.cells() } + live.flatMap { it.placement.cells() } + placeholders.flatMap { it.placement.cells() })
+    val occupied by rememberUpdatedState(byCell.keys + tiles.flatMap { it.placement.cells() } + live.flatMap { it.placement.cells() } + placeholders.flatMap { it.placement.cells() } + hosted.flatMap { it.placement.cells() })
     val onEmpty by rememberUpdatedState(onEmptyLong)
     // §1.5: width class from the window; pitch from the pager slot left for the grid.
     // (§1.5 Foldables: the half's class when home is in one half.)
@@ -1075,6 +1128,16 @@ internal fun PageGrid(page: ResolvedPage, grid: Grid, apps: InstalledApps, drag:
                     l, onLongPress = { onWidgetLong(WidgetSheetFor(null, l)) }, onPermissions = { onPermissions(l.id) },
                     modifier = Modifier.offset(baseXDp + cellWDp * p.x + offX.dp, baseYDp + cellHDp * p.y + offY.dp).size(hostW.dp, hostH.dp),
                 )
+            }
+            // #300: hosted widgets, same capped host size; the cell size goes to status.json's §16.5 size check.
+            val cellReport by rememberUpdatedState(onCell)
+            LaunchedEffect(cellWDp, cellHDp) { cellReport(cellWDp.value, cellHDp.value) }
+            hosted.forEach { t ->
+                val p = t.placement
+                val (hostW, hostH) = HomeGeometry.widgetHostSizeDp(p.w, p.h, cellWDp.value, cellHDp.value)
+                val (offX, offY) = HomeGeometry.widgetHostOffsetDp(p.w, p.h, cellWDp.value, cellHDp.value)
+                HostedWidgetCell(t, runtime, hostW, hostH, onLong = { onHostedLong(t) }, onTap = onHostedTap(t),
+                    modifier = Modifier.offset(baseXDp + cellWDp * p.x + offX.dp, baseYDp + cellHDp * p.y + offY.dp).size(hostW.dp, hostH.dp))
             }
             placeholders.forEach { t ->
                 val p = t.placement

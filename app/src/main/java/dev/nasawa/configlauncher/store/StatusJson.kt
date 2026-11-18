@@ -32,6 +32,7 @@ object StatusJson {
         backupError: String? = null, conflictFiles: List<String> = emptyList(), folder: String? = null, revision: Long? = null,
         warnings: List<String> = emptyList(),
         consent: Map<String, Pair<String, String?>>? = null,
+        appWidgets: Map<String, String>? = null,
     ): ByteArray = buildJsonObject {
         put("result", result)
         put("errors", JsonArray(errors.map { JsonPrimitive(it) }))
@@ -51,5 +52,7 @@ object StatusJson {
         if (consent != null) put("consent", buildJsonObject {
             consent.toSortedMap().forEach { (id, v) -> put(id, buildJsonObject { put("state", v.first); v.second?.let { put("warning", it) } }) }
         })
+        // #300: per appWidget element id, its resolved state on this phone (native-widgets.md §2.4). Never the appWidgetId.
+        if (appWidgets != null) put("appWidgets", buildJsonObject { appWidgets.toSortedMap().forEach { (id, s) -> put(id, s) } })
     }.toString().plus("\n").toByteArray(Charsets.UTF_8)
 }
