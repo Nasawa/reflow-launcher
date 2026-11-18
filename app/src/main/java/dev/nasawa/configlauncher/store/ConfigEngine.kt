@@ -552,16 +552,19 @@ class ConfigEngine(
 
     private var lastApps: Pair<ConfigSource, List<kotlinx.serialization.json.JsonObject>>? = null
 
+    private var lastWidgets: List<kotlinx.serialization.json.JsonObject>? = null
+
     /**
      * #54: write `.configlauncher/apps.json` when the app list (or the source) changed. Never touches
      * launcher.json, so no reload loop. App-only mode has no folder sidecars: skipped.
      */
-    suspend fun writeApps(apps: List<dev.nasawa.configlauncher.model.InstalledApp>, includeWork: Boolean = false, includeHidden: Boolean = false): Boolean = mutex.withLock {
+    suspend fun writeApps(apps: List<dev.nasawa.configlauncher.model.InstalledApp>, includeWork: Boolean = false, includeHidden: Boolean = false,
+                          widgets: List<kotlinx.serialization.json.JsonObject>? = null): Boolean = mutex.withLock {
         // #72: drawer.hidden from the model being shown, so hiding or unhiding an app rewrites apps.json.
         val entries = AppsJson.entries(apps, includeWork, _state.value.config.drawer?.hidden.orEmpty().toSet(), includeHidden)
         val src = source
-        if (lastApps?.first === src && lastApps?.second == entries) return false
-        return try { src.writeSidecar("", AppsJson.FILE, AppsJson.encode(entries, clock())); lastApps = src to entries; true }
+        if (lastApps?.first === src && lastApps?.second == entries && lastWidgets == widgets) return false
+        return try { src.writeSidecar("", AppsJson.FILE, AppsJson.encode(entries, clock(), widgets)); lastApps = src to entries; lastWidgets = widgets; true }
         catch (_: Exception) { false }
         finally { publishSuppression() }
     }

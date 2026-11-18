@@ -216,6 +216,9 @@ Shape in brief:
   apps.json* or the hidden list changes. Use it to place apps by their real package and activity. Work apps are listed
   only when *Include work apps in config* is on. Apps hidden from the drawer are left out unless *Include hidden apps in
   apps.json* is on (off by default).
+  It also has `widgets[]`: the installed Android widget providers (`package`, `class`, `label`, `profile`, `size`,
+  `minSize`, `maxSize`, `resize`, `configure`), with sizes in cells of the phone's current main grid. It's the same
+  default size the phone's widget picker uses, so it changes when the grid or the orientation does.
 - `.launcher.json.<8hex>.tmp` and `.AGENTS.md.<8hex>.tmp`: the write-verify copies (above), one per save, deleted once
   the save is verified. `AGENTS.md` goes through the same temp, verify and restore path as `launcher.json`. If the app
   was stopped mid-save, the next start uses the copy to finish the save, then deletes it. A `launcher.json.tmp` or

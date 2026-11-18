@@ -42,7 +42,9 @@ sealed interface Edit {
      * #79 (title-bar.md §8): add a new root element, e.g. the title bar preset when the user turns it on. Skipped when
      * the ID is taken, or when the type allows one per file and the file already has one (shown or skipped).
      */
-    data class AddElement(val element: JsonObject) : Edit
+    data class AddElement(val element: JsonObject, val newPage: String? = null) : Edit
+    // #302: [newPage] appends that (empty) page first, in the same write, when the file doesn't have it yet (the
+    // widget picker's "new page"). A grid-placed element is skipped unless all its cells are inside the grid and free.
     /**
      * #79 `SetElement(id, fields)`: set the value at [path] inside element [id] (`["enabled"]`,
      * `["content", "slots", "end"]`, …); null removes the key, and objects left empty are removed too (defaults are
@@ -92,7 +94,16 @@ object Edits {
         if (els.any { it.str("id") == id } || c.allItems().any { it.id == id } || c.pages.any { it.id == id } ||
             c.drawer?.rules.orEmpty().any { (it as? JsonObject)?.str("id") == id }) return ApplyResult(c, false)
         if (dev.nasawa.configlauncher.config.Elements.types[type]?.single == true && els.any { it.str("type") == type }) return ApplyResult(c, false)
-        return ApplyResult(c.copy(elements = els + e.element), true)
+        var base = c
+        if (e.newPage != null && c.pages.none { it.id == e.newPage }) {
+            if (c.pages.size >= MAX_PAGES) return ApplyResult(c, false)
+            base = c.copy(pages = c.pages + Page(e.newPage))
+        }
+        dev.nasawa.configlauncher.config.Elements.placement(e.element)?.let { p ->
+            val page = base.pages.firstOrNull { it.id == p.page } ?: return ApplyResult(c, false)
+            if (!dev.nasawa.configlauncher.hosted.WidgetPlacement.fits(base, page, p.x, p.y, p.w, p.h)) return ApplyResult(c, false)
+        }
+        return ApplyResult(base.copy(elements = els + e.element), true)
     }
 
     private fun setElement(c: LauncherConfig, e: Edit.SetElement): ApplyResult {
@@ -316,7 +327,7 @@ object Edits {
     }
 
     /** Generated-ID prefixes (README "ID prefixes", ARCHITECTURE.md §20.4). Pages use readable "page-N" (§14 R9). */
-    enum class IdKind(val prefix: String) { APP("a-"), SHORTCUT("s-"), FOLDER("f-"), RULE("r-") }
+    enum class IdKind(val prefix: String) { APP("a-"), SHORTCUT("s-"), FOLDER("f-"), RULE("r-"), WIDGET("w-") }
 
     /** New stable app ID like "a-chrome-3f2k" (schema pattern ^[a-z0-9][a-z0-9_-]{0,63}$). */
     fun newId(c: LauncherConfig, packageName: String, random: () -> Int = { (0..Int.MAX_VALUE).random() }): String =
@@ -337,6 +348,6 @@ object Edits {
     }
 
     private fun usedIds(c: LauncherConfig): Set<String> =
-        c.allItems().map { it.id }.toSet() + c.pages.map { it.id } +
+        c.allItems().map { it.id }.toSet() + c.pages.map { it.id } + c.elements.orEmpty().mapNotNull { (it["id"] as? JsonPrimitive)?.contentOrNull } +
             c.drawer?.rules.orEmpty().mapNotNull { ((it as? JsonObject)?.get("id") as? JsonPrimitive)?.contentOrNull }
 }

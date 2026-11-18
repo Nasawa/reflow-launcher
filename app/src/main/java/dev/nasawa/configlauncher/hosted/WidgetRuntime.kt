@@ -135,6 +135,52 @@ class WidgetRuntime(
         }))
     }.toString().plus("\n").toByteArray(Charsets.UTF_8)
 
+    /** #302: what Android reports for [i]'s size (dp and `targetCell*`), for [WidgetPlacement.defaultCells]. */
+    fun sizes(i: AppWidgetProviderInfo): WidgetPlacement.Sizes {
+        val d = density
+        val (tw, th) = if (Build.VERSION.SDK_INT >= 31) i.targetCellWidth to i.targetCellHeight else 0 to 0
+        return WidgetPlacement.Sizes(i.minWidth / d, i.minHeight / d, tw, th)
+    }
+
+    /** #302: [i]'s default cells on [grid] (picker and apps.json); null before the grid has a cell size. */
+    fun defaultCells(i: AppWidgetProviderInfo, grid: dev.nasawa.configlauncher.model.Grid): Pair<Int, Int>? {
+        val (cw, ch) = cellDp ?: return null
+        return WidgetPlacement.defaultCells(sizes(i), cw, ch, grid.columns, grid.rows)
+    }
+
+    /** #302 picker rows: every personal provider with its app, label and default size on [grid] (D3: no work ones). */
+    data class Pick(val pkg: String, val cls: String, val label: String, val app: String, val w: Int, val h: Int, val info: AppWidgetProviderInfo)
+
+    fun picks(grid: dev.nasawa.configlauncher.model.Grid): List<Pick> = providers.mapNotNull { i ->
+        val (w, h) = defaultCells(i, grid) ?: (1 to 1)
+        val pkg = i.provider.packageName
+        val app = runCatching { app.packageManager.getApplicationLabel(app.packageManager.getApplicationInfo(pkg, 0)).toString() }.getOrDefault(pkg)
+        Pick(pkg, i.provider.className, runCatching { i.loadLabel(this.app.packageManager) }.getOrNull() ?: i.provider.shortClassName, app, w, h, i)
+    }
+
+    /**
+     * #302 native-widgets.md §2.4: `apps.json` `widgets[]`, sizes in cells of this phone's current main grid ([grid]).
+     * Null until the grid has reported its cell size, so no entry ever has null sizes.
+     */
+    fun appsEntries(grid: dev.nasawa.configlauncher.model.Grid): List<kotlinx.serialization.json.JsonObject>? {
+        if (cellDp == null) return null
+        return providers.map { i ->
+            val f = facts(i)
+            val (w, h) = defaultCells(i, grid)!!
+            val t = target(i)
+            fun cells(a: Int?, b: Int?) = if (a == null || b == null) kotlinx.serialization.json.JsonNull else buildJsonObject { put("w", a); put("h", b) }
+            buildJsonObject {
+                put("package", i.provider.packageName); put("class", i.provider.className); put("label", f.label)
+                put("profile", "personal")
+                put("size", cells(w, h)); put("minSize", cells(f.minW, f.minH)); put("maxSize", cells(f.maxW, f.maxH))
+                val rh = i.resizeMode and AppWidgetProviderInfo.RESIZE_HORIZONTAL != 0
+                val rv = i.resizeMode and AppWidgetProviderInfo.RESIZE_VERTICAL != 0
+                put("resize", if (rh && rv) "both" else if (rh) "h" else if (rv) "v" else "none")
+                put("configure", if (t.configureRequired) "required" else if (i.configure != null) "optional" else "none")
+            }
+        }.sortedWith(compareBy({ it["package"].toString() }, { it["class"].toString() }))
+    }
+
     /** MainActivity while resumed; bind and configure screens start from it (never from a file load). */
     @Volatile var activity: android.app.Activity? = null
 

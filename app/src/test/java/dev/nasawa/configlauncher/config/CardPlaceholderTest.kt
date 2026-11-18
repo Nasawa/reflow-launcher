@@ -100,7 +100,7 @@ class CardPlaceholderTest {
 
     @Test fun releaseMenuHidesWidgetPermissions() {
         assertEquals(
-            listOf(HomeAction.EDIT_LAYOUT, HomeAction.PAGES, HomeAction.RELOAD, HomeAction.SETTINGS, HomeAction.WALLPAPER),
+            listOf(HomeAction.EDIT_LAYOUT, HomeAction.PAGES, HomeAction.WIDGETS, HomeAction.RELOAD, HomeAction.SETTINGS, HomeAction.WALLPAPER),
             HomeMenu.actions(2, 3, cardsLive = false),
         )
         assertTrue(HomeAction.WIDGETS_REVIEW in HomeMenu.actions(2, 3, cardsLive = true))

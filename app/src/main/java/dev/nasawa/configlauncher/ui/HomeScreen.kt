@@ -129,6 +129,20 @@ fun HomeScreen(vm: HomeViewModel) {
     // #301 NW-4: tap to set up / allow / finish setup runs the bind flow; D1 silent binds follow every change.
     val bindPending by widgets.flow.pending.collectAsStateWithLifecycle()
     LaunchedEffect(hostedAll) { widgets.silentBind(ui.load.config) }
+    // #302 ux.md §16.1: the picker (home menu `Widgets`, edit mode `+ Widget`). After the one AddElement write, the
+    // new widget goes through the NW-4 flow: a silent bind if Android allows it, else the tap flow (user's own pick).
+    var pickerOpen by remember { mutableStateOf(false) }
+    var picked by remember { mutableStateOf<String?>(null) }
+    var pickedPage by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(hostedAll, picked) {
+        val t = hostedAll.firstOrNull { it.id == picked } ?: return@LaunchedEffect
+        when {
+            t.hint == dev.nasawa.configlauncher.hosted.BindFlow.Hint.BINDING -> {}   // silent bind still to come
+            t.state == dev.nasawa.configlauncher.hosted.HostedWidgets.State.NEEDS_SETUP ||
+                t.state == dev.nasawa.configlauncher.hosted.HostedWidgets.State.NEEDS_CONFIG -> { picked = null; widgets.flow.tap(t.id, t.pkg, t.cls) }
+            else -> picked = null
+        }
+    }
     fun hostedTap(t: dev.nasawa.configlauncher.hosted.HostedWidgets.Tile): (() -> Unit)? = when (t.state) {
         dev.nasawa.configlauncher.hosted.HostedWidgets.State.NOT_INSTALLED -> { { hostedSheet = t } }
         dev.nasawa.configlauncher.hosted.HostedWidgets.State.FAILED -> { { widgets.retry(t.id) } }
@@ -311,6 +325,12 @@ fun HomeScreen(vm: HomeViewModel) {
     // #214: remembered here, above the rail / bottom-dock branch. HomeBody has two call sites, and saved state is
     // keyed by composition position, so a pager remembered inside it lost its page whenever useRail flipped.
     val pager = rememberPagerById(pages.map { it.id })
+    // #302: show the page the picker placed the widget on, once that page is in the pager.
+    LaunchedEffect(pages, pickedPage) {
+        val i = pages.indexOfFirst { it.id == pickedPage }.takeIf { it >= 0 } ?: return@LaunchedEffect
+        pickedPage = null
+        if (i < pager.pageCount && i != pager.currentPage) pager.animateScrollToPage(i)
+    }
     // §1.5: a posture change cancels a drag with nothing written (the layout under the finger moved).
     LaunchedEffect(fold) { if (drag.dragged != null) drag.cancel() }
     // ux.md §1 / §14 R4: Home on home leaves edit mode (saving first), closes drawer and folder, goes to page 1.
@@ -379,6 +399,7 @@ fun HomeScreen(vm: HomeViewModel) {
                 if (editing) Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                     // #182: on the wallpaper like Done, so white with the label shadow (and the scrim with Label backdrop on).
                     Box(Modifier.weight(1f)) { WallpaperText(stringResource(R.string.editing_layout), backdrop) }
+                    WallpaperTextButton({ pickerOpen = true }, backdrop) { Text(stringResource(R.string.action_add_widget)) }
                     WallpaperTextButton(leaveEdit, backdrop) { Text(stringResource(R.string.done)) }
                 } else Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     // #217: hidden by `Show config location`, but always back while the source needs attention (any banner issue).
@@ -578,6 +599,8 @@ fun HomeScreen(vm: HomeViewModel) {
                                 // Menu items live on the top-row DropdownMenu when !useRail; with a rail the same
                                 // menuOpen state is driven from here, so mirror the items.
                                 DropdownMenu(menuOpen, { menuOpen = false }) {
+                                    // #302: the rail has no edit bar, so edit mode's `+ Widget` lives here (head stays Done only).
+                                    if (editing) DropdownMenuItem({ Text(stringResource(R.string.action_add_widget)) }, { menuOpen = false; pickerOpen = true })
                                     if (TitleBarEdits.state(ui.load.config) != TitleBarEdits.State.Unavailable)
                                         DropdownMenuItem({ Text(stringResource(R.string.titlebar_title)) }, { menuOpen = false; titleBarSheet = true })
                                     DropdownMenuItem({ Text(stringResource(R.string.menu_config_folder)) }, { menuOpen = false; folderInfo = vm.store.engine.source.location ?: "" })
@@ -672,6 +695,7 @@ fun HomeScreen(vm: HomeViewModel) {
             when (a) {
                 HomeAction.EDIT_LAYOUT -> editing = true
                 HomeAction.PAGES -> pageList = true
+                HomeAction.WIDGETS -> pickerOpen = true
                 HomeAction.WIDGETS_REVIEW -> reviewOpen = true
                 HomeAction.RELOAD -> vm.store.pollNow()
                 // No Settings screen yet: the settings live in the ⋮ menu, so open that (gap, noted).
@@ -735,6 +759,22 @@ fun HomeScreen(vm: HomeViewModel) {
                 onDismiss = { hostedSheet = null },
                 onReconfigure = if (t.state == dev.nasawa.configlauncher.hosted.HostedWidgets.State.BOUND &&
                     widgets.info(t.pkg, t.cls)?.let(widgets::target)?.reconfigurable == true) { { hostedSheet = null; widgets.flow.reconfigure(t.id) } } else null)
+        }
+        if (pickerOpen) {
+            val grid = ui.load.config.effectiveGrid
+            val picks = remember(widgetsVersion, grid) { widgets.picks(grid) }
+            WidgetPicker(picks, onPick = { p ->
+                val cfg = vm.store.engine.state.value.config
+                val edit = dev.nasawa.configlauncher.hosted.WidgetPlacement.place(cfg, pages.getOrNull(pager.currentPage)?.id, p.pkg, p.cls, p.w, p.h, p.label)
+                if (edit == null || !Edits.apply(cfg, edit).applied) toast(res.getString(R.string.home_full))
+                else {
+                    pickerOpen = false
+                    vm.store.edit(edit)
+                    picked = (edit.element["id"] as kotlinx.serialization.json.JsonPrimitive).content
+                    val target = (edit.element["page"] as kotlinx.serialization.json.JsonPrimitive).content
+                    pickedPage = target
+                }
+            }, onAppInfo = { pkg -> vm.apps.appInfo(pkg, null, Profile.PERSONAL) }, onDismiss = { pickerOpen = false })
         }
         bindPending?.takeIf { it.step == dev.nasawa.configlauncher.hosted.BindFlow.Step.EXPLAIN }?.let { p ->
             BindExplainSheet(p.target.label ?: p.target.pkg, onContinue = { widgets.flow.explainContinue() }, onNotNow = { widgets.flow.explainNotNow() })
