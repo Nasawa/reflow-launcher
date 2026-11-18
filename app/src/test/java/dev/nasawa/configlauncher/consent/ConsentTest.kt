@@ -132,6 +132,33 @@ class ConsentTest {
         assertEquals(State.NeedsApproval, again.state(cfg(doc(card(id = "w-3", caps = open, extra = src))), "w-3"))
     }
 
+    @Test fun heldApprovalSurvivesTheRemoveAndComesBackOnlyThroughUndo() {
+        val s = store()
+        val c = cfg(doc(card(caps = open, extra = src)))
+        s.allow("w-1", s.report(c)[0].lines, c); s.alwaysAllow("w-1", "https://x.org")
+        val before = s.entry("w-1")!!
+        // #303: held before the Remove write; that write's settle sets it aside instead of GC.
+        assertTrue(s.hold("w-1")); assertFalse(s.hold("w-none"))
+        s.settle(cfg(doc()))
+        assertNull(s.entry("w-1")); assertTrue(s.isAside("w-1"))
+        // The agent re-adds the id meanwhile: a new widget, asks from scratch.
+        assertEquals(State.NeedsApproval, s.state(c))
+        s.settle(c)
+        assertTrue(s.isAside("w-1"))
+        // Undo (after the agent removed theirs again): back as it was, no re-prompt.
+        s.settle(cfg(doc()))
+        s.restore("w-1")
+        s.settle(c)
+        assertEquals(State.Allowed, s.state(c))
+        assertEquals(before.ceiling, s.entry("w-1")!!.ceiling)
+        assertTrue(s.isAlwaysAllowed("w-1", "https://x.org"))
+        // A second remove whose window ends: released (the normal GC).
+        s.hold("w-1"); s.settle(cfg(doc())); s.release("w-1")
+        assertFalse(s.isAside("w-1"))
+        s.restore("w-1")
+        assertNull(s.entry("w-1"))
+    }
+
     @Test fun unreadableStoreAsksAgain() {
         val dir = tmp.newFolder()
         File(dir, "consent.json").writeText("{nope")

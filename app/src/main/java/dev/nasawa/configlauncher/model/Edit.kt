@@ -43,6 +43,18 @@ sealed interface Edit {
      * the ID is taken, or when the type allows one per file and the file already has one (shown or skipped).
      */
     data class AddElement(val element: JsonObject, val newPage: String? = null) : Edit
+    /** #303 ux.md §16.7.1: delete grid element [id] and its `pages[].overrides[id]` entries. One write. */
+    data class RemoveElement(val id: String) : Edit
+    /**
+     * #303 §16.7.1 Undo: put [element] back verbatim at [index] in `elements[]`: its old cells when free, else the first
+     * free spot on its page, then the following pages (only page/x/y change; never a new page). Skipped when its id is
+     * in the file again or there's no room ([ElementEdits.restorePlan]).
+     */
+    data class RestoreElement(val element: JsonObject, val index: Int) : Edit
+    /** #303 §16.7.2: move grid element [id] to [pageId] at ([x], [y]); skipped when that rectangle isn't free. */
+    data class MoveElement(val id: String, val pageId: String, val x: Int, val y: Int) : Edit
+    /** #303 §16.4: resize grid element [id] to [w]×[h] in place; skipped when the cells aren't free or leave the grid. */
+    data class ResizeElement(val id: String, val w: Int, val h: Int) : Edit
     // #302: [newPage] appends that (empty) page first, in the same write, when the file doesn't have it yet (the
     // widget picker's "new page"). A grid-placed element is skipped unless all its cells are inside the grid and free.
     /**
@@ -82,6 +94,10 @@ object Edits {
         is Edit.Restore -> restore(c, e)
         is Edit.DropPages -> dropPages(c, e)
         is Edit.AddElement -> addElement(c, e)
+        is Edit.RemoveElement -> ElementEdits.remove(c, e.id)
+        is Edit.RestoreElement -> ElementEdits.restore(c, e)
+        is Edit.MoveElement -> ElementEdits.move(c, e)
+        is Edit.ResizeElement -> ElementEdits.resize(c, e)
         is Edit.SetElement -> setElement(c, e)
     }
 

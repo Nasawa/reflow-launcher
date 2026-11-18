@@ -67,6 +67,10 @@ class ConfigStore(private val context: Context, private val scope: CoroutineScop
     fun pollNow() { scope.launch(Dispatchers.IO) { engine.poll(force = true) } }
 
     fun edit(e: dev.nasawa.configlauncher.model.Edit) { scope.launch(Dispatchers.IO) { engine.edit(e) } }
+    /** #303: like [edit], but says whether it applied (false = skipped against the current file: nothing is written). */
+    suspend fun tryEdit(e: dev.nasawa.configlauncher.model.Edit): Boolean = kotlinx.coroutines.withContext(Dispatchers.IO) { engine.edit(e) }
+    /** #303: run [block] on the store's scope, which outlives the home composition (an Undo window's release). */
+    fun launch(block: suspend CoroutineScope.() -> Unit) = scope.launch(block = block)
     /** Snackbar Undo after an automatic merge (§18.2). */
     fun retrySave() { scope.launch(Dispatchers.IO) { engine.retrySave() } }
 

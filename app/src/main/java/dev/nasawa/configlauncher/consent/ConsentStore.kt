@@ -43,6 +43,9 @@ class ConsentStore(private val dir: File?, private val clock: () -> Long = Syste
         val cards = Consent.cards(c)
         // Every id still in the file, shown or skipped: a card skipped for now (e.g. a newer `requires`) keeps its approval.
         val ids = c.elements.orEmpty().mapNotNull { (it["id"] as? JsonPrimitive)?.content }.toSet()
+        // #303 §16.7.1: a held record whose card left the file is set aside (not GC'd, never applied to a re-add).
+        entries.forEach { (id, e) -> if (id !in ids && id in held && id !in aside) aside[id] = e }
+        held.retainAll { it !in ids || it in aside }
         val next = entries.filterKeys { it in ids }.toMutableMap()
         cards.forEach { (_, e) ->
             val id = (e["id"] as JsonPrimitive).content
@@ -66,6 +69,30 @@ class ConsentStore(private val dir: File?, private val clock: () -> Long = Syste
         }
         if (next != entries) { entries = next; save() }
     }
+
+    /** Held for an Undo window ([hold]); see [settle]. */
+    private val held = mutableSetOf<String>()
+    private val aside = mutableMapOf<String, Consent.Entry>()
+
+    /**
+     * #303 NW-6 (ux.md §16.7.1): keep [id]'s record (ceiling, Always allow, Turn off, history) through the Remove's
+     * Undo window. **Call this before the Remove write**: [settle] runs inside that write and would GC the record.
+     * The first settle without the card sets it aside: out of [entries], so a card the agent re-adds with the same id
+     * starts from scratch; only [restore] puts it back. In memory only (an app close = released).
+     */
+    @Synchronized fun hold(id: String): Boolean = (id in entries).also { if (it) held += id }
+
+    /** Undo succeeded (call right after the Undo edit applied, before its write): the record is back, no re-prompt. */
+    @Synchronized fun restore(id: String) {
+        val e = aside.remove(id) ?: run { if (id !in entries) held -= id; return }
+        entries[id] = e
+        save()
+    }
+
+    /** The Undo window ended without a successful Undo: the set-aside record is deleted (the normal GC). */
+    @Synchronized fun release(id: String) { aside.remove(id); held -= id }
+
+    @Synchronized fun isAside(id: String) = id in aside
 
     private fun Consent.Entry.logged(events: List<Consent.Event>) =
         if (events.isEmpty()) this else copy(history = (history + events).takeLast(Consent.HISTORY_MAX))

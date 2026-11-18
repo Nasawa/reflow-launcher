@@ -73,7 +73,8 @@ internal fun Shield(color: Color, iconSize: androidx.compose.ui.unit.Dp = 24.dp,
  * 1 dp dashed white 40 % outline; shield, title (not at 1×1 or 2×1), reason (not at 1×1). One TalkBack node.
  */
 @Composable
-fun ConsentTile(tile: ConsentUi.Tile, onReview: () -> Unit, modifier: Modifier = Modifier, onLongPress: () -> Unit = {}) {
+fun ConsentTile(tile: ConsentUi.Tile, onReview: () -> Unit, modifier: Modifier = Modifier, onLongPress: () -> Unit = {},
+                actions: List<CustomAccessibilityAction> = emptyList()) {
     val reason = reasonText(tile.reason)
     // title is optional (#160): an untitled card is named by its id, on screen and in TalkBack.
     val title = consentText(tile.title) ?: tile.id
@@ -93,7 +94,8 @@ fun ConsentTile(tile: ConsentUi.Tile, onReview: () -> Unit, modifier: Modifier =
             .clearAndSetSemantics {
                 contentDescription = said
                 onClick(label = review) { onReview(); true }
-                customActions = listOf(CustomAccessibilityAction(review) { onReview(); true })
+                // #303 §16.7.3: Review, then Move to…, Remove from home.
+                customActions = listOf(CustomAccessibilityAction(review) { onReview(); true }) + actions
             }
             .padding(6.dp),
         contentAlignment = Alignment.Center,
@@ -161,7 +163,7 @@ fun CardPlaceholderTile(tile: CardPlaceholder.Tile, modifier: Modifier = Modifie
  */
 @Composable
 fun LiveCardTarget(live: ConsentUi.Live, onLongPress: () -> Unit, onPermissions: () -> Unit, modifier: Modifier = Modifier,
-                   onTap: (() -> Unit)? = null) {
+                   onTap: (() -> Unit)? = null, actions: List<CustomAccessibilityAction> = emptyList()) {
     val name = consentText(live.title) ?: live.id
     val said = stringResource(R.string.card_a11y, name)
     val permissions = stringResource(R.string.widget_action_permissions)
@@ -180,7 +182,8 @@ fun LiveCardTarget(live: ConsentUi.Live, onLongPress: () -> Unit, onPermissions:
         contentDescription = said
         onTap?.let { t -> onClick { t(); true } }
         onLongClick { onLongPress(); true }
-        customActions = listOf(CustomAccessibilityAction(permissions) { onPermissions(); true })
+        // #303 §16.7.3: Permissions, then Resize…, Move to…, Remove from home.
+        customActions = listOf(CustomAccessibilityAction(permissions) { onPermissions(); true }) + actions
     })
 }
 
@@ -256,6 +259,7 @@ fun WidgetItemSheet(name: String, live: Boolean, reason: ConsentUi.Reason? = nul
                         ConsentUi.SheetAction.REVIEW -> R.string.widget_action_review
                         ConsentUi.SheetAction.PERMISSIONS -> R.string.widget_action_permissions
                         ConsentUi.SheetAction.EDIT_LAYOUT -> R.string.action_edit_layout
+                        ConsentUi.SheetAction.REMOVE -> R.string.action_remove_home
                     }), Modifier.fillMaxWidth())
                 }
             }

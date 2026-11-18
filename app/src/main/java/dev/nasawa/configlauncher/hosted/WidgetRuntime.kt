@@ -104,7 +104,7 @@ class WidgetRuntime(
             if (i.maxResizeHeight > 0) maxH = HostedWidgets.cellsFit(i.maxResizeHeight / d, ch)
         }
         val mw = HostedWidgets.cells(minW, cw); val mh = HostedWidgets.cells(minH, ch)
-        return HostedWidgets.Facts(label, mw, mh, maxW?.coerceAtLeast(mw), maxH?.coerceAtLeast(mh))
+        return HostedWidgets.Facts(label, mw, mh, maxW?.coerceAtLeast(mw), maxH?.coerceAtLeast(mh), resH, resV)
     }
 
     fun tiles(c: LauncherConfig, pageId: String? = null): List<HostedWidgets.Tile> =

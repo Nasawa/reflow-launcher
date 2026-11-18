@@ -19,7 +19,9 @@ object HostedWidgets {
     }
 
     /** A provider as this phone sees it, with its size limits in cells of the current main grid (null = unknown/none). */
-    data class Facts(val label: String?, val minW: Int? = null, val minH: Int? = null, val maxW: Int? = null, val maxH: Int? = null)
+    data class Facts(val label: String?, val minW: Int? = null, val minH: Int? = null, val maxW: Int? = null, val maxH: Int? = null,
+                     /** #303: the provider resizes this axis (`resizeMode`); a fixed axis keeps its size in `Resize…`. */
+                     val resizeW: Boolean = true, val resizeH: Boolean = true)
 
     /** Size problem for the §16.5 cue: [below] true = under the provider's minimum, else over its maximum. */
     data class Range(val below: Boolean, val limitW: Int, val limitH: Int)

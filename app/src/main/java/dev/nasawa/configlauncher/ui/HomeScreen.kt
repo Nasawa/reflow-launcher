@@ -132,6 +132,8 @@ fun HomeScreen(vm: HomeViewModel) {
     // #302 ux.md §16.1: the picker (home menu `Widgets`, edit mode `+ Widget`). After the one AddElement write, the
     // new widget goes through the NW-4 flow: a silent bind if Android allows it, else the tap flow (user's own pick).
     var pickerOpen by remember { mutableStateOf(false) }
+    var selectedElement by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(editing) { if (!editing) selectedElement = null }
     var picked by remember { mutableStateOf<String?>(null) }
     var pickedPage by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(hostedAll, picked) {
@@ -289,6 +291,78 @@ fun HomeScreen(vm: HomeViewModel) {
     val hideApp = { pkg: String, label: String ->
         vm.store.edit(Edit.Hide(pkg))
         undoSnack = UndoSnack(res.getString(R.string.app_hidden, label), Edit.Unhide(pkg), label)
+    }
+    // #303 NW-6 ux.md §16.4, §16.7.1–§16.7.3: Remove (+ Undo with the device-local hold), Move to…, Resize… for widgets
+    // and cards. Holds go on before the Remove write (ElementUndo); the window's release runs on the store's scope.
+    val view = androidx.compose.ui.platform.LocalView.current
+    val elementUndo = remember(widgets, consent) {
+        val holds = listOfNotNull(
+            widgets.bindings?.let { b -> object : ElementUndo.Hold {
+                override fun hold(id: String) = b.hold(id); override fun restore(id: String) = b.restore(id); override fun release(id: String) = b.release(id) } },
+            consent?.let { cs -> object : ElementUndo.Hold {
+                override fun hold(id: String) = cs.hold(id); override fun restore(id: String) = cs.restore(id); override fun release(id: String) = cs.release(id) } },
+        )
+        ElementUndo({ vm.store.engine.state.value.config }, { e -> vm.store.tryEdit(e) }, holds)
+    }
+    var elementSnack by remember { mutableStateOf<ElementSnack?>(null) }
+    var elementNote by remember { mutableStateOf<ElementNote?>(null) }
+    var elementMove by remember { mutableStateOf<Pair<String, String>?>(null) }     // id to name
+    var elementResize by remember { mutableStateOf<Pair<String, String>?>(null) }
+    val undoWindowMs = remember { ElementSnack.windowMs(ctx) }
+    fun note(text: String) { elementNote = ElementNote(text); view.announceForAccessibility(text) }
+    fun elementName(id: String) = ElementInfo.name(vm.store.engine.state.value.config, id, hostedAll.firstOrNull { it.id == id }?.label)
+    fun pageName(pageId: String): String {
+        val i = ui.layout.pages.indexOfFirst { it.id == pageId }
+        return ui.layout.pages.getOrNull(i)?.let(PageList::title) ?: res.getString(R.string.page_untitled, i + 1)
+    }
+    fun removeElement(id: String) {
+        val name = elementName(id)
+        vm.store.launch {
+            val removed = elementUndo.remove(id) ?: return@launch
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                val snack = ElementSnack(removed, name, res.getString(R.string.removed_element, name))
+                elementSnack = snack
+                view.announceForAccessibility(res.getString(R.string.removed_element_a11y, name))
+                // The window (10 s or the user's accessibility timeout) ends → release, unless Undo succeeded.
+                snack.job = vm.store.launch {
+                    try { kotlinx.coroutines.delay(undoWindowMs) } finally { if (!snack.restored) elementUndo.release(removed) }
+                }
+            }
+        }
+    }
+    fun undoElement(snack: ElementSnack) {
+        elementSnack = null
+        vm.store.launch {
+            val out = elementUndo.undo(snack.removed)
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                when (out) {
+                    ElementUndo.Undone.Same -> { snack.restored = true; snack.job?.cancel() }
+                    is ElementUndo.Undone.Moved -> { snack.restored = true; snack.job?.cancel(); note(res.getString(R.string.undo_element_moved, snack.name, pageName(out.pageId))) }
+                    ElementUndo.Undone.Back -> note(res.getString(R.string.undo_element_back, snack.name))
+                    ElementUndo.Undone.NoRoom -> note(res.getString(R.string.undo_element_no_room, snack.name))
+                }
+            }
+        }
+    }
+    fun moveElement(id: String) {
+        if (ElementInfo.pagesWithRoom(vm.store.engine.state.value.config, id).isEmpty()) note(res.getString(R.string.move_element_no_room_any))
+        else elementMove = id to elementName(id)
+    }
+    fun writeMove(id: String, name: String, pageId: String, x: Int, y: Int) {
+        vm.store.launch {
+            if (!vm.store.tryEdit(Edit.MoveElement(id, pageId, x, y)))
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) { note(res.getString(R.string.move_element_taken, name)) }
+        }
+    }
+    val elementActions: (String, ElementKind) -> List<CustomAccessibilityAction> = { id, kind ->
+        val noRoom = ElementInfo.pagesWithRoom(ui.load.config, id).isEmpty()
+        ElementActionList.of(kind).map { a ->
+            when (a) {
+                ElementAction.RESIZE -> CustomAccessibilityAction(res.getString(R.string.action_resize)) { elementResize = id to elementName(id); true }
+                ElementAction.MOVE_TO -> CustomAccessibilityAction(res.getString(if (noRoom) R.string.a11y_move_to_no_room else R.string.a11y_move_to)) { moveElement(id); true }
+                ElementAction.REMOVE -> CustomAccessibilityAction(res.getString(R.string.action_remove_home)) { removeElement(id); true }
+            }
+        }
     }
     // ux.md §12: drag-free editing through TalkBack custom actions, one write each.
     val a11y: (ResolvedItem, TilePlace) -> List<CustomAccessibilityAction> = { r, place ->
@@ -519,7 +593,12 @@ fun HomeScreen(vm: HomeViewModel) {
                         onWidgetLong = { s -> widgetSheet = s }, onPermissions = { id -> detailFor = id }, windowWidthClass = widthClass,
                         hosted = hostedAll.filter { t -> t.placement.page == it.id }, runtime = widgets,
                         onHostedLong = { t -> hostedSheet = t }, onHostedTap = ::hostedTap,
-                        onCell = { w, h -> if (widgets.setCell(w, h)) hostedScope.launch(kotlinx.coroutines.Dispatchers.IO) { vm.store.engine.appWidgetsChanged() } }) }
+                        onCell = { w, h -> if (widgets.setCell(w, h)) hostedScope.launch(kotlinx.coroutines.Dispatchers.IO) { vm.store.engine.appWidgetsChanged() } },
+                        elementActions = elementActions, selected = selectedElement,
+                        canDropElement = { id, x, y -> ElementEdits.fits(vm.store.engine.state.value.config, it.id, x, y,
+                            ElementEdits.element(vm.store.engine.state.value.config, id)?.let(dev.nasawa.configlauncher.config.Elements::placement)?.w ?: 1,
+                            ElementEdits.element(vm.store.engine.state.value.config, id)?.let(dev.nasawa.configlauncher.config.Elements::placement)?.h ?: 1, ignore = id) },
+                        onDropElement = { id, x, y -> writeMove(id, elementName(id), it.id, x, y) }) }
                 }
                 } // LocalLabelBackdrop
             } // top part (the top half on a tabletop)
@@ -551,6 +630,14 @@ fun HomeScreen(vm: HomeViewModel) {
                         if (!reviewOpen && detailFor == null) Snackbar(Modifier.padding(8.dp).semantics { liveRegion = LiveRegionMode.Polite }) { Text(t) }
                     }
                     consentSnacks.forHome(detailFor, reviewOpen)?.let { ConsentSnackbar(it, consentSnacks::undo, Modifier.padding(8.dp)) }
+                    elementNote?.let { n ->
+                        LaunchedEffect(n) { kotlinx.coroutines.delay(SHORT_SNACK_MS); if (elementNote == n) elementNote = null }
+                        Snackbar(Modifier.padding(8.dp)) { Text(n.text) }
+                    }
+                    elementSnack?.let { u ->
+                        ElementUndoSnackbar(u, undoWindowMs, onUndo = { undoElement(u) },
+                            onDismiss = { if (elementSnack == u) { elementSnack = null; u.job?.cancel() } })
+                    }
                     undoSnack?.let { u ->
                         UndoSnackbar(u, onUndo = {
                             undoSnack = null
@@ -709,6 +796,23 @@ fun HomeScreen(vm: HomeViewModel) {
 
         if (agentConfirm) AgentDocsReplaceDialog(onReplace = { agentConfirm = false; runAgentUpdate(true) }, onCancel = { agentConfirm = false })
 
+        elementMove?.let { (id, name) ->
+            ElementMoveDialog(name, ui.load.config, id, onMove = { pageId, x, y -> elementMove = null; writeMove(id, name, pageId, x, y) },
+                onDismiss = { elementMove = null })
+        }
+        elementResize?.let { (id, name) ->
+            val facts = hostedAll.firstOrNull { it.id == id }?.let { t -> widgets.info(t.pkg, t.cls)?.let(widgets::facts) }
+            val limits = ElementInfo.limits(ui.load.config, id, facts)
+            if (limits == null) LaunchedEffect(id) { elementResize = null }
+            else ElementResizeDialog(name, ui.load.config, id, limits, onDone = { w, h ->
+                elementResize = null
+                vm.store.launch {
+                    val p = ElementEdits.element(vm.store.engine.state.value.config, id)?.let(dev.nasawa.configlauncher.config.Elements::placement)
+                    if (p != null && (p.w != w || p.h != h) && !vm.store.tryEdit(Edit.ResizeElement(id, w, h)))
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) { note(res.getString(R.string.resize_element_taken, name)) }
+                }
+            }, onDismiss = { elementResize = null })
+        }
         moveFor?.let { r ->
             MoveToDialog(r, ui.layout.pages.map { it.id }, ui.layout.grid, onMove = { pageId, x, y -> moveFor = null; vm.store.edit(Edit.MoveToCell(r.item.id, pageId, x, y)) }, onDismiss = { moveFor = null })
         }
@@ -758,7 +862,8 @@ fun HomeScreen(vm: HomeViewModel) {
                 onRetry = { hostedSheet = null; widgets.retry(t.id) },
                 onDismiss = { hostedSheet = null },
                 onReconfigure = if (t.state == dev.nasawa.configlauncher.hosted.HostedWidgets.State.BOUND &&
-                    widgets.info(t.pkg, t.cls)?.let(widgets::target)?.reconfigurable == true) { { hostedSheet = null; widgets.flow.reconfigure(t.id) } } else null)
+                    widgets.info(t.pkg, t.cls)?.let(widgets::target)?.reconfigurable == true) { { hostedSheet = null; widgets.flow.reconfigure(t.id) } } else null,
+                onRemove = { hostedSheet = null; removeElement(t.id) })
         }
         if (pickerOpen) {
             val grid = ui.load.config.effectiveGrid
@@ -771,6 +876,8 @@ fun HomeScreen(vm: HomeViewModel) {
                     pickerOpen = false
                     vm.store.edit(edit)
                     picked = (edit.element["id"] as kotlinx.serialization.json.JsonPrimitive).content
+                    // #303 (deferred ux §16.1): edit mode with the new widget selected (its frame; handles are NW-8).
+                    editing = true; selectedElement = picked
                     val target = (edit.element["page"] as kotlinx.serialization.json.JsonPrimitive).content
                     pickedPage = target
                 }
@@ -784,6 +891,7 @@ fun HomeScreen(vm: HomeViewModel) {
                 widgetSheet = null
                 when (a) {
                     ConsentUi.SheetAction.EDIT_LAYOUT -> editing = true
+                    ConsentUi.SheetAction.REMOVE -> (w.tile?.id ?: w.live?.id)?.let(::removeElement)
                     ConsentUi.SheetAction.PERMISSIONS -> detailFor = w.live?.id
                     ConsentUi.SheetAction.REVIEW -> w.tile?.let { t -> if (t.reason == ConsentUi.Reason.Update) updateHint = true else openPrompt(t.id ?: "") }
                 }
@@ -1005,7 +1113,10 @@ internal fun PageGrid(page: ResolvedPage, grid: Grid, apps: InstalledApps, drag:
                      windowWidthClass: HomeGeometry.WidthClass? = null,
                      hosted: List<dev.nasawa.configlauncher.hosted.HostedWidgets.Tile> = emptyList(), runtime: dev.nasawa.configlauncher.hosted.WidgetRuntime? = null,
                      onHostedLong: (dev.nasawa.configlauncher.hosted.HostedWidgets.Tile) -> Unit = {}, onHostedTap: (dev.nasawa.configlauncher.hosted.HostedWidgets.Tile) -> (() -> Unit)? = { null },
-                     onCell: (Float, Float) -> Unit = { _, _ -> }) {
+                     onCell: (Float, Float) -> Unit = { _, _ -> },
+                     elementActions: (String, ElementKind) -> List<CustomAccessibilityAction> = { _, _ -> emptyList() },
+                     canDropElement: (String, Int, Int) -> Boolean = { _, _, _ -> false },
+                     onDropElement: (String, Int, Int) -> Unit = { _, _, _ -> }, selected: String? = null) {
     val byCell = page.items.associateBy { (it.item.x ?: 0) to (it.item.y ?: 0) }
     val rows = grid.rows
     val occupied by rememberUpdatedState(byCell.keys + tiles.flatMap { it.placement.cells() } + live.flatMap { it.placement.cells() } + placeholders.flatMap { it.placement.cells() } + hosted.flatMap { it.placement.cells() })
@@ -1145,6 +1256,7 @@ internal fun PageGrid(page: ResolvedPage, grid: Grid, apps: InstalledApps, drag:
                     t, onReview = { onTile(t) },
                     modifier = Modifier.offset(baseXDp + cellWDp * p.x + offX.dp, baseYDp + cellHDp * p.y + offY.dp).size(hostW.dp, hostH.dp),
                     onLongPress = { onWidgetLong(WidgetSheetFor(t, null)) },
+                    actions = t.id?.let { elementActions(it, ElementKind.CONSENT_TILE) }.orEmpty(),
                 )
             }
             live.forEach { l ->
@@ -1154,6 +1266,7 @@ internal fun PageGrid(page: ResolvedPage, grid: Grid, apps: InstalledApps, drag:
                 LiveCardTarget(
                     l, onLongPress = { onWidgetLong(WidgetSheetFor(null, l)) }, onPermissions = { onPermissions(l.id) },
                     modifier = Modifier.offset(baseXDp + cellWDp * p.x + offX.dp, baseYDp + cellHDp * p.y + offY.dp).size(hostW.dp, hostH.dp),
+                    actions = elementActions(l.id, ElementKind.LIVE_CARD),
                 )
             }
             // #300: hosted widgets, same capped host size; the cell size goes to status.json's §16.5 size check.
@@ -1164,7 +1277,18 @@ internal fun PageGrid(page: ResolvedPage, grid: Grid, apps: InstalledApps, drag:
                 val (hostW, hostH) = HomeGeometry.widgetHostSizeDp(p.w, p.h, cellWDp.value, cellHDp.value)
                 val (offX, offY) = HomeGeometry.widgetHostOffsetDp(p.w, p.h, cellWDp.value, cellHDp.value)
                 HostedWidgetCell(t, runtime, hostW, hostH, onLong = { onHostedLong(t) }, onTap = onHostedTap(t),
-                    modifier = Modifier.offset(baseXDp + cellWDp * p.x + offX.dp, baseYDp + cellHDp * p.y + offY.dp).size(hostW.dp, hostH.dp))
+                    modifier = Modifier.offset(baseXDp + cellWDp * p.x + offX.dp, baseYDp + cellHDp * p.y + offY.dp).size(hostW.dp, hostH.dp),
+                    actions = elementActions(t.id, ElementKind.APP_WIDGET))
+            }
+            // #303 §16.7.2: in edit mode a widget or card is dragged by its whole span (on top, so the widget's own
+            // touches pause while editing); it lands only on a fully free rectangle, in one write.
+            if (editing) {
+                @Composable fun target(id: String, p: dev.nasawa.configlauncher.config.Elements.Placement, onLongPress: () -> Unit) =
+                    ElementDragTarget(p, cellWDp, cellHDp, baseXDp, baseYDp, rtl, selected = id == selected,
+                        canDrop = { x, y -> canDropElement(id, x, y) }, onDrop = { x, y -> onDropElement(id, x, y) }, onLong = onLongPress)
+                hosted.forEach { t -> key("drag-" + t.id) { target(t.id, t.placement) { onHostedLong(t) } } }
+                live.forEach { l -> key("drag-" + l.id) { target(l.id, l.placement) { onWidgetLong(WidgetSheetFor(null, l)) } } }
+                tiles.forEach { t -> t.id?.let { id -> key("drag-$id") { target(id, t.placement) { onWidgetLong(WidgetSheetFor(t, null)) } } } }
             }
             placeholders.forEach { t ->
                 val p = t.placement

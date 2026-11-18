@@ -31,10 +31,27 @@ open class LongPressHostView(context: Context) : AppWidgetHostView(context) {
     /** ux.md §16.5 (#309 review nit 1): appended to what TalkBack reads, e.g. `, size may be wrong`; null = none. */
     var sizeCue: String? = null
 
+    /** #303 ux.md §16.7.3: TalkBack custom actions (`Resize…`, `Move to…`, `Remove from home`), label → action. */
+    var a11yActions: List<Pair<String, () -> Unit>> = emptyList()
+
     override fun createAccessibilityNodeInfo(): android.view.accessibility.AccessibilityNodeInfo =
         super.createAccessibilityNodeInfo().also { info ->
             sizeCue?.let { cue -> info.contentDescription = (info.contentDescription ?: contentDescription ?: "").toString() + cue }
+            a11yActions.take(ACTION_IDS.size).forEachIndexed { i, (label, _) ->
+                info.addAction(android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction(ACTION_IDS[i], label))
+            }
         }
+
+    override fun performAccessibilityAction(action: Int, arguments: android.os.Bundle?): Boolean {
+        val i = ACTION_IDS.indexOf(action)
+        if (i >= 0) { a11yActions.getOrNull(i)?.second?.invoke() ?: return false; return true }
+        return super.performAccessibilityAction(action, arguments)
+    }
+
+    companion object {
+        private val ACTION_IDS = intArrayOf(dev.nasawa.configlauncher.R.id.a11y_custom_action_0, dev.nasawa.configlauncher.R.id.a11y_custom_action_1,
+            dev.nasawa.configlauncher.R.id.a11y_custom_action_2, dev.nasawa.configlauncher.R.id.a11y_custom_action_3)
+    }
 
     var timeoutMs: Long = ViewConfiguration.getLongPressTimeout().toLong()
 

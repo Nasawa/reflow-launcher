@@ -84,21 +84,47 @@ class WidgetBindingsTest {
     @Test fun holdRestoreRelease() {
         val host = FakeHost(7, 8)
         val b = WidgetBindings(tmp.newFolder(), host).apply { put("w-1", bound(7)); put("w-2", bound(8)) }
+        // #303: held before the Remove write; the settle inside that write sets them aside (IDs kept, not orphans).
         assertTrue(b.hold("w-1")); assertTrue(b.hold("w-2"))
         assertFalse(b.hold("w-none"))
-        // Removed from the file while held: kept.
         b.settle(cfg(doc()))
         assertTrue(host.deleted.isEmpty())
-        // Undo puts w-1 back; the window for w-2 ends.
-        b.settle(cfg(doc(aw("w-1"))))
+        assertTrue(b.isAside("w-1")); assertTrue(b.all().isEmpty())
+        // Undo for w-1: restored right after the Undo edit (before its write), then settled with the element back.
         b.restore("w-1")
+        assertEquals(bound(7), b.binding("w-1"))
+        b.settle(cfg(doc(aw("w-1"))))
+        assertEquals(bound(7), b.binding("w-1"))
+        assertFalse(b.isHeld("w-1"))
+        // The window for w-2 ends: its ID is freed (deleteAppWidgetId).
         b.release("w-2")
         assertEquals(listOf(8), host.deleted)
         assertEquals(setOf("w-1"), b.all().keys)
-        assertFalse(b.isHeld("w-1"))
-        // Released while the element is back in the file: nothing freed.
-        b.hold("w-1"); b.release("w-1")
+        // Released after a successful Undo: nothing freed.
+        b.release("w-1")
         assertEquals(listOf(8), host.deleted)
+    }
+
+    @Test fun heldBindingNeverAppliesToAnElementTheAgentReAdds() {
+        val host = FakeHost(7)
+        val b = WidgetBindings(tmp.newFolder(), host).apply { put("w-1", bound(7)) }
+        b.hold("w-1")
+        b.settle(cfg(doc()))                 // the Remove write
+        b.settle(cfg(doc(aw("w-1"))))        // the agent adds a widget with the same id during the window
+        assertNull(b.binding("w-1"))         // → Tap to set up, not the held ID
+        assertTrue(host.deleted.isEmpty())   // still held (Undo would write nothing: undo_element_back)
+        b.release("w-1")
+        assertEquals(listOf(7), host.deleted)
+        assertNull(b.binding("w-1"))
+    }
+
+    @Test fun anUnreleasedHoldIsGoneAfterTheAppCloses() {
+        val dir = tmp.newFolder(); val host = FakeHost(7)
+        WidgetBindings(dir, host).apply { put("w-1", bound(7)); hold("w-1"); settle(cfg(doc())) }
+        assertTrue(host.deleted.isEmpty())
+        // A new process: the file no longer lists it, so its ID is an orphan and the next settle frees it.
+        WidgetBindings(dir, host).settle(cfg(doc()))
+        assertEquals(listOf(7), host.deleted)
     }
 
     @Test fun bindInProgressIsNotAnOrphanAndPutReplacesOldId() {

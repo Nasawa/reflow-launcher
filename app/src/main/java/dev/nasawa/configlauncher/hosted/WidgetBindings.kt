@@ -22,8 +22,11 @@ import java.io.FileOutputStream
  * - [settle] runs after every successful load (same hook as consent). A rejected file (B2) never reaches it, so it
  *   never deletes a binding. IDs whose element left the file, or whose element now names another provider or profile
  *   (→ `needsSetup`), are deleted; so are host IDs nobody owns (orphans, e.g. after a corrupt store).
- * - Undo hold for NW-6 (#303): a [hold]-ed binding survives [settle] while its element is gone; [restore] ends the
- *   hold (Undo), [release] ends it and frees the ID unless the element is back in the file.
+ * - Undo hold for NW-6 (#303, ux.md §16.7.1): a [hold]-ed binding is **set aside** by the first [settle] that sees its
+ *   element gone: out of [all], so it never applies to an element the agent adds with the same id, but its ID is
+ *   still owned (no orphan sweep). Only [restore] (a successful Undo) puts it back; [release] (the window ended)
+ *   frees the ID. Set-aside bindings live in memory only: after the app closes the file no longer lists them, so the
+ *   next settle frees their IDs as orphans (= released).
  */
 class WidgetBindings(private val dir: File?, private val host: Host) {
     /** The parts of `AppWidgetHost` the store needs (fake in tests). */
@@ -49,6 +52,8 @@ class WidgetBindings(private val dir: File?, private val host: Host) {
     // #308 review (2): a temp left by a save that died before its rename is stale; the real file is the truth.
     private var entries: MutableMap<String, Binding> = run { dir?.let { File(it, "$FILE.tmp").delete() }; load() }
     private val held = mutableSetOf<String>()
+    /** Held bindings whose element has left the file (§16.7.1 "set aside"). */
+    private val aside = mutableMapOf<String, Binding>()
     /** IDs allocated by a bind in progress (NW-4), not yet [put]: never treated as orphans. */
     private val inFlight = mutableSetOf<Int>()
     /** Element IDs of `appWidget`s in the last settled file. */
@@ -83,17 +88,19 @@ class WidgetBindings(private val dir: File?, private val host: Host) {
         for ((id, b) in entries) {
             val e = els[id]
             when {
-                e == null -> if (id in held) next[id] = b else host.delete(b.appWidgetId)
+                e == null -> if (id in held && id !in aside) aside[id] = b else host.delete(b.appWidgetId)
                 // A skipped element (e.g. `requires` above this app's level) keeps its binding untouched.
                 Elements.typeOf(e) != AppWidget -> next[id] = b
                 target(e) != (norm(b.provider) to b.profile) -> host.delete(b.appWidgetId)   // → needsSetup
                 else -> next[id] = b
             }
+            // A held binding seen with its element present (before the Remove write, or after Undo): plain again.
+            if (e != null && id in held && id !in aside) held -= id
         }
         val alive = aliveIds()
         // #308 review (5): Android already deleted the ID (e.g. the provider was uninstalled): the binding is gone too.
         if (alive != null && (alive.isNotEmpty() || next.isEmpty())) next.entries.removeAll { it.value.appWidgetId !in alive }
-        val owned = next.values.map { it.appWidgetId }.toSet() + inFlight
+        val owned = next.values.map { it.appWidgetId }.toSet() + aside.values.map { it.appWidgetId } + inFlight
         alive?.forEach { if (it !in owned) host.delete(it) }
         if (next != entries) { entries = next; save() }
     }
@@ -123,14 +130,27 @@ class WidgetBindings(private val dir: File?, private val host: Host) {
      */
     @Synchronized fun hold(elementId: String): Boolean = (elementId in entries).also { if (it) held += elementId }
 
-    /** NW-6 Undo: the element is back; the binding is kept as it was. */
-    @Synchronized fun restore(elementId: String) { held -= elementId }
-
-    /** NW-6: the Undo window ended. Frees the ID unless the element is back in the last settled file. */
-    @Synchronized fun release(elementId: String) {
-        if (!held.remove(elementId) || elementId in lastIds) return
-        entries.remove(elementId)?.let { host.delete(it.appWidgetId); save() }
+    /**
+     * NW-6 Undo succeeded (call it right after the Undo edit applied, before its write): the set-aside binding is
+     * back, kept as it was (no rebind). It stays held until a [settle] sees the element, so a load in between
+     * can't free it. A binding the agent's re-added element got meanwhile is replaced (its ID freed).
+     */
+    @Synchronized fun restore(elementId: String) {
+        val b = aside.remove(elementId)
+        if (b == null) { if (elementId !in entries) held -= elementId; return }
+        entries[elementId]?.let { if (it.appWidgetId != b.appWidgetId) host.delete(it.appWidgetId) }
+        entries[elementId] = b
+        save()
     }
+
+    /** NW-6: the Undo window ended without a successful Undo. A set-aside binding's ID is freed (`deleteAppWidgetId`). */
+    @Synchronized fun release(elementId: String) {
+        aside.remove(elementId)?.let { host.delete(it.appWidgetId) }
+        // Not settled without its element yet (the write is still pending): the next settle treats it as gone.
+        if (held.remove(elementId) && elementId !in lastIds) entries.remove(elementId)?.let { host.delete(it.appWidgetId); save() }
+    }
+
+    @Synchronized fun isAside(elementId: String) = elementId in aside
 
     private fun target(e: JsonObject): Pair<Provider, String>? {
         val content = e["content"] as? JsonObject ?: return null
