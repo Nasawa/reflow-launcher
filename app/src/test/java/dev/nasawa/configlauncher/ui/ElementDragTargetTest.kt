@@ -5,6 +5,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.platform.LocalViewConfiguration
+import androidx.compose.ui.platform.ViewConfiguration
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
@@ -28,10 +31,15 @@ class ElementDragTargetTest {
     private var longs = 0; private var ticks = 0
     private val drops = mutableListOf<Pair<Int, Int>>()
 
-    private fun show() = rule.setContent { MaterialTheme { Box(Modifier.size(400.dp, 500.dp).testTag("area")) {
-        ElementDragTarget(Elements.Placement("home", 1, 1, 1, 1), 100.dp, 100.dp, 0.dp, 0.dp, rtl = false, selected = false,
-            canDrop = { _, _ -> true }, onDrop = { x, y -> drops += x to y }, onLong = { longs++ }, onTick = { ticks++ })
-    } } }
+    /** [slopPx] overrides the touch slop (#323 nit: 0 means any move is a move). */
+    private fun show(slopPx: Float? = null) = rule.setContent { MaterialTheme {
+        val base = LocalViewConfiguration.current
+        val vc = slopPx?.let { s -> object : ViewConfiguration by base { override val touchSlop = s } } ?: base
+        CompositionLocalProvider(LocalViewConfiguration provides vc) { Box(Modifier.size(400.dp, 500.dp).testTag("area")) {
+            ElementDragTarget(Elements.Placement("home", 1, 1, 1, 1), 100.dp, 100.dp, 0.dp, 0.dp, rtl = false, selected = false,
+                canDrop = { _, _ -> true }, onDrop = { x, y -> drops += x to y }, onLong = { longs++ }, onTick = { ticks++ })
+        } }
+    } }
 
     private fun longPressDrag(vararg stepsDp: Pair<Float, Float>) {
         rule.onNodeWithTag("area").performTouchInput {
@@ -64,5 +72,34 @@ class ElementDragTargetTest {
         assertEquals(listOf(1 to 3), drops)
         assertEquals(0, longs)
         assertEquals(2, ticks)
+    }
+
+    // #323 nits (Grace): the `moved` / slop edges.
+    @Test fun withZeroTouchSlopAStillLongPressOpensTheMenuAndAnyMoveDoesNot() {
+        show(slopPx = 0f)
+        longPressDrag()                              // no move at all
+        assertEquals("a still long-press opens the menu", 1, longs)
+        longPressDrag(1f to 0f, -1f to 0f)           // 1 dp out and back: past a zero slop
+        assertEquals("a move past a zero slop is a move: no menu", 1, longs)
+        assertEquals(emptyList<Pair<Int, Int>>(), drops)
+        assertEquals(0, ticks)
+    }
+
+    @Test fun justPastSlopAndBackInTheSameCellOpensNoMenu() {
+        show()
+        var slopPx = 0f
+        rule.onNodeWithTag("area").performTouchInput {
+            slopPx = viewConfiguration.touchSlop
+            val start = Offset(150f * density, 150f * density)
+            down(start); advanceEventTime(viewConfiguration.longPressTimeoutMillis + 100)
+            moveTo(start + Offset(slopPx + 2f, 0f))  // just clears slop, well inside the 100 dp cell
+            moveTo(start)
+            up()
+        }
+        rule.waitForIdle()
+        assertEquals(true, slopPx > 0f && slopPx + 2f < 50f * density)
+        assertEquals("no long-press menu", 0, longs)
+        assertEquals("no write", emptyList<Pair<Int, Int>>(), drops)
+        assertEquals("never left the cell: no tick", 0, ticks)
     }
 }

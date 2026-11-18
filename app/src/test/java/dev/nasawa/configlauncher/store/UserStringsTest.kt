@@ -38,6 +38,13 @@ class UserStringsTest {
     }
 
     @Test fun bannersAndPlurals() {
+        // #313 Pragma (#330 nit): the home menu's cards-review item; the picker item keeps `Widgets`.
+        assertEquals("Review cards · 1", res.getQuantityString(R.plurals.menu_widgets_review, 1, 1))
+        assertEquals("Review cards · 3", res.getQuantityString(R.plurals.menu_widgets_review, 3, 3))
+        assertEquals("Widgets", res.getString(R.string.action_widgets))
+        // #329 ux.md §4.2: `+ Page`, read as `Add page`.
+        assertEquals("+ Page", res.getString(R.string.edit_add_page))
+        assertEquals("Add page", res.getString(R.string.edit_add_page_a11y))
         assertEquals("launcher.json has 1 problem. Showing the last working layout.", res.getQuantityString(R.plurals.b2_invalid, 1, 1))
         assertEquals("launcher.json has 3 problems. Showing the last working layout.", res.getQuantityString(R.plurals.b2_invalid, 3, 3))
         assertEquals("Line 12, column 7: bad", res.getString(R.string.error_at, 12, 7, "bad"))   // §10 wording
