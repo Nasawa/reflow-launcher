@@ -23,6 +23,11 @@ class Prefs(context: Context) {
         get() = sp.getInt("homeRoleDenials", 0)
         set(v) = sp.edit { putInt("homeRoleDenials", v) }
 
+    /** #301 ux.md §16.3: provider packages whose bind explanation was already shown (once per package). */
+    var widgetExplained: Set<String>
+        get() = sp.getStringSet("widgetExplained", emptySet()).orEmpty().toSet()
+        set(v) = sp.edit { putStringSet("widgetExplained", v) }
+
     var drawerKeyboard: Boolean
         get() = sp.getBoolean("drawerKeyboard", true)
         set(v) = sp.edit { putBoolean("drawerKeyboard", v) }

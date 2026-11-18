@@ -331,12 +331,19 @@
     <!-- #300 NW-3 hosted widgets (ux.md §16.2, §16.5). Reasons are exact copy. -->
     <string name="hosted_tap_to_set_up">Tap to set up</string>
     <string name="hosted_tap_to_finish">Tap to finish setup</string>
+    <string name="hosted_tap_to_allow">Tap to allow</string>
+    <string name="hosted_reconfigure">Reconfigure</string>
+    <string name="bind_explain_title">Allow this widget?</string>
+    <string name="bind_explain_body">Android will ask you to let Reflow Launcher create a %1$s widget. Your layout file only names the widget; the phone still needs your OK, once per app.</string>
+    <string name="bind_explain_continue">Continue</string>
+    <string name="bind_explain_not_now">Not now</string>
     <string name="hosted_not_installed">Not installed</string>
     <string name="hosted_cant_show">Can\'t show this widget</string>
     <string name="hosted_work_later">Work widgets come later</string>
     <string name="hosted_retry">Retry</string>
     <!-- TalkBack. %1$s = label, %2$s = reason. -->
     <string name="hosted_a11y">%1$s, widget, %2$s</string>
+    <string name="hosted_a11y_plain">%1$s, widget</string>
     <string name="hosted_size_cue_a11y">, size may be wrong</string>
     <string name="hosted_size_cue_sheet">Size may be wrong for this widget. See Warnings.</string>
 </resources>
