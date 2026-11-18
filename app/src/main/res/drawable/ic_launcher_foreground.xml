@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Reflow Launcher icon, concept A3 ("hard split"): rounded R, green to teal with a narrow switch band. 108dp adaptive canvas; the R sits inside the 66dp safe zone. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:pathData="M40,78V30h16a12,12 0,0 1,0 24H40M53,54l17,24"
+        android:strokeWidth="10"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:fillColor="#00000000">
+        <aapt:attr name="android:strokeColor">
+            <gradient
+                android:type="linear"
+                android:startX="36"
+                android:startY="28"
+                android:endX="74"
+                android:endY="80">
+                <item android:offset="0" android:color="#FF7FF08A" />
+                <item android:offset="0.44" android:color="#FF5BE49B" />
+                <item android:offset="0.56" android:color="#FF2FD4C4" />
+                <item android:offset="1" android:color="#FF16B8C8" />
+            </gradient>
+        </aapt:attr>
+    </path>
+</vector>
