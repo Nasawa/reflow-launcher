@@ -30,8 +30,10 @@ object AppsJson {
             }
         }
 
-    fun encode(entries: List<JsonObject>, ms: Long): ByteArray = buildJsonObject {
+    /** #302: [widgets] = installed widget providers (native-widgets.md §2.4), omitted until the grid has a cell size. */
+    fun encode(entries: List<JsonObject>, ms: Long, widgets: List<JsonObject>? = null): ByteArray = buildJsonObject {
         put("generated", StatusJson.iso(ms))
         put("apps", JsonArray(entries))
+        if (widgets != null) put("widgets", JsonArray(widgets))
     }.toString().plus("\n").toByteArray(Charsets.UTF_8)
 }

@@ -41,9 +41,10 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
         // #54: keep .configlauncher/apps.json current on app changes and after a source switch;
         // #72: also when drawer.hidden or the Include hidden apps setting changes.
         viewModelScope.launch(Dispatchers.IO) {
-            combine(installed, store.state.map { it.sourceName to it.config.drawer?.hidden }.distinctUntilChanged(), store.includeHiddenApps) { inst, _, incl -> inst to incl }
+            // #302: also when providers or the cell size change (apps.json widgets[]) or the grid does.
+            combine(installed, store.state.map { Triple(it.sourceName, it.config.drawer?.hidden, it.config.effectiveGrid) }.distinctUntilChanged(), store.includeHiddenApps, widgets.version) { inst, _, incl, _ -> inst to incl }
                 .filter { it.first.isNotEmpty() }
-                .collect { (inst, incl) -> store.engine.writeApps(inst, includeHidden = incl) }
+                .collect { (inst, incl) -> store.engine.writeApps(inst, includeHidden = incl, widgets = widgets.appsEntries(store.state.value.config.effectiveGrid)) }
         }
         // #300: providers come and go with packages (every LauncherApps event above, AppWidgetHost.onProvidersChanged
         // and home start), never on a timer.

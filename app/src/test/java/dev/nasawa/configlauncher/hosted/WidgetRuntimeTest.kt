@@ -166,4 +166,38 @@ class WidgetRuntimeTest {
         r.viewMissing("w-search", 6)                     // what HostedWidgetCell does when the view can't be made
         assertEquals(State.NEEDS_SETUP, r.state())
     }
+
+    // #302: apps.json widgets[] sizes are exactly what the picker places on the same grid; nothing before a cell size.
+    @Test fun appsJsonWidgetsMatchThePicker() {
+        val d = app.resources.displayMetrics.density
+        installed = listOf(
+            AppWidgetProviderInfo().apply { provider = ComponentName("com.a", "com.a.Big"); minWidth = (170 * d).toInt(); minHeight = (110 * d).toInt()
+                resizeMode = AppWidgetProviderInfo.RESIZE_BOTH; minResizeWidth = (80 * d).toInt(); minResizeHeight = (50 * d).toInt() },
+            AppWidgetProviderInfo().apply { provider = ComponentName("com.b", "com.b.Bar"); minWidth = (300 * d).toInt(); minHeight = (40 * d).toInt()
+                targetCellWidth = 4; targetCellHeight = 1; configure = ComponentName("com.b", "com.b.Cfg") },
+        )
+        val r = runtime(WidgetBindings(tmp.newFolder(), FakeHost()))
+        r.refresh()
+        val grid = dev.nasawa.configlauncher.model.Grid(4, 5)
+        assertNull(r.appsEntries(grid))
+        r.setCell(80f, 100f)
+        val entries = r.appsEntries(grid)!!
+        val picks = r.picks(grid).associateBy { it.cls }
+        for (e in entries) {
+            val size = e["size"] as kotlinx.serialization.json.JsonObject
+            val p = picks[(e["class"] as kotlinx.serialization.json.JsonPrimitive).content]!!
+            assertEquals("${p.w}x${p.h}", "${size["w"]}x${size["h"]}")
+        }
+        val big = entries.first { it["class"].toString().contains("Big") }
+        assertEquals("""{"w":3,"h":2}""", big["size"].toString())
+        assertEquals("""{"w":1,"h":1}""", big["minSize"].toString())
+        assertEquals("\"both\"", big["resize"].toString())
+        assertEquals("\"personal\"", big["profile"].toString())
+        assertEquals("\"none\"", big["configure"].toString())
+        val bar = entries.first { it["class"].toString().contains("Bar") }
+        assertEquals("""{"w":4,"h":1}""", bar["size"].toString())
+        assertEquals("\"none\"", bar["resize"].toString())
+        assertEquals("\"required\"", bar["configure"].toString())
+        assertEquals(listOf("package", "class", "label", "profile", "size", "minSize", "maxSize", "resize", "configure"), big.keys.toList())
+    }
 }

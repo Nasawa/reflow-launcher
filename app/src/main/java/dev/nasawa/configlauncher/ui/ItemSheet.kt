@@ -83,7 +83,7 @@ fun ItemSheet(r: ResolvedItem, onAction: (ItemAction) -> Unit, onDismiss: () -> 
     }
 }
 
-enum class HomeAction { EDIT_LAYOUT, PAGES, WIDGETS_REVIEW, RELOAD, SETTINGS, WALLPAPER }
+enum class HomeAction { EDIT_LAYOUT, PAGES, WIDGETS, WIDGETS_REVIEW, RELOAD, SETTINGS, WALLPAPER }
 
 /** ux.md §1.1: long-press empty space → `Edit layout`, `Pages` (≥ 2 pages, #99), `Reload layout`, `Settings`. */
 object HomeMenu {
@@ -95,6 +95,7 @@ object HomeMenu {
     const val WIDGETS_ONLY_WHEN_REVIEWING = true
 
     fun actions(pageCount: Int, reviewCount: Int = 0, cardsLive: Boolean = true) = listOfNotNull(HomeAction.EDIT_LAYOUT, HomeAction.PAGES.takeIf { pageCount >= 2 },
+        HomeAction.WIDGETS,   // #302 ux.md §16.1: the picker, after Pages
         HomeAction.WIDGETS_REVIEW.takeIf { cardsLive && (reviewCount > 0 || !WIDGETS_ONLY_WHEN_REVIEWING) },
         HomeAction.RELOAD, HomeAction.SETTINGS, HomeAction.WALLPAPER)
 }
@@ -113,6 +114,7 @@ fun HomeMenuSheet(pageCount: Int, reviewCount: Int, onAction: (HomeAction) -> Un
                     else Text(stringResource(when (a) {
                         HomeAction.EDIT_LAYOUT -> R.string.action_edit_layout
                         HomeAction.PAGES -> R.string.action_pages
+                        HomeAction.WIDGETS -> R.string.action_widgets
                         HomeAction.RELOAD -> R.string.action_reload_layout
                         HomeAction.SETTINGS -> R.string.action_settings
                         HomeAction.WALLPAPER -> R.string.action_wallpaper

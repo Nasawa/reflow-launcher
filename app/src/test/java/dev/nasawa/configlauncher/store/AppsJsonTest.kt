@@ -70,4 +70,18 @@ class AppsJsonTest {
         assertFalse(e.writeApps(listOf(maps)))
         assertFalse(File(dir, ".configlauncher").exists())
     }
+
+    // #302: widgets[] rides in apps.json; a provider or cell-size change rewrites it, the same list doesn't.
+    @Test fun widgetsArrayIsWrittenAndRewrittenOnChange() = runBlocking {
+        val dir = tmp.newFolder()
+        val e = ConfigEngine(LocalFileSource(dir), LastGoodStore(tmp.newFolder()), stabilityMs = 0)
+        val f = File(dir, ".configlauncher/apps.json")
+        assertTrue(e.writeApps(listOf(maps)))
+        assertFalse("no widgets[] before the grid has a cell size", Json.parseToJsonElement(f.readText()).jsonObject.containsKey("widgets"))
+        val w = listOf(buildJsonObject { put("package", "com.a"); put("class", "com.a.W"); put("size", buildJsonObject { put("w", 2); put("h", 1) }) })
+        assertTrue(e.writeApps(listOf(maps), widgets = w))
+        assertEquals("com.a.W", Json.parseToJsonElement(f.readText()).jsonObject["widgets"]!!.jsonArray.single().jsonObject["class"]!!.jsonPrimitive.content)
+        assertFalse("same widgets", e.writeApps(listOf(maps), widgets = w))
+        assertTrue("sizes changed", e.writeApps(listOf(maps), widgets = listOf(buildJsonObject { put("package", "com.a"); put("class", "com.a.W"); put("size", buildJsonObject { put("w", 3); put("h", 1) }) })))
+    }
 }

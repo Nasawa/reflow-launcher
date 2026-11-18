@@ -138,7 +138,7 @@ class ConsentReviewTest {
         assertTrue(ConsentUi.B9.visible(2, ConsentUi.B9.follow(1, 2), otherBanner = false)) // ...so the next rise shows
         assertFalse(ConsentUi.B9.visible(0, 0, otherBanner = false))
         assertFalse(HomeAction.WIDGETS_REVIEW in HomeMenu.actions(2, 0))
-        assertEquals(listOf(HomeAction.EDIT_LAYOUT, HomeAction.PAGES, HomeAction.WIDGETS_REVIEW, HomeAction.RELOAD, HomeAction.SETTINGS, HomeAction.WALLPAPER),
+        assertEquals(listOf(HomeAction.EDIT_LAYOUT, HomeAction.PAGES, HomeAction.WIDGETS, HomeAction.WIDGETS_REVIEW, HomeAction.RELOAD, HomeAction.SETTINGS, HomeAction.WALLPAPER),
             HomeMenu.actions(2, 3))
     }
 

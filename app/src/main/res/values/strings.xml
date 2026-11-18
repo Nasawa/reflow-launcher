@@ -332,6 +332,12 @@
     <string name="hosted_tap_to_set_up">Tap to set up</string>
     <string name="hosted_tap_to_finish">Tap to finish setup</string>
     <string name="hosted_tap_to_allow">Tap to allow</string>
+    <string name="action_widgets">Widgets</string>
+    <string name="action_add_widget">+ Widget</string>
+    <string name="widget_picker_title">Widgets</string>
+    <string name="widget_search_hint">Search widgets</string>
+    <string name="widget_picker_empty">No widgets found</string>
+    <string name="widget_size_chip">%1$d × %2$d</string>
     <string name="hosted_reconfigure">Reconfigure</string>
     <string name="bind_explain_title">Allow this widget?</string>
     <string name="bind_explain_body">Android will ask you to let Reflow Launcher create a %1$s widget. Your layout file only names the widget; the phone still needs your OK, once per app.</string>
