@@ -178,4 +178,16 @@ class BindFlowTest {
         assertEquals(listOf(WidgetBindings.FILE), dir.list()!!.toList())
         assertTrue(file.readText().contains("\"k\""))
     }
+
+    // #310 review (d): a provider change while home is visible retries the silent bind without waiting for a resume.
+    @Test fun providerChangeRetriesSilentBindNow() {
+        flow.silentBindAll(listOf("c" to clock))
+        assertNull(bindings.binding("c"))
+        assertFalse(flow.silentPending("c", clock))
+        fake.allowed += clock.pkg
+        flow.retrySilent()
+        assertTrue(flow.silentPending("c", clock))
+        flow.silentBindAll(listOf("c" to clock))
+        assertNotNull(bindings.binding("c"))
+    }
 }

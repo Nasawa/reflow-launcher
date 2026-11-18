@@ -23,6 +23,11 @@ import java.util.concurrent.ConcurrentHashMap
 class WidgetRuntime(
     context: Context, val host: WidgetHost, val bindings: WidgetBindings?,
     private val installedProviders: () -> List<AppWidgetProviderInfo> = { host.providers() },
+    /** Where provider callbacks run their refresh (never the main thread); tests run it inline. */
+    private val background: (Runnable) -> Unit = { REFRESH.execute(it) },
+    /** Starts a provider's configure screen from [android.app.Activity]; tests record it. */
+    private val startConfigure: (android.app.Activity, Int, Int) -> Unit =
+        { a, id, req -> host.host.startAppWidgetConfigureActivityForResult(a, id, 0, req, null) },
 ) : AppWidgetStatus {
     private val app = context.applicationContext
     private val density get() = app.resources.displayMetrics.density
@@ -36,7 +41,8 @@ class WidgetRuntime(
     /** Bumps when providers, the cell size or a host-view failure change. */
     val version: StateFlow<Int> = _version
 
-    init { host.onProvidersChanged = { refresh() } }
+    // #310 review (c): AppWidgetHost calls back on the main thread; the provider read is a binder call, so move it.
+    init { host.onProvidersChanged = { background(Runnable { refresh() }) } }
 
     /**
      * Re-reads the installed providers. Called on home start, on **every** package event and from
@@ -48,7 +54,7 @@ class WidgetRuntime(
         val next = installedProviders()
         val changed = next.map { it.provider } != providers.map { it.provider }
         providers = next
-        if (changed) { _version.value++; debug { "providers: ${next.size}" } }
+        if (changed) { _version.value++; debug { "providers: ${next.size}" }; flow.retrySilent() }
         return changed
     }
 
@@ -111,8 +117,11 @@ class WidgetRuntime(
     override fun states(c: LauncherConfig) = HostedWidgets.states(tiles(c))
     override fun warnings(c: LauncherConfig) = HostedWidgets.warnings(tiles(c))
 
-    /** Debug builds: `.configlauncher/widget-providers.debug.json`, so an agent can write a correct provider. */
-    fun debugProviders(): ByteArray = buildJsonObject {
+    /**
+     * Debug builds: `.configlauncher/widget-providers.debug.json`, so an agent can write a correct provider. Null until
+     * the grid has reported its cell size (#310 review (e): sizes would be null), so the first write already has them.
+     */
+    fun debugProviders(): ByteArray? = if (cellDp == null) null else buildJsonObject {
         put("note", "Debug builds only (#300/#301 hands-on). Sizes in cells of this phone's current main grid.")
         put("providers", JsonArray(providers.map { i ->
             val f = facts(i)
@@ -150,9 +159,9 @@ class WidgetRuntime(
             }.isSuccess
         }
         override fun launchConfigure(appWidgetId: Int): Boolean {
-            val a = activity ?: return false
+            val a = activity ?: resultActivity ?: return false
             debug { "configure id=$appWidgetId" }
-            return runCatching { host.host.startAppWidgetConfigureActivityForResult(a, appWidgetId, 0, REQ_CONFIGURE, null) }
+            return runCatching { startConfigure(a, appWidgetId, REQ_CONFIGURE) }
                 .onFailure { debug { "configure failed: $it" } }.isSuccess
         }
     }
@@ -179,11 +188,19 @@ class WidgetRuntime(
         flow.silentBindAll(unbound)
     }
 
-    /** MainActivity.onActivityResult. */
-    fun onActivityResult(requestCode: Int, resultCode: Int) {
+    /** The activity delivering a result: onActivityResult runs before onResume, while [activity] is still null. */
+    @Volatile private var resultActivity: android.app.Activity? = null
+
+    /**
+     * MainActivity.onActivityResult. #310 review: the bind result arrives before onResume, so the configure screen
+     * that follows is started from [from], the activity that received the result.
+     */
+    fun onActivityResult(from: android.app.Activity, requestCode: Int, resultCode: Int) {
         val ok = resultCode == android.app.Activity.RESULT_OK
         debug { "result req=$requestCode ok=$ok" }
-        when (requestCode) { REQ_BIND -> flow.onBindResult(ok); REQ_CONFIGURE -> flow.onConfigureResult(ok) }
+        resultActivity = from
+        try { when (requestCode) { REQ_BIND -> flow.onBindResult(ok); REQ_CONFIGURE -> flow.onConfigureResult(ok) } }
+        finally { resultActivity = null }
     }
 
     companion object {
@@ -191,6 +208,7 @@ class WidgetRuntime(
         const val DEBUG_FILE = "widget-providers.debug.json"
         const val REQ_BIND = 0x5201
         const val REQ_CONFIGURE = 0x5202
+        private val REFRESH = java.util.concurrent.Executors.newSingleThreadExecutor { r -> Thread(r, "widget-refresh").apply { isDaemon = true } }
         inline fun debug(msg: () -> String) { if (BuildConfig.DEBUG) Log.d(TAG, msg()) }
     }
 }

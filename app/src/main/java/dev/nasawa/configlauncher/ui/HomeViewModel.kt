@@ -53,7 +53,7 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
             combine(widgets.version, widgets.bindings?.version ?: flowOf(0)) { a, b -> a to b }.collect {
                 store.engine.appWidgetsChanged()
                 // Debug builds only: the providers this phone has, in cells, for the hands-on session.
-                if (dev.nasawa.configlauncher.BuildConfig.DEBUG) store.engine.writeDebugSidecar(dev.nasawa.configlauncher.hosted.WidgetRuntime.DEBUG_FILE, widgets.debugProviders())
+                if (dev.nasawa.configlauncher.BuildConfig.DEBUG) widgets.debugProviders()?.let { store.engine.writeDebugSidecar(dev.nasawa.configlauncher.hosted.WidgetRuntime.DEBUG_FILE, it) }
             }
         }
     }

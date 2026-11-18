@@ -51,6 +51,9 @@ class BindFlow(private val platform: Platform, private val bindings: WidgetBindi
     @Volatile var resumed = false
         set(v) { val was = field; field = v; if (v && !was) { synchronized(this) { silentTried.clear() }; bump() } }
 
+    /** #310 review (d): providers changed while home is visible (e.g. a reinstall): try silent binds again now. */
+    @Synchronized fun retrySilent() { if (silentTried.isEmpty()) return; silentTried.clear(); bump() }
+
     @Synchronized fun hint(elementId: String): Hint? = marks[elementId]
 
     /** A silent bind will still be tried for this unbound widget (tile shows icon and label only, no reason). */

@@ -43,7 +43,7 @@ class MainActivity : ComponentActivity() {
     @Suppress("DEPRECATION")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: android.content.Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        (application as ConfigLauncherApp).widgets.onActivityResult(requestCode, resultCode)
+        (application as ConfigLauncherApp).widgets.onActivityResult(this, requestCode, resultCode)
     }
     override fun onStop() { vm.store.stop(); (application as ConfigLauncherApp).widgetHost.stop(); super.onStop() }
 

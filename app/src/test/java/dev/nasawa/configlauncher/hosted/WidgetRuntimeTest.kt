@@ -33,15 +33,20 @@ class WidgetRuntimeTest {
     private val cfg = (ConfigCodec.decode("""{"schemaVersion":1,"pages":[{"id":"home","items":[]}],"elements":[{"id":"w-search","type":"appWidget","requires":5,"page":"home","x":0,"y":0,"w":3,"h":1,"content":{"provider":{"package":"com.android.quicksearchbox","class":".SearchWidgetProvider"}}}]}""") as ParseResult.Ok).config
 
     private var installed = listOf<AppWidgetProviderInfo>()
-    private fun runtime(bindings: WidgetBindings) = WidgetRuntime(app, WidgetHost(app), bindings) { installed }
+    private val configures = mutableListOf<Pair<android.app.Activity, Int>>()
+    private fun runtime(bindings: WidgetBindings) = WidgetRuntime(app, WidgetHost(app), bindings, installedProviders = { installed },
+        background = { it.run() }, startConfigure = { a, id, _ -> configures += a to id })
     private fun WidgetRuntime.state() = tiles(cfg).single().state
     /** What AppWidgetService does once the reinstalled provider is registered (while home listens). */
     private fun providersChanged(h: WidgetHost) =
         AppWidgetHost::class.java.getDeclaredMethod("onProvidersChanged").apply { isAccessible = true }.invoke(h.host)
 
     @Test fun reinstalledProviderLeavesNotInstalledFromTheHostCallbackAlone() {
-        val host = FakeHost(6)
-        val b = WidgetBindings(tmp.newFolder(), host).apply { put("w-search", WidgetBindings.Binding(6, WidgetBindings.Provider(search.provider.packageName, ".SearchWidgetProvider"), "personal", WidgetBindings.State.BOUND)) }
+        val host = FakeHost(6, 9)                         // 9: another widget on home, so the host list isn't empty
+        val b = WidgetBindings(tmp.newFolder(), host).apply {
+            put("w-search", WidgetBindings.Binding(6, WidgetBindings.Provider(search.provider.packageName, ".SearchWidgetProvider"), "personal", WidgetBindings.State.BOUND))
+            put("w-other", WidgetBindings.Binding(9, WidgetBindings.Provider("com.other", ".W"), "personal", WidgetBindings.State.BOUND))
+        }
         installed = listOf(search)
         val r = runtime(b)
         r.refresh()
@@ -95,5 +100,70 @@ class WidgetRuntimeTest {
         r.retry("w-search")
         assertEquals(State.NEEDS_SETUP, r.state())
         assertTrue(host.alive.isEmpty())
+    }
+
+    // #310 review (blocking): the bind result arrives before onResume (MainActivity.onPause cleared `activity`), and
+    // the configure screen must still start, from the activity that received the result.
+    @Test fun configureStartsFromTheResultActivityWhileDetached() {
+        val gallery = AppWidgetProviderInfo().apply {
+            provider = ComponentName("com.android.gallery3d", "com.android.gallery3d.gadget.PhotoAppWidgetProvider")
+            configure = ComponentName("com.android.gallery3d", "com.android.gallery3d.gadget.WidgetConfigure")
+            // `profile` reads providerInfo's uid; Robolectric leaves it unset.
+            org.robolectric.util.ReflectionHelpers.setField(this, "providerInfo", android.content.pm.ActivityInfo().apply {
+                packageName = "com.android.gallery3d"; applicationInfo = android.content.pm.ApplicationInfo().apply { uid = android.os.Process.myUid() }
+            })
+        }
+        installed = listOf(gallery)
+        org.robolectric.Shadows.shadowOf(android.appwidget.AppWidgetManager.getInstance(app)).setAllowedToBindAppWidgets(false)
+        val host = FakeHost()
+        val r = runtime(WidgetBindings(tmp.newFolder(), host))
+        r.refresh()
+        dev.nasawa.configlauncher.settings.Prefs(app).widgetExplained = setOf(gallery.provider.packageName)
+        val activity = org.robolectric.Robolectric.buildActivity(android.app.Activity::class.java).setup().get()
+        r.activity = activity; r.flow.resumed = true
+        assertNotNull("target", r.info(gallery.provider.packageName, ".gadget.PhotoAppWidgetProvider"))
+        val tapped = r.flow.tap("w-g", gallery.provider.packageName, ".gadget.PhotoAppWidgetProvider")
+        assertTrue("tap: pending=${r.flow.pending.value} hint=${r.flow.hint("w-g")} bound=${r.bindings!!.all()}", tapped)
+        val id = r.flow.pending.value!!.appWidgetId
+        assertEquals(BindFlow.Step.BIND, r.flow.pending.value!!.step)
+        // The bind dialog covers home: onPause.
+        r.flow.resumed = false; r.activity = null
+        // Allow (CREATE) without "Always": the result is delivered before onResume.
+        r.onActivityResult(activity, WidgetRuntime.REQ_BIND, android.app.Activity.RESULT_OK)
+        assertEquals(listOf(activity to id), configures)
+        assertEquals(BindFlow.Step.CONFIGURE, r.flow.pending.value!!.step)
+        assertNull("not Tap to finish setup", r.flow.hint("w-g"))
+        r.onActivityResult(activity, WidgetRuntime.REQ_CONFIGURE, android.app.Activity.RESULT_OK)
+        assertEquals(id, r.bindings!!.binding("w-g")!!.appWidgetId)
+    }
+
+    // #310 review (e): the debug provider file is written only once the grid has a cell size, so sizes aren't null.
+    @Test fun debugProvidersWaitForTheCellSize() {
+        installed = listOf(AppWidgetProviderInfo().apply { provider = search.provider; minWidth = 200; minHeight = 40 })
+        val r = runtime(WidgetBindings(tmp.newFolder(), FakeHost()))
+        r.refresh()
+        assertNull(r.debugProviders())
+        r.setCell(80f, 100f)
+        val p = kotlinx.serialization.json.Json.parseToJsonElement(String(r.debugProviders()!!)).let { it as kotlinx.serialization.json.JsonObject }["providers"]!!
+            .let { (it as kotlinx.serialization.json.JsonArray).single() as kotlinx.serialization.json.JsonObject }
+        assertNotEquals(kotlinx.serialization.json.JsonNull, p["minW"])
+        assertNotEquals(kotlinx.serialization.json.JsonNull, p["minH"])
+    }
+
+    // Grace's #309 repro with a single widget: the host list goes empty, so (a) skips the prune, and the grid's
+    // view check still sends the stale ID to `Tap to set up` after the reinstall.
+    @Test fun onlyWidgetsDeletedIdStillRecoversThroughTheViewCheck() {
+        val host = FakeHost(6)
+        val b = WidgetBindings(tmp.newFolder(), host).apply { put("w-search", WidgetBindings.Binding(6, WidgetBindings.Provider(search.provider.packageName, ".SearchWidgetProvider"), "personal", WidgetBindings.State.BOUND)) }
+        installed = listOf(search)
+        val r = runtime(b)
+        r.refresh()
+        installed = emptyList(); host.alive -= 6
+        r.refresh()
+        assertEquals(State.NOT_INSTALLED, r.state())
+        installed = listOf(search)
+        providersChanged(r.host)
+        r.viewMissing("w-search", 6)                     // what HostedWidgetCell does when the view can't be made
+        assertEquals(State.NEEDS_SETUP, r.state())
     }
 }

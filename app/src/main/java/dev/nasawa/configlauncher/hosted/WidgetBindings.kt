@@ -90,9 +90,9 @@ class WidgetBindings(private val dir: File?, private val host: Host) {
                 else -> next[id] = b
             }
         }
-        val alive = runCatching { host.ids() }.getOrNull()?.toSet()
+        val alive = aliveIds()
         // #308 review (5): Android already deleted the ID (e.g. the provider was uninstalled): the binding is gone too.
-        if (alive != null) next.entries.removeAll { it.value.appWidgetId !in alive }
+        if (alive != null && (alive.isNotEmpty() || next.isEmpty())) next.entries.removeAll { it.value.appWidgetId !in alive }
         val owned = next.values.map { it.appWidgetId }.toSet() + inFlight
         alive?.forEach { if (it !in owned) host.delete(it) }
         if (next != entries) { entries = next; save() }
@@ -100,11 +100,15 @@ class WidgetBindings(private val dir: File?, private val host: Host) {
 
     /** #308 review (5): drop bindings whose ID Android has deleted (provider uninstalled). Called on package changes. */
     @Synchronized fun prune() {
-        val alive = runCatching { host.ids() }.getOrNull()?.toSet() ?: return
+        val alive = aliveIds() ?: return
+        // #310 review (a): an empty list while we hold bindings is suspicious (host not ready); never prune everything.
+        if (alive.isEmpty()) return
         if (entries.values.all { it.appWidgetId in alive }) return
         entries = entries.filterValues { it.appWidgetId in alive }.toMutableMap()
         save()
     }
+
+    private fun aliveIds(): Set<Int>? = runCatching { host.ids() }.getOrNull()?.toSet()
 
     /** #309 review: [elementId]'s ID can't be shown any more (Android has no widget for it): free it → `needsSetup`. */
     @Synchronized fun forget(elementId: String, appWidgetId: Int) {
