@@ -23,6 +23,7 @@ class ElementUndoTest {
             override fun hold(id: String): Boolean { log += "hold $id"; return true }
             override fun restore(id: String) { log += "restore $id" }
             override fun release(id: String) { log += "release $id" }
+            override fun setAside(id: String) { log += "aside $id" }
         }
         val undo = ElementUndo({ c }, { e -> val r = Edits.apply(c, e); log += "edit ${e::class.simpleName} ${r.applied}"; if (r.applied) c = r.config; r.applied }, listOf(hold, hold))
     }
@@ -87,7 +88,7 @@ class ElementUndoTest {
         val h = Harness(cfg(doc(aw("w-a"))))
         val r = h.undo.remove("w-a")!!
         val agentFile = cfg(doc(aw("w-a", x = 2, y = 2, w = 1, h = 1)))
-        val undo = ElementUndo({ h.c }, { e -> Edits.apply(h.c, e).applied }, listOf(h.hold)) { e, onKept ->
+        val undo = ElementUndo({ h.c }, { e -> Edits.apply(h.c, e).applied }, listOf(h.hold)) { e, onKept, _ ->
             check(Edits.apply(h.c, e).applied)          // applies to the shown model…
             val merged = Edits.replay(agentFile, listOf(e))
             h.c = merged.config                          // …but the write lands on the agent's file
@@ -108,9 +109,34 @@ class ElementUndoTest {
         val order = mutableListOf<String>()
         val undo = ElementUndo({ h.c }, { true }, listOf(object : ElementUndo.Hold {
             override fun hold(id: String) = true; override fun restore(id: String) { order += "restore" }; override fun release(id: String) {}
-        })) { e, onKept -> h.c = Edits.apply(h.c, e).config; onKept(); order += "written"; true }
+            override fun setAside(id: String) { order += "aside" }
+        })) { e, onKept, _ -> h.c = Edits.apply(h.c, e).config; onKept(); order += "written"; true }
         assertEquals(ElementUndo.Undone.Same, undo.undo(r))
         assertEquals(listOf("restore", "written"), order)
+    }
+
+    @Test fun anUndoWaitsOnAFailedSaveOrAMergeDecisionOnly() {
+        // #314 GO follow-up: the UI shows `undo_element_waiting` exactly while one of these holds.
+        val s = dev.nasawa.configlauncher.store.LoadState(cfg(doc()), dev.nasawa.configlauncher.store.Origin.FILE, "f")
+        assertFalse(ElementUndo.waitsOn(s))
+        assertTrue("B6", ElementUndo.waitsOn(s.copy(conflict = true)))
+        assertTrue("B5", ElementUndo.waitsOn(s.copy(issue = dev.nasawa.configlauncher.store.Issue.SaveFailed("offline"))))
+        assertFalse("a read problem isn't the Undo's write", ElementUndo.waitsOn(s.copy(issue = dev.nasawa.configlauncher.store.Issue.ReadFailed("x"))))
+    }
+
+    @Test fun aFailedUndoWriteSetsTheHoldsAsideAgain() = runBlocking {
+        val h = Harness(cfg(doc(aw("w-a"))))
+        val r = h.undo.remove("w-a")!!
+        h.log.clear()
+        var calls = 0
+        val undo = ElementUndo({ h.c }, { true }, listOf(h.hold)) { e, onKept, onUnkept ->
+            // First write: kept, then it fails (B5); the Retry then keeps it.
+            onKept(); onUnkept(); calls++
+            h.c = Edits.apply(h.c, e).config; onKept(); true
+        }
+        assertEquals(ElementUndo.Undone.Same, undo.undo(r))
+        assertEquals(listOf("restore w-a", "aside w-a", "restore w-a"), h.log)
+        assertEquals(1, calls)
     }
 
     @Test fun snackWindowWaitsForAnUndoInFlight() {

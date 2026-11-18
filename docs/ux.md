@@ -537,7 +537,9 @@ size, with no special case. Font 2.0 on the open fold ellipsizes labels to about
   Drawer tiles, folder children and other tiles that can't drag keep the full timeout: no early hold.
 - On screen: a top bar replaces the banner slot: `Editing layout` on the left, **`Done`** button on the right. Every
   cell shows a faint outline (white 16 %), so empty cells are visible. No jiggle animation (§12 reduced motion).
-- Leave: `Done`, Back, Home, or 30 s with no interaction.
+- Leave: `Done`, Back, Home, or 30 s with no interaction. Back and the idle exit save like `Done` (empty pages are dropped).
+  The 30 s don't run while the widget picker, an edit sheet or dialog, a held resize handle, or a widget's bind flow
+  (§16.3 explanation, Android's bind dialog, the widget's setup screen) is up; each starts a fresh 30 s when it closes.
 - Edit mode **stays available while the file is invalid** (ARCHITECTURE OQ-15). The first edit copies the broken file
   to `.configlauncher/broken/launcher.<timestamp>.json` in the folder, then writes the edited last working layout to
   `launcher.json`. Snackbar: `Your broken launcher.json was saved to .configlauncher/broken/.` B2 shows until that write succeeds.
@@ -1572,6 +1574,7 @@ Strings (new; `%1$s` placeholders as in §17.13):
 | `undo_element_moved` | `Put "%1$s" back on %2$s.` | 1 = name, 2 = page name as `{page}` shows it, else `Page %1$d` (§1.3) | 4 s snackbar, no action; only when Undo lands off the old cells |
 | `undo_element_no_room` | `Couldn't put "%1$s" back. There's no free space.` | 1 = name | Snackbar; Undo found no room |
 | `undo_element_back` | `"%1$s" is already back on home.` | 1 = name | Snackbar; the id was re-added during the window (information) |
+| `undo_element_waiting` | `"%1$s" goes back once the layout is saved.` | 1 = name | Snackbar (polite live region) while an Undo waits on a failed save (B5 Retry) or a merge decision (B6); gone when the Undo finishes |
 | `move_element_taken` | `Couldn't move "%1$s": that space is taken.` | 1 = name | Snackbar; target taken at write time |
 | `move_element_no_room` | `No room` | — | Reason on a disabled page in the picker, and on a disabled `Move to…` |
 | `move_element_no_room_any` | `No room on any page.` | — | Announced when the disabled `Move to…` is activated |

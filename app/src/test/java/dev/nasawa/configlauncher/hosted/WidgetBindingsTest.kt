@@ -255,4 +255,22 @@ class WidgetBindingsTest {
         assertEquals(bound(8), b.binding("w-2"))
         assertTrue(host.deleted.isEmpty())
     }
+
+    @Test fun setAsideLeavesABindingThatIsNotHeldAlone() {
+        // #319 review: only a held, restored binding goes back aside (kills the `!in held` guard mutant).
+        val host = FakeHost(7, 8)
+        val b = WidgetBindings(tmp.newFolder(), host)
+        b.put("w-1", bound(7)); b.put("w-2", bound(8))
+        b.setAside("w-1")
+        assertEquals(bound(7), b.binding("w-1"))
+        assertFalse(b.isAside("w-1"))
+        // Held and restored after a set-aside: goes aside again; a second call changes nothing.
+        b.hold("w-2"); b.settle(cfg(doc(aw("w-1")))); assertTrue(b.isAside("w-2"))
+        b.restore("w-2"); assertEquals(bound(8), b.binding("w-2"))
+        b.setAside("w-2"); b.setAside("w-2")
+        assertNull(b.binding("w-2")); assertTrue(b.isAside("w-2"))
+        b.settle(cfg(doc(aw("w-1"), aw("w-2", x = 2))))
+        assertNull("an agent's re-added w-2 doesn't get ID 8", b.binding("w-2"))
+        assertTrue(host.deleted.isEmpty())
+    }
 }

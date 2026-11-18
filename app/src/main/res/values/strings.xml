@@ -215,6 +215,7 @@
     <string name="undo_element_moved">Put \"%1$s\" back on %2$s.</string>
     <string name="undo_element_no_room">Couldn\'t put \"%1$s\" back. There\'s no free space.</string>
     <string name="undo_element_back">\"%1$s\" is already back on home.</string>
+    <string name="undo_element_waiting">\"%1$s\" goes back once the layout is saved.</string>
     <string name="move_element_taken">Couldn\'t move \"%1$s\": that space is taken.</string>
     <string name="resize_element_taken">Couldn\'t resize \"%1$s\": that space is taken.</string>
     <string name="move_element_no_room">No room</string>

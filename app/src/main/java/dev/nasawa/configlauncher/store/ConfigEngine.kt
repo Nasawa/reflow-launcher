@@ -121,13 +121,29 @@ class ConfigEngine(
      * the write path, after the replay decided the edit is kept and **before** the write (so before the settle in it);
      * [done] completes true once that write succeeded, false when the edit was skipped or dropped (B6 Use file).
      */
-    private class Waiter(val edit: Edit, val onKept: () -> Unit, val done: kotlinx.coroutines.CompletableDeferred<Boolean>) { var kept = false }
+    private class Waiter(val edit: Edit, val onKept: () -> Unit, val onUnkept: () -> Unit, val done: kotlinx.coroutines.CompletableDeferred<Boolean>) { var kept = false }
     private val waiters = mutableListOf<Waiter>()
+
+    /**
+     * #314 GO follow-up: the write that [keepWaiters] ran onKept for failed, so nothing of it reached the file. Undo
+     * that ([Waiter.onUnkept], e.g. set the holds aside again) and wait for the next write: its replay decides afresh,
+     * so a Retry after the agent re-added the element skips the edit with the holds still aside.
+     */
+    private fun unkeepWaiters() {
+        for (w in waiters) if (w.kept) { w.kept = false; runCatching { w.onUnkept() } }
+    }
 
     /** Before a write of [ops]' outcome: run onKept for the kept ones ([skipped] by identity). */
     private fun keepWaiters(skipped: List<Edit>) {
         for (w in waiters) if (!w.kept && skipped.none { it === w.edit }) { w.kept = true; runCatching { w.onKept() } }
     }
+
+    /**
+     * #319 review: skipped edits whose [editKept] caller reports the outcome itself (ElementUndo's "already back on home")
+     * aren't counted again in the merge snackbar. Call before [finishWaiters] (it clears [waiters]).
+     */
+    private fun unreportedSkips(skipped: List<dev.nasawa.configlauncher.model.Skip>) =
+        skipped.filter { s -> waiters.none { it.edit === s.edit } }
 
     /** After the write succeeded (or the pending ops were dropped: [dropped]). */
     private fun finishWaiters(skipped: List<Edit>, dropped: Boolean = false) {
@@ -358,13 +374,13 @@ class ConfigEngine(
      * onto a newer file can skip it, e.g. an Undo whose element the agent already re-added). [onKept] runs in the write
      * path before the write; see [Waiter].
      */
-    suspend fun editKept(edit: Edit, onKept: () -> Unit): Boolean {
+    suspend fun editKept(edit: Edit, onUnkept: () -> Unit = {}, onKept: () -> Unit): Boolean {
         val done = kotlinx.coroutines.CompletableDeferred<Boolean>()
         mutex.withLock {
             val r = Edits.apply(_state.value.config, edit)
             if (!r.applied) return false
             pending += edit
-            waiters += Waiter(edit, onKept, done)
+            waiters += Waiter(edit, onKept, onUnkept, done)
             _state.update { it.copy(config = r.config, pendingEdits = pending.size) }
         }
         if (scope == null) flush() else scheduleFlush()
@@ -455,6 +471,7 @@ class ConfigEngine(
         keepWaiters(rep.skipped.map { it.edit })
         // #317: changed again under the merge's own write: the caller ([flushLocked]) merges onto the newer file.
         val written = try { writeLocked(out, expectOf(fileBytes)) } catch (e: ConcurrentChangeException) { throw e } catch (e: Exception) { fail(Issue.SaveFailed.of(e)); return true }
+        val shown = unreportedSkips(rep.skipped)
         pending.clear(); finishWaiters(rep.skipped.map { it.edit })
         // §9.1: all-skipped merges have no Undo (nothing of ours was written).
         val undo = rep.kept > 0
@@ -462,7 +479,8 @@ class ConfigEngine(
         else clearUndo()
         _state.update {
             it.copy(pendingEdits = 0, issue = null, mergeUndo = undo,
-                merge = MergeNotice(rep.kept, rep.skipped.size, rep.onlyFolder, undo))
+                // Nothing left to say when the only skip is one its caller already reported (#319 review).
+                merge = MergeNotice(rep.kept, shown.size, shown.singleOrNull()?.folder?.takeIf { rep.kept == 0 }, undo).takeUnless { n -> n.kept == 0 && n.skipped == 0 })
         }
         return true
     }
@@ -526,11 +544,12 @@ class ConfigEngine(
         val out = merged.copy(revision = maxOf(merged.revision ?: 0, _state.value.config.revision ?: 0) + 1)
         keepWaiters(rep.skipped.map { it.edit })
         try { writeLocked(out, expectOf(bytes)) } catch (e: ConcurrentChangeException) { throw e } catch (e: Exception) { return fail(Issue.SaveFailed.of(e)) }
+        val shown = unreportedSkips(rep.skipped)
         pending.clear(); finishWaiters(rep.skipped.map { it.edit })
         _state.update {
             it.copy(conflict = false, pendingEdits = 0, issue = null,
                 // §9.1: Keep mine uses the same copy, without Undo; all kept shows nothing extra.
-                merge = MergeNotice(rep.kept, rep.skipped.size, rep.onlyFolder, undo = false).takeUnless { n -> n.silent })
+                merge = MergeNotice(rep.kept, shown.size, shown.singleOrNull()?.folder?.takeIf { rep.kept == 0 }, undo = false).takeUnless { n -> n.silent })
         }
         return true
     }
@@ -549,7 +568,14 @@ class ConfigEngine(
      * Serialize and write [config] canonically, recording its hash as a self-write. Caller holds the mutex.
      * Refuses output over the cap (§17 Q16) so the launcher never writes a file it can't read.
      */
-    internal fun writeLocked(config: LauncherConfig, expectHash: String? = null): String {
+    /**
+     * #319 + #318: any failure, including a raced write ([ConcurrentChangeException], whose caller then merges onto the
+     * newer file), un-keeps the waiting [editKept] callers first, so the retry's replay decides afresh.
+     */
+    internal fun writeLocked(config: LauncherConfig, expectHash: String? = null): String =
+        try { writeOrThrow(config, expectHash) } catch (e: Exception) { unkeepWaiters(); throw e }
+
+    private fun writeOrThrow(config: LauncherConfig, expectHash: String?): String {
         val bytes = ConfigCodec.encodeBytes(config)
         if (bytes.size > Limits.MAX_BYTES) throw TooLargeException(Limits.MAX_BYTES / 1024 / 1024)
         val hash = ConfigCodec.sha256(bytes)

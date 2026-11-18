@@ -90,6 +90,14 @@ class ConsentStore(private val dir: File?, private val clock: () -> Long = Syste
         save()
     }
 
+    /** #314 GO follow-up: the Undo write after [restore] failed: the record goes aside again, still held. */
+    @Synchronized fun setAside(id: String) {
+        if (id !in held || id in aside) return
+        val e = entries.remove(id) ?: return
+        aside[id] = e
+        save()
+    }
+
     /** The Undo window ended without a successful Undo: the set-aside record is deleted (the normal GC). */
     @Synchronized fun release(id: String) { aside.remove(id); held -= id }
 

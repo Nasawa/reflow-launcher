@@ -44,11 +44,18 @@ class ElementUndo(
     private val config: () -> LauncherConfig,
     private val edit: suspend (Edit) -> Boolean,
     private val holds: List<Hold>,
-    /** Apply [Edit] and wait for its write: true only when the file kept it; `onKept` runs before that write. */
-    private val keep: suspend (Edit, () -> Unit) -> Boolean = { e, onKept -> edit(e).also { if (it) onKept() } },
+    /**
+     * Apply [Edit] and wait for its write: true only when the file kept it; `onKept` runs before that write, and
+     * `onUnkept` when that write then failed (the next one decides again; [ConfigEngine.editKept]).
+     */
+    private val keep: suspend (Edit, () -> Unit, () -> Unit) -> Boolean = { e, onKept, _ -> edit(e).also { if (it) onKept() } },
 ) {
     /** Device-local state kept per element id ([dev.nasawa.configlauncher.hosted.WidgetBindings], consent). */
-    interface Hold { fun hold(id: String): Boolean; fun restore(id: String); fun release(id: String) }
+    interface Hold {
+        fun hold(id: String): Boolean; fun restore(id: String); fun release(id: String)
+        /** #314 GO follow-up: undo [restore] after its write failed (aside again, still held). */
+        fun setAside(id: String)
+    }
 
     data class Removed(val id: String, val element: JsonObject, val index: Int)
 
@@ -73,13 +80,23 @@ class ElementUndo(
     suspend fun undo(r: Removed): Undone {
         val plan = ElementEdits.restorePlan(config(), r.element)
         if (!(plan is ElementEdits.Plan.Same || plan is ElementEdits.Plan.Moved)) return outcome(plan)
-        val kept = keep(Edit.RestoreElement(r.element, r.index)) { holds.forEach { it.restore(r.id) } }
+        // #314 GO follow-up: a failed write after onKept sets the holds aside again, so a Retry that the merge skips
+        // (the agent re-added the id meanwhile) never leaves the old binding with the agent's element.
+        val kept = keep(Edit.RestoreElement(r.element, r.index), { holds.forEach { it.restore(r.id) } }, { holds.forEach { it.setAside(r.id) } })
         // Skipped (here or by the merge at write time): say why from what the file holds now; the holds stay set aside.
         if (!kept) return outcome(ElementEdits.restorePlan(config(), r.element))
         return if (plan is ElementEdits.Plan.Moved) Undone.Moved(plan.pageId) else Undone.Same
     }
 
     fun release(r: Removed) = holds.forEach { it.release(r.id) }
+
+    companion object {
+        /**
+         * #314 GO follow-up: an Undo in flight waits for a write that can't happen yet: the save failed (B5, Retry) or
+         * the file changed and B6 waits for `Use file` / `Keep mine`. The UI shows `undo_element_waiting` meanwhile.
+         */
+        fun waitsOn(s: dev.nasawa.configlauncher.store.LoadState) = s.conflict || s.issue is dev.nasawa.configlauncher.store.Issue.SaveFailed
+    }
 
     private fun outcome(p: ElementEdits.Plan): Undone = if (p == ElementEdits.Plan.Back) Undone.Back else Undone.NoRoom
 }

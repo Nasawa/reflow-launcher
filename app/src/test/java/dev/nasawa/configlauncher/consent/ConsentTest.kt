@@ -159,6 +159,24 @@ class ConsentTest {
         assertNull(s.entry("w-1"))
     }
 
+    @Test fun anUndoWhoseWriteFailedSetsTheApprovalAsideAgain() {
+        // #314 GO follow-up: restore ran before the Undo write; the write failed and the agent re-added w-1 before the
+        // Retry. setAside puts the record back aside, so the agent's card asks from scratch.
+        val s = store()
+        val c = cfg(doc(card(caps = open, extra = src)))
+        s.allow("w-1", s.report(c)[0].lines, c); s.alwaysAllow("w-1", "https://x.org")
+        s.hold("w-1"); s.settle(cfg(doc()))
+        s.restore("w-1")
+        assertFalse(s.isAside("w-1"))
+        s.setAside("w-1")                              // the Undo write failed: no settle ran
+        assertTrue(s.isAside("w-1")); assertNull(s.entry("w-1"))
+        s.settle(c)                                    // the Retry's merge kept the agent's card, not the Restore
+        assertEquals(State.NeedsApproval, s.state(c))
+        assertFalse(s.isAlwaysAllowed("w-1", "https://x.org"))
+        s.setAside("w-none"); s.release("w-1")
+        assertFalse(s.isAside("w-1"))
+    }
+
     @Test fun heldApprovalNeverAppliesToACardTheAgentReAdds() {
         // #314 review: consent counterpart of WidgetBindingsTest.heldBindingNeverAppliesToAnElementTheAgentReAdds.
         val s = store()

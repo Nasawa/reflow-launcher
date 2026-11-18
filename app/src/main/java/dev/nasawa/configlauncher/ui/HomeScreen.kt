@@ -51,6 +51,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.nasawa.configlauncher.apps.InstalledApps
 import dev.nasawa.configlauncher.model.*
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -299,14 +300,18 @@ fun HomeScreen(vm: HomeViewModel) {
     val elementUndo = remember(widgets, consent) {
         val holds = listOfNotNull(
             widgets.bindings?.let { b -> object : ElementUndo.Hold {
-                override fun hold(id: String) = b.hold(id); override fun restore(id: String) = b.restore(id); override fun release(id: String) = b.release(id) } },
+                override fun hold(id: String) = b.hold(id); override fun restore(id: String) = b.restore(id); override fun release(id: String) = b.release(id)
+                override fun setAside(id: String) = b.setAside(id) } },
             consent?.let { cs -> object : ElementUndo.Hold {
-                override fun hold(id: String) = cs.hold(id); override fun restore(id: String) = cs.restore(id); override fun release(id: String) = cs.release(id) } },
+                override fun hold(id: String) = cs.hold(id); override fun restore(id: String) = cs.restore(id); override fun release(id: String) = cs.release(id)
+                override fun setAside(id: String) = cs.setAside(id) } },
         )
-        ElementUndo({ vm.store.engine.state.value.config }, { e -> vm.store.tryEdit(e) }, holds) { e, onKept -> vm.store.editKept(e, onKept) }
+        ElementUndo({ vm.store.engine.state.value.config }, { e -> vm.store.tryEdit(e) }, holds) { e, onKept, onUnkept -> vm.store.editKept(e, onKept, onUnkept) }
     }
     var elementSnack by remember { mutableStateOf<ElementSnack?>(null) }
     var elementNote by remember { mutableStateOf<ElementNote?>(null) }
+    /** #314 GO follow-up: the Undo in flight is waiting on B5 / B6 ([ElementUndo.waitsOn]); shown until it finishes. */
+    var undoWaiting by remember { mutableStateOf<String?>(null) }
     var elementMove by remember { mutableStateOf<Pair<String, String>?>(null) }     // id to name
     var elementResize by remember { mutableStateOf<Pair<String, String>?>(null) }
     val undoWindowMs = remember { ElementSnack.windowMs(ctx) }
@@ -334,8 +339,14 @@ fun HomeScreen(vm: HomeViewModel) {
     fun undoElement(snack: ElementSnack) {
         elementSnack = null
         snack.beginUndo()
+        val waiting = scope.launch {
+            vm.store.engine.state.first(ElementUndo::waitsOn)
+            val t = res.getString(R.string.undo_element_waiting, snack.name)
+            undoWaiting = t; view.announceForAccessibility(t)
+        }
         vm.store.launch {
-            val out = elementUndo.undo(snack.removed)
+            val out = try { elementUndo.undo(snack.removed) }
+                finally { kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable + kotlinx.coroutines.Dispatchers.Main) { waiting.cancel(); undoWaiting = null } }
             val restored = out is ElementUndo.Undone.Same || out is ElementUndo.Undone.Moved
             // The window may have ended while the Undo waited for its write: release now unless it was kept.
             if (snack.endUndo(restored)) elementUndo.release(snack.removed)
@@ -378,8 +389,9 @@ fun HomeScreen(vm: HomeViewModel) {
     }
     // §4.1 30 s idle exit. #313 nit 1: paused while the picker or an edit sheet/dialog is up, or a handle is held;
     // closing it starts a fresh 30 s (the key changes). One timer (a stale duplicate left edit mode without saving).
+    // #315 GO follow-up: also while a bind flow is running (Android's bind dialog or the widget's setup screen is up).
     val editPaused = EditIdle.paused(pickerOpen, hostedSheet != null, widgetSheet != null, sheetFor != null, moveFor != null,
-        elementMove != null, elementResize != null, homeMenu, resizingElement)
+        elementMove != null, elementResize != null, homeMenu, resizingElement, EditIdle.bindUp(bindPending))
     LaunchedEffect(editing, ui.load.config, editPaused) {
         if (editing && !editPaused) { kotlinx.coroutines.delay(EditIdle.MS); if (drag.dragged == null) leaveEdit() }
     }
@@ -657,6 +669,7 @@ fun HomeScreen(vm: HomeViewModel) {
                         LaunchedEffect(n) { kotlinx.coroutines.delay(SHORT_SNACK_MS); if (elementNote == n) elementNote = null }
                         Snackbar(Modifier.padding(8.dp)) { Text(n.text) }
                     }
+                    undoWaiting?.let { t -> Snackbar(Modifier.padding(8.dp).semantics { liveRegion = LiveRegionMode.Polite }) { Text(t) } }
                     elementSnack?.let { u ->
                         ElementUndoSnackbar(u, undoWindowMs, onUndo = { undoElement(u) },
                             onDismiss = { if (elementSnack == u) { elementSnack = null; u.job?.cancel() } })

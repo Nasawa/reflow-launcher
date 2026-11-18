@@ -144,6 +144,17 @@ class WidgetBindings(private val dir: File?, private val host: Host) {
         save()
     }
 
+    /**
+     * #314 GO follow-up: the Undo write that [restore] ran for failed, so the file still has no element: set the binding
+     * aside again (and keep it held), so a later settle can't hand it to an element the agent re-adds with this id.
+     */
+    @Synchronized fun setAside(elementId: String) {
+        if (elementId !in held || elementId in aside) return
+        val b = entries.remove(elementId) ?: return
+        aside[elementId] = b
+        save()
+    }
+
     /** NW-6: the Undo window ended without a successful Undo. A set-aside binding's ID is freed (`deleteAppWidgetId`). */
     @Synchronized fun release(elementId: String) {
         aside.remove(elementId)?.let { host.delete(it.appWidgetId) }
