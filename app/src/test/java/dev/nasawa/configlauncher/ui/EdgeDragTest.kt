@@ -118,9 +118,9 @@ class EdgeDragTest {
         liftToEdge(right = true)
         frames(DragController.EDGE_HOLD_MS * 2 + 200) // t = 1600: turns at 600 (second) and 1200 (third)
         assertTrue(pageShown(3, 3))
-        frames(DragController.EDGE_HOLD_MS)  // t = 2200: past the last at 1800, a new page
-        assertTrue("a new page after third", pageShown(4, 4))
+        frames(DragController.EDGE_HOLD_MS * 2)  // t = 2800: past the last at 1800, a new page, then the scroll there
         assertEquals(listOf("home", "second", "third", "page-1"), app.store.shownConfig().pages.map { it.id })
+        assertTrue("on the new page after third", pageShown(4, 4))
         frames(DragController.EDGE_HOLD_MS * 3)     // held on the new empty page: no more pages
         assertEquals(4, app.store.shownConfig().pages.size)
         val tile = bounds("Row two")                // out of the zone and back: still no second new page
