@@ -135,7 +135,7 @@ fun HomeScreen(vm: HomeViewModel) {
     }
     fun hostedTap(t: dev.nasawa.configlauncher.hosted.HostedWidgets.Tile): (() -> Unit)? = when (t.state) {
         dev.nasawa.configlauncher.hosted.HostedWidgets.State.NOT_INSTALLED -> { { hostedSheet = t } }
-        dev.nasawa.configlauncher.hosted.HostedWidgets.State.FAILED -> { { widgets.clearFailed(t.id) } }
+        dev.nasawa.configlauncher.hosted.HostedWidgets.State.FAILED -> { { widgets.retry(t.id) } }
         dev.nasawa.configlauncher.hosted.HostedWidgets.State.NEEDS_SETUP -> if (!BuildConfig.DEBUG) null else { {
             widgets.info(t.pkg, t.cls)?.let { info ->
                 val (id, ok) = widgets.debugTryBind(info)
@@ -749,7 +749,7 @@ fun HomeScreen(vm: HomeViewModel) {
             HostedWidgetSheet(t, installed,
                 onEditLayout = { hostedSheet = null; editing = true },
                 onAppInfo = { hostedSheet = null; vm.apps.appInfo(t.pkg, null, dev.nasawa.configlauncher.model.Profile.PERSONAL) },
-                onRetry = { hostedSheet = null; widgets.clearFailed(t.id) },
+                onRetry = { hostedSheet = null; widgets.retry(t.id) },
                 onDismiss = { hostedSheet = null })
         }
         widgetSheet?.let { w ->

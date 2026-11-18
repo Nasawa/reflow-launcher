@@ -63,19 +63,21 @@ private fun BoxScope.SizeCue() {
  */
 @Composable
 fun HostedWidgetCell(tile: HostedWidgets.Tile, runtime: WidgetRuntime?, hostWDp: Float, hostHDp: Float,
-                     onLong: () -> Unit, onTap: (() -> Unit)?, modifier: Modifier = Modifier) {
+                     onLong: () -> Unit, onTap: (() -> Unit)?, modifier: Modifier = Modifier,
+                     makeView: ((android.content.Context, Int) -> LongPressHostView?)? = runtime?.let { r -> { c, i -> r.host.createView(c, i) } }) {
     val id = tile.appWidgetId
-    if (tile.state == State.BOUND && id != null && runtime != null) {
+    if (tile.state == State.BOUND && id != null && makeView != null) {
+        val cue = if (tile.range != null) stringResource(R.string.hosted_size_cue_a11y) else null
         val long by rememberUpdatedState(onLong)
         Box(modifier.fillMaxSize()) {
             key(id) {
                 AndroidView(
                     factory = { ctx ->
-                        runtime.host.createView(ctx, id)?.also { v -> v.onLongPress = { long() } }
-                            ?: android.widget.FrameLayout(ctx).also { runtime.markFailed(tile.id) }
+                        makeView(ctx, id)?.also { v -> v.onLongPress = { long() } }
+                            ?: android.widget.FrameLayout(ctx).also { runtime?.viewMissing(tile.id, id) }
                     },
                     modifier = Modifier.matchParentSize(),
-                    update = { v -> (v as? LongPressHostView)?.let { reportSize(it, hostWDp, hostHDp) } },
+                    update = { v -> (v as? LongPressHostView)?.let { it.sizeCue = cue; reportSize(it, hostWDp, hostHDp) } },
                 )
             }
             if (tile.range != null) SizeCue()

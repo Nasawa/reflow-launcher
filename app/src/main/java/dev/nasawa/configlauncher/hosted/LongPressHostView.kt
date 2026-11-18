@@ -13,7 +13,7 @@ import kotlin.math.abs
  * go to the pager and a scrolling list keeps scrolling.
  */
 @android.annotation.SuppressLint("ClickableViewAccessibility")   // taps belong to the widget's own views; ours is the long-press only
-class LongPressHostView(context: Context) : AppWidgetHostView(context) {
+open class LongPressHostView(context: Context) : AppWidgetHostView(context) {
     var onLongPress: (() -> Unit)? = null
 
     init {
@@ -28,6 +28,14 @@ class LongPressHostView(context: Context) : AppWidgetHostView(context) {
     private val check = Runnable { fired = true; onLongPress?.invoke() }
 
     /** For tests: the timeout used (the system long-press timeout). */
+    /** ux.md §16.5 (#309 review nit 1): appended to what TalkBack reads, e.g. `, size may be wrong`; null = none. */
+    var sizeCue: String? = null
+
+    override fun createAccessibilityNodeInfo(): android.view.accessibility.AccessibilityNodeInfo =
+        super.createAccessibilityNodeInfo().also { info ->
+            sizeCue?.let { cue -> info.contentDescription = (info.contentDescription ?: contentDescription ?: "").toString() + cue }
+        }
+
     var timeoutMs: Long = ViewConfiguration.getLongPressTimeout().toLong()
 
     override fun onInterceptTouchEvent(ev: MotionEvent): Boolean {
