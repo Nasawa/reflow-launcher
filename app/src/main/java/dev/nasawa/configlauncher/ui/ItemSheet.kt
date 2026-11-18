@@ -88,9 +88,9 @@ enum class HomeAction { EDIT_LAYOUT, PAGES, WIDGETS, WIDGETS_REVIEW, RELOAD, SET
 /** ux.md §1.1: long-press empty space → `Edit layout`, `Pages` (≥ 2 pages, #99), `Reload layout`, `Settings`. */
 object HomeMenu {
     /**
-     * #142 (§17.4): the cards-review item (after `Widgets`) reads `Review cards · N` (#313 Pragma). The widget picker
-     * (§16) doesn't exist yet, so for now the item shows only while N > 0 and opens the review list. Pending Pragma's
-     * confirmation: flip [WIDGETS_ONLY_WHEN_REVIEWING] to show it always.
+     * #142 (§17.4): the cards-review item (after `Widgets`) reads `Review cards · N` (#313 Pragma). `Widgets` opens the
+     * §16 picker (#302); the review item shows only while N > 0 and opens the review list (ux.md §17.4 and the copy table:
+     * "when count > 0", #313 Pragma). [WIDGETS_ONLY_WHEN_REVIEWING] keeps that rule in one place.
      */
     const val WIDGETS_ONLY_WHEN_REVIEWING = true
 

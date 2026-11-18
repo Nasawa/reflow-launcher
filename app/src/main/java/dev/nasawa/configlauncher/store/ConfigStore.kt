@@ -9,6 +9,7 @@ import android.os.Handler
 import android.os.Looper
 import dev.nasawa.configlauncher.settings.Prefs
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.update
 import java.io.File
 
 /**
@@ -27,6 +28,24 @@ class ConfigStore(private val context: Context, private val scope: CoroutineScop
         bindings = widgetHost?.let { dev.nasawa.configlauncher.hosted.WidgetBindings(File(context.filesDir, "widgets"), it) })
         .also { it.askBeforeMerge = prefs.askBeforeMerging }
     val state get() = engine.state
+
+    /** #329 `+ Page`: pages added in edit mode that the file doesn't have yet ([DraftPages]). Cleared when edit mode ends. */
+    val drafts = kotlinx.coroutines.flow.MutableStateFlow<List<dev.nasawa.configlauncher.model.NewPage>>(emptyList())
+    /** What home shows and edits are checked against: the engine's model with the [drafts] inserted. */
+    fun shownConfig() = DraftPages.overlay(engine.state.value.config, drafts.value)
+
+    /**
+     * #329 ux.md §4.2: add an empty page after [afterId] (in edit mode). Nothing is written; the page exists on screen
+     * until something lands on it. Returns its id, or null at 20 pages (the caller shows `home_full`).
+     */
+    fun addPage(afterId: String?): String? {
+        val id = DraftPages.nextId(shownConfig()) ?: return null
+        drafts.update { DraftPages.prune(engine.state.value.config, it) + dev.nasawa.configlauncher.model.NewPage(id, afterId) }
+        return id
+    }
+
+    private fun carry(e: dev.nasawa.configlauncher.model.Edit) = DraftPages.carry(engine.state.value.config, drafts.value, e)
+    private fun pruneDrafts() { drafts.update { DraftPages.prune(engine.state.value.config, it) } }
 
     private var pollJob: Job? = null
     private var fileObserver: FileObserver? = null
@@ -66,12 +85,14 @@ class ConfigStore(private val context: Context, private val scope: CoroutineScop
 
     fun pollNow() { scope.launch(Dispatchers.IO) { engine.poll(force = true) } }
 
-    fun edit(e: dev.nasawa.configlauncher.model.Edit) { scope.launch(Dispatchers.IO) { engine.edit(e) } }
+    /** Every edit goes through [carry] (#329): one landing on a `+ Page` page takes that page into the same write. */
+    fun edit(e: dev.nasawa.configlauncher.model.Edit) { val c = carry(e); scope.launch(Dispatchers.IO) { if (engine.edit(c)) pruneDrafts() } }
     /** #303: like [edit], but says whether it applied (false = skipped against the current file: nothing is written). */
-    suspend fun tryEdit(e: dev.nasawa.configlauncher.model.Edit): Boolean = kotlinx.coroutines.withContext(Dispatchers.IO) { engine.edit(e) }
+    suspend fun tryEdit(e: dev.nasawa.configlauncher.model.Edit): Boolean =
+        kotlinx.coroutines.withContext(Dispatchers.IO) { engine.edit(carry(e)).also { if (it) pruneDrafts() } }
     /** #314 review: [edit] that waits for its write; true only when the file kept it ([ConfigEngine.editKept]). */
     suspend fun editKept(e: dev.nasawa.configlauncher.model.Edit, onKept: () -> Unit, onUnkept: () -> Unit = {}): Boolean =
-        kotlinx.coroutines.withContext(Dispatchers.IO) { engine.editKept(e, onUnkept, onKept) }
+        kotlinx.coroutines.withContext(Dispatchers.IO) { engine.editKept(carry(e), onUnkept, onKept) }
     /** #303: run [block] on the store's scope, which outlives the home composition (an Undo window's release). */
     fun launch(block: suspend CoroutineScope.() -> Unit) = scope.launch(block = block)
     /** Snackbar Undo after an automatic merge (§18.2). */
@@ -84,6 +105,7 @@ class ConfigStore(private val context: Context, private val scope: CoroutineScop
     fun leaveEditMode() {
         // Snapshot which pages are empty right now (Grace, #70): only those are dropped, even on a later replay.
         val ids = dev.nasawa.configlauncher.model.Edits.emptyPageIds(engine.state.value.config)
+        drafts.value = emptyList()   // #329: a `+ Page` page nothing landed on was never written; it just goes
         scope.launch(Dispatchers.IO) {
             if (ids.isNotEmpty()) engine.edit(dev.nasawa.configlauncher.model.Edit.DropPages(ids))
             engine.retrySave()

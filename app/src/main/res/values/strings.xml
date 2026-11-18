@@ -352,6 +352,9 @@
     <string name="hosted_tap_to_allow">Tap to allow</string>
     <string name="action_widgets">Widgets</string>
     <string name="action_add_widget">+ Widget</string>
+    <!-- #329 ux.md §4.2 (Pragma, #322): edit mode's add-page action and what TalkBack reads for it. -->
+    <string name="edit_add_page">+ Page</string>
+    <string name="edit_add_page_a11y">Add page</string>
     <string name="widget_picker_title">Widgets</string>
     <string name="widget_search_hint">Search widgets</string>
     <string name="widget_picker_empty">No widgets found</string>

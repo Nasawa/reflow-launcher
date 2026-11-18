@@ -67,7 +67,17 @@ sealed interface Edit {
      * stay as they are.
      */
     data class SetElement(val id: String, val path: List<String>, val value: JsonElement?) : Edit
+    /**
+     * #329 ux.md §4.2: [edit] onto a page added with `+ Page` that isn't in the file yet. Nothing is written for an empty
+     * page, so the first edit that lands on it carries it: [pages] are inserted first (each after its [NewPage.after]),
+     * then [edit] applies, all in the one write. A page whose id the file already has isn't added again (an agent's
+     * page with that id is used as is). Applied only when [edit] applies; skipped as a whole otherwise.
+     */
+    data class OnNewPages(val pages: List<NewPage>, val edit: Edit) : Edit
 }
+
+/** #329: a page added in edit mode, to insert after page [after] (null = first; gone from the file = last). */
+data class NewPage(val id: String, val after: String?)
 
 data class ApplyResult(val config: LauncherConfig, val applied: Boolean, val folder: FolderSkip? = null)
 
@@ -102,6 +112,25 @@ object Edits {
         is Edit.MoveElement -> ElementEdits.move(c, e)
         is Edit.ResizeElement -> ElementEdits.resize(c, e)
         is Edit.SetElement -> setElement(c, e)
+        is Edit.OnNewPages -> onNewPages(c, e)
+    }
+
+    /** [c] with [pages] inserted (those it doesn't have yet), or null when that would pass [MAX_PAGES]. */
+    fun withPages(c: LauncherConfig, pages: List<NewPage>): LauncherConfig? {
+        var out = c.pages
+        for (p in pages) {
+            if (out.any { it.id == p.id }) continue
+            if (out.size >= MAX_PAGES) return null
+            val i = if (p.after == null) 0 else out.indexOfFirst { it.id == p.after }.let { if (it < 0) out.size else it + 1 }
+            out = out.toMutableList().also { it.add(i, Page(p.id)) }
+        }
+        return if (out === c.pages) c else c.copy(pages = out)
+    }
+
+    private fun onNewPages(c: LauncherConfig, e: Edit.OnNewPages): ApplyResult {
+        val base = withPages(c, e.pages) ?: return ApplyResult(c, false)
+        val r = apply(base, e.edit)
+        return if (r.applied) ApplyResult(r.config, true, r.folder) else ApplyResult(c, false, r.folder)
     }
 
     private fun JsonObject.str(k: String) = (this[k] as? JsonPrimitive)?.takeIf { it.isString }?.content

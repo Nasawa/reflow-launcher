@@ -25,7 +25,10 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
     /** Home key pressed while home is already in front (MainActivity.onNewIntent): ux.md §1, §4.1. */
     val homePresses = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
 
-    val ui: StateFlow<HomeUi> = combine(store.state, installed) { load, inst -> HomeUi(Reconcile.resolve(load.config, inst), load) }
+    // #329: home shows the file's model with the `+ Page` pages nothing has landed on yet (ConfigStore.drafts).
+    val ui: StateFlow<HomeUi> = combine(store.state, store.drafts, installed) { load, drafts, inst ->
+        val shown = load.copy(config = dev.nasawa.configlauncher.store.DraftPages.overlay(load.config, drafts))
+        HomeUi(Reconcile.resolve(shown.config, inst), shown) }
         .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.Eagerly, HomeUi(Reconcile.resolve(store.state.value.config, emptyList()), store.state.value))
 
