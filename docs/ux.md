@@ -120,7 +120,7 @@ shadow (and the 60 % scrim when `Label backdrop` is on). Text: the page `title`,
 - Nothing is written. Jumping never changes the file.
 
 **Edit mode:** the label and the list still work (jump to a page to drop things there). Jump-only in the MVP.
-Rename and reorder pages from the list are **later** (edit the file meanwhile). While an item is being dragged the
+Rename and reorder pages from the list are **later** (edit the file meanwhile). To add a page, use `+ Page` (§4.2). While an item is being dragged the
 label is inert (page turns use the screen edge, §4.2).
 
 **Page indicator:** unchanged (dots, ≥ 2 pages, not tappable). The label and the dots always agree, and both update
@@ -577,6 +577,22 @@ page dim. An accepted drop settles into its cell in 150 ms. With reduced motion,
 
 There's no automatic reflow: other items never move to make room (keeps the file diff minimal and predictable). An
 empty page is deleted when you leave edit mode.
+
+**Adding and removing pages (1.1).** This follows the stock and One UI conventions, at the smallest size:
+- **Add:** in edit mode, the top bar gets **`+ Page`**, just before `Done`. With a dock rail it's in the rail's ⋮
+  menu, right after `+ Widget`. It inserts an empty page **after the current page**, then scrolls there (an instant
+  jump with reduced motion) and stays in edit mode. The id is `page-N` (lowest unused N), with no `title`. At 20 pages
+  the button stays enabled, and a tap shows the existing `home_full` snackbar (`No room on home: all 20 pages are full.`).
+  TalkBack: `Add page, button`. After the jump it announces `Page 3 of 3` (polite).
+- **Add by dragging:** unchanged from the table above. Hold an item at the end edge of the last page for 600 ms. This is
+  the start edge in RTL.
+- **Nothing is written for an empty page.** A new page exists only in edit mode until something lands on it. The
+  first drop onto it is the one write, and that write includes the page.
+- **Remove:** a page that's empty when you leave edit mode is dropped (never the last page, R5). A page that becomes
+  empty mid-edit stays until then, so the pager doesn't jump under you. There's no delete for a page that still has
+  items: move or remove the items first. A `Remove page` action with a confirm comes later.
+- **Reorder and rename:** later (§1.3). Edit the file meanwhile.
+- Copy: `+ Page` (`edit_add_page`), with the content description `Add page`.
 
 ### 4.3 How each edit writes back
 
