@@ -177,6 +177,31 @@ class CardKinds(unittest.TestCase):
         self.assertIn('unknown capability "net.fetch"', p.stdout)
 
 
+class AppWidgetLevel(unittest.TestCase):
+    """#298 NW-1: appWidget is feature level 5 (level 3 retired); a level-4 app (v1.0.0) skips it and keeps its cells."""
+    def test_level_matches_phone(self):
+        kt = (ROOT / "app/src/main/java/dev/nasawa/configlauncher/config/Elements.kt").read_text()
+        self.assertEqual(5, V.FEATURE_LEVEL)
+        self.assertEqual(f"const val FEATURE_LEVEL = {V.FEATURE_LEVEL}", re.search(r"const val FEATURE_LEVEL = \d+", kt).group(0))
+        self.assertEqual(5, V.ELEMENT_TYPES["appWidget"].LEVEL)
+        self.assertEqual({"titleBar", "card", "appWidget"}, set(V.ELEMENT_TYPES))
+
+    def test_level_four_app_skips_and_reserves(self):
+        raw = (FIX / "valid" / "appwidget-personal.json").read_bytes()
+        old = V.FEATURE_LEVEL
+        V.FEATURE_LEVEL = 4
+        self.addCleanup(setattr, V, "FEATURE_LEVEL", old)
+        tree, errs = V.validate(raw, use_schema=False)
+        self.assertEqual([], errs)
+        self.assertEqual(["elements[0] needs feature level 5, but this Reflow Launcher supports up to 4, so it was skipped. "
+                          "It stays in the file. Update the app to show it."], V.warnings(tree))
+        # Its cells stay reserved: an app placed there is B2 even though the widget is skipped.
+        plain = json.loads(raw)
+        plain["pages"][0]["items"].append({"id": "a-drop", "type": "app", "package": "com.android.settings", "x": 1, "y": 1})
+        _, errs = V.validate(json.dumps(plain).encode(), use_schema=False)
+        self.assertTrue(any("overlaps" in e for e in errs), errs)
+
+
 class Format(unittest.TestCase):
     hand = ('{"pages":[{"items":[{"y":0,"x":1,"x-note":"hi","package":"a.b","type":"app","id":"a"}],"id":"home"}],'
             '"x-z":1.50,"schemaVersion":1,"revision":3,"unsorted":{"mode":"page"}}')

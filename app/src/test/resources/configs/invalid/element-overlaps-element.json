@@ -77,7 +77,7 @@
   "elements": [
     {
       "id": "w-weather",
-      "type": "appWidget",
+      "type": "gauge",
       "page": "home",
       "x": 0,
       "y": 1,
@@ -87,7 +87,7 @@
     },
     {
       "id": "w-two",
-      "type": "appWidget",
+      "type": "gauge",
       "page": "home",
       "x": 1,
       "y": 1,

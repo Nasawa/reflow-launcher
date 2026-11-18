@@ -33,7 +33,7 @@ CLS = re.compile(r"^[A-Za-z0-9_.$]+$")
 CATEGORIES = {"game", "audio", "video", "image", "social", "news", "maps", "productivity", "accessibility", "undefined"}
 MAX_ELEMENTS = 32
 MAX_OVERRIDES = 32
-FEATURE_LEVEL = 4          # Elements.kt: 1 = #79 container release, 2 = title bar, 3 = appWidget (reserved), 4 = card
+FEATURE_LEVEL = 5          # Elements.kt: 1 = #79 container release, 2 = title bar, 3 = retired (never used), 4 = card, 5 = appWidget (#298)
 ELEMENT_TYPES = {}         # known element types, name -> class (Elements.types); filled below the classes
 PLACEMENT = ("page", "x", "y", "w", "h")
 TYPE = re.compile(r"^[a-zA-Z][a-zA-Z0-9]{0,31}$")
@@ -1131,6 +1131,74 @@ class Card:
 
 
 ELEMENT_TYPES["card"] = Card
+
+
+class AppWidget:
+    """AppWidget.kt (#298 NW-1, feature level 5): hosted AppWidget schema only (docs/design/native-widgets.md §2.1-§2.2). No host yet."""
+    LEVEL, SINGLE = 5, False
+    KEYS = ("id", "type", "requires", "enabled", "page", "x", "y", "w", "h", "content")
+    CONTENT_KEYS = ("provider", "profile", "label")
+    PROVIDER_KEYS = ("package", "class")
+    PROFILES = ("personal", "work")
+    MIN_REQUIRES, MAX_LABEL = 5, 40
+
+    @staticmethod
+    def style_message(i):
+        """Pragma (#297): the same sentence as the phone, after "elements[N]: "."""
+        return f'appWidget "{i if _is_str(i) else ""}" doesn\'t support "style" yet. Remove it.'
+
+    @staticmethod
+    def validate(r, o, path):
+        if "style" in o:
+            r.err(path, AppWidget.style_message(o.get("id")))
+        r.keys({k: v for k, v in o.items() if k != "style"}, path, set(AppWidget.KEYS), ["requires", "page", "content"])
+        q = o.get("requires")
+        if isinstance(q, Num) and q.is_int() and int(q) < AppWidget.MIN_REQUIRES:
+            r.err(f"{path}.requires", f"an appWidget needs feature level {AppWidget.MIN_REQUIRES} or higher")
+        r.bool(o, "enabled", path)
+        if "content" not in o:
+            return
+        cp = f"{path}.content"
+        c = r.obj(o["content"], cp)
+        if c is None:
+            return
+        r.keys(c, cp, set(AppWidget.CONTENT_KEYS), ["provider"], x_keys=False)
+        if "provider" in c:
+            p = r.obj(c["provider"], f"{cp}.provider")
+            if p is not None:
+                r.keys(p, f"{cp}.provider", set(AppWidget.PROVIDER_KEYS), list(AppWidget.PROVIDER_KEYS), x_keys=False)
+                r.str(p, "package", f"{cp}.provider", rx=PKG)
+                r.str(p, "class", f"{cp}.provider", rx=CLS)
+        pr = r.str(c, "profile", cp)
+        if pr is not None and pr not in AppWidget.PROFILES:
+            r.err(f"{cp}.profile", "must be personal or work")
+        r.str(c, "label", cp, mx=AppWidget.MAX_LABEL)
+
+    @staticmethod
+    def override(r, o, path):
+        pass
+
+    @staticmethod
+    def warnings(o, path):
+        return []
+
+    @staticmethod
+    def canonical(o):
+        out = {}
+        for k in AppWidget.KEYS:
+            if k not in o:
+                continue
+            v = o[k]
+            if k == "content":
+                v = {ck: v[ck] for ck in AppWidget.CONTENT_KEYS if ck in v}
+                if "provider" in v:
+                    v["provider"] = {pk: v["provider"][pk] for pk in AppWidget.PROVIDER_KEYS if pk in v["provider"]}
+            out[k] = v
+        out.update(_x(o))
+        return out
+
+
+ELEMENT_TYPES["appWidget"] = AppWidget
 
 
 def _requires(o):

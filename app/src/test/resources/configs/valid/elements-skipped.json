@@ -95,7 +95,7 @@
     },
     {
       "id": "w-weather",
-      "type": "appWidget",
+      "type": "gauge",
       "page": "home",
       "x": 0,
       "y": 1,

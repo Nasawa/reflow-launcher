@@ -17,23 +17,24 @@ class ElementsTest {
     @get:Rule val tmp = TemporaryFolder()
 
     // A 2x2 skipped widget at (0,0)-(1,1) on "home"; one app at (2,0). Grid 4x5.
-    private val widget = """{"id":"w-weather","type":"appWidget","page":"home","x":0,"y":0,"w":2,"h":2,"provider":"com.example.w/.W","x-note":{"a":[1,true,null,"s"]}}"""
+    private val widget = """{"id":"w-weather","type":"gauge","page":"home","x":0,"y":0,"w":2,"h":2,"provider":"com.example.w/.W","x-note":{"a":[1,true,null,"s"]}}"""
     private fun doc(elements: String = "[$widget]", extra: String = "") =
         """{"schemaVersion":1,"pages":[{"id":"home","items":[{"id":"a","type":"app","package":"p.a","x":2,"y":0}]$extra},{"id":"empty","items":[]}],"elements":$elements}"""
     private fun ok(s: String) = (ConfigCodec.decode(s) as? ParseResult.Ok)?.config ?: error("invalid: ${(ConfigCodec.decode(s) as ParseResult.Invalid).errors}")
     private fun errors(s: String) = (ConfigCodec.decode(s) as ParseResult.Invalid).errors
     private val app = AppItem("b", "p.b")
 
-    @Test fun featureLevelFourKnowsTheTitleBarAndCards() {
-        // #137: level 3 stays reserved for appWidget, cards are level 4.
-        assertEquals(4, Elements.FEATURE_LEVEL)
-        assertEquals(setOf("titleBar", "card"), Elements.types.keys)
+    @Test fun featureLevelFiveKnowsTheTitleBarCardsAndAppWidgets() {
+        // #298: level 3 is retired, cards are level 4, appWidget is level 5.
+        assertEquals(5, Elements.FEATURE_LEVEL)
+        assertEquals(setOf("titleBar", "card", "appWidget"), Elements.types.keys)
+        assertEquals(listOf(2, 4, 5), Elements.types.values.map { it.level })
     }
 
     @Test fun unknownElementIsSkippedWithWarningAndKeptVerbatim() {
         val c = ok(doc())
         assertTrue(Elements.shown(c).isEmpty())
-        assertEquals(listOf("elements[0]: type \"appWidget\" isn't supported by this Reflow Launcher, so it was skipped. It stays in the file."), Elements.warnings(c))
+        assertEquals(listOf("elements[0]: type \"gauge\" isn't supported by this Reflow Launcher, so it was skipped. It stays in the file."), Elements.warnings(c))
         val out = ConfigCodec.encode(c)
         // Verbatim: unknown keys, x- keys and nested values survive a phone write.
         val back = Json.parseToJsonElement(out).jsonObject["elements"]!!.jsonArray.single().jsonObject
@@ -42,8 +43,8 @@ class ElementsTest {
     }
 
     @Test fun requiresAboveFeatureLevelIsSkippedBeforeStrictChecks() {
-        val c = ok(doc("""[{"id":"t-x","type":"titleBar","requires":5,"anchor":"top","whatever":true}]"""))
-        assertEquals(listOf("elements[0] needs feature level 5, but this Reflow Launcher supports up to 4, so it was skipped. It stays in the file. Update the app to show it."), Elements.warnings(c))
+        val c = ok(doc("""[{"id":"t-x","type":"titleBar","requires":6,"anchor":"top","whatever":true}]"""))
+        assertEquals(listOf("elements[0] needs feature level 6, but this Reflow Launcher supports up to 5, so it was skipped. It stays in the file. Update the app to show it."), Elements.warnings(c))
     }
 
     @Test fun overrideForMissingElementIsAWarning() {

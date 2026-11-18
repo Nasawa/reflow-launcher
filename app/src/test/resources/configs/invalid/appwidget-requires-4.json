@@ -76,17 +76,19 @@
   },
   "elements": [
     {
-      "id": "t-main",
-      "type": "titleBar",
-      "anchor": "top",
+      "id": "w-weather",
+      "type": "appWidget",
+      "requires": 4,
+      "page": "home",
+      "x": 0,
+      "y": 1,
+      "w": 2,
+      "h": 1,
       "content": {
-        "slots": {
-          "center": "{page}"
+        "provider": {
+          "package": "com.example.weather",
+          "class": "com.example.weather.WeatherWidget"
         }
-      },
-      "requires": 5,
-      "future": {
-        "a": 1
       }
     }
   ]

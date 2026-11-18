@@ -277,13 +277,13 @@ Honest holes in "local files + opt-in URL fetch + per-widget manifest":
 |---|---|---|
 | 0 | Elements container + Stage 1 reservation | 1 — **done (#112)** |
 | 1 | Title bar type | 2 |
-| 2 | `appWidget` host + tap-to-bind | 3 |
+| 2 | `appWidget` host + tap-to-bind | **5** (3 is retired, never used; native-widgets.md §2.1, #298) |
 | 3 | `card` + local `data.file` + consent UX (§17) | 4 |
 | 4 | Richer primitives if needed (parity with Outer Shell) | 4 |
-| 5 | `net.fetch` + Keystore + INTERNET permission | **6** (level 5 is `windowOverrides`, #186) |
+| 5 | `net.fetch` + Keystore + INTERNET permission | next free level, likely **7** (5 is `appWidget`; `windowOverrides`, #186, likely 6) |
 | 6 | Optional path pins, private-origin allow, phone.* | later |
 
-**Hard gates:** Stage 0 before any skip of grid elements (met). Consent tile before any `card` renders data. Local data before fetch (**Q-C2 decided:** ship stage 3 local-data-only first; fetch is a later release). Feature levels: `windowOverrides` took **5** (#186), so `net.fetch` is **6**.
+**Hard gates:** Stage 0 before any skip of grid elements (met). Consent tile before any `card` renders data. Local data before fetch (**Q-C2 decided:** ship stage 3 local-data-only first; fetch is a later release). Feature levels are fixed in merge order (native-widgets.md §2.1): `appWidget` took **5** (#298), `windowOverrides` (#186) and `net.fetch` take the next free numbers when they land (likely 6 and 7).
 
 ## 10. Open questions
 

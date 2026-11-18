@@ -143,10 +143,10 @@ Shape in brief:
   git diffs small (encouraged, not required). A reload never triggers a write.
 - **Unknown keys.** Keys starting with `x-` are allowed at the root, on pages and on items, and are kept verbatim (use
   `x-note` for notes). Any other unknown key makes the file invalid, so typos fail loudly instead of being silently dropped.
-- **Elements and the title bar.** Root `elements[]` holds non-app elements. This launcher (feature level 4) knows
+- **Elements and the title bar.** Root `elements[]` holds non-app elements. This launcher (feature level 5) knows
   `titleBar`: one per file, `anchor: "top"`, slots `start` / `center` / `end` with templates such as `{page}`,
   `{time:HH:mm}` or `{date:EEE d MMM}`, and an optional `style`. `pages[].overrides["<id>"]` can change `enabled`,
-  `content` or `style` on one page. Unknown element types and elements whose `requires` is above 4 are skipped with a
+  `content` or `style` on one page. Unknown element types and elements whose `requires` is above 5 are skipped with a
   warning and kept in the file. See [docs/design/title-bar.md](docs/design/title-bar.md).
 - **Dashboard cards.** `type: "card"` (`requires: 4`, grid-placed) is parsed and validated, and its cells stay reserved.
   Release builds show a plain "Cards arrive in a later version" tile and a `status.json` warning naming the element id
@@ -154,6 +154,10 @@ Shape in brief:
   the card itself is 1.1: see [docs/design/dynamic-widgets.md](docs/design/dynamic-widgets.md). A card whose capability
   kind this launcher doesn't know is skipped with a warning (its cells stay reserved); `scripts/validate.py` reports
   that kind as an error.
+- **Android widgets.** `type: "appWidget"` (`requires: 5`, grid-placed) names a widget provider in
+  `content.provider` (`package`, `class`), with optional `profile` and `label`; `style` isn't supported yet. It's parsed and
+  validated and its cells stay reserved; hosting arrives with the native widgets milestone
+  ([docs/design/native-widgets.md](docs/design/native-widgets.md)). Older versions skip it with an "Update the app" warning.
 - **`revision`.** The launcher sets it to max seen + 1 on every write. Agents should bump it too, but nothing depends on
   it, and a missing `revision` is valid.
 - **Conflicts.** The **content hash** decides what's new, not `revision`. Any file with different content from what the

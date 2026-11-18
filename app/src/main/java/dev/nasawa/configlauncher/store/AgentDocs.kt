@@ -22,6 +22,7 @@ object AgentDocs {
         "10f163955998882c875b7d77823527dfe05f38ea57a60efaca2012f2170582ce",   // #79 status.json warnings (PR #112)
         "d910994c95c3f3fb0429036095352b1bceaddfc86ad47100db3a38df810ec86d",   // #242 Reflow Launcher rename
         "038663adff4a95e6c3e047e643d2a19d3d2db2d8e3ed5bdc09a69ce3386513f6",   // repo renamed to Nasawa/reflow-launcher (links)
+        "fd82639357baf06fa8ce0aa75e7afec308279f22d3c3a4e0d68b2696d019d15c",   // #298 appWidget section
     )
 
     enum class Outcome { WROTE, UPDATED, UP_TO_DATE, USER_CHANGED, USER_DELETED, OFF, FAILED }
