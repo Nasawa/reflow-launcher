@@ -12,6 +12,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.hapticfeedback.HapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalViewConfiguration
+import androidx.compose.ui.platform.ViewConfiguration
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performTouchInput
@@ -57,13 +59,16 @@ class DragStartTest {
         override fun performHapticFeedback(hapticFeedbackType: HapticFeedbackType) { haptics += hapticFeedbackType }
     }
 
-    private fun show() {
+    /** [touchSlop]: overrides the pager's (and every detector's) `ViewConfiguration.touchSlop` in px. */
+    private fun show(touchSlop: Float? = null) {
         val engine = ConfigEngine(LocalFileSource(tmp.newFolder("src")), LastGoodStore(tmp.newFolder("lg")), stabilityMs = 0)
         drag = DragController({ engine }) { } // no rects: every drop is refused and nothing is written
         drag.reducedMotion = { true } // the refused drop clears at once
         val apps = InstalledApps(ctx)
         rule.setContent {
-            CompositionLocalProvider(LocalHapticFeedback provides fakeHaptics) {
+            val base = LocalViewConfiguration.current
+            val config = if (touchSlop == null) base else object : ViewConfiguration by base { override val touchSlop: Float get() = touchSlop }
+            CompositionLocalProvider(LocalHapticFeedback provides fakeHaptics, LocalViewConfiguration provides config) {
                 WireDragHaptics(drag)
                 drag.scope = rememberCoroutineScope()
                 pager = rememberPagerState { 3 }
@@ -138,5 +143,21 @@ class DragStartTest {
         holdThenMove({ LongPress.dragHoldMillis(it) + 10 })
         lift()
         assertEquals("a second drag ticks once more", listOf(HapticFeedbackType.LongPress, HapticFeedbackType.LongPress), haptics)
+    }
+
+    /**
+     * Grace's FinalPassProbeTest (#287 review): with a pager slop (1 px) under the tile's 8 dp, the pager claims a slow
+     * move before the hold while the tile still sees it as near (PASS). Only the tile's Final-pass check sees that the
+     * pager consumed it; without that check (or reading Main instead) the lift would launch the app.
+     */
+    @Test fun pagerClaimingASubSlopMoveBeforeTheHoldEndsTheTileGesture() {
+        show(touchSlop = 1f)
+        val slopPx = with(rule.density) { 8.dp.toPx() }
+        rule.onNodeWithText("Alpha").performTouchInput {
+            down(center); repeat(4) { advanceEventTime(10); moveBy(Offset(-slopPx / 5f, 0f)) }; advanceEventTime(10); up()
+        }
+        rule.waitForIdle()
+        assertNull(drag.dragged)
+        assertEquals("the pager took the move, so the release is not a tap", 0, launches); assertEquals(0, sheets)
     }
 }

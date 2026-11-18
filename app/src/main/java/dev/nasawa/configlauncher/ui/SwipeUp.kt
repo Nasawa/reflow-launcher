@@ -40,11 +40,13 @@ object SwipeUp {
 /**
  * Watches unconsumed moves after children (Main pass). Off when [enabled] is false (edit mode, drag, drawer open).
  * Ends without opening when: the horizontal or downward axis passes slop first (pager / nothing), a child consumed
- * the move (tile drag, pager), a long-press fired first (no axis before the long-press timeout), or the press
- * started in the bottom system-gesture strip [excludeBottomPx].
+ * the move (a tile drag, which since #280 a draggable tile claims from half the long-press timeout on, or the pager),
+ * a long-press fired first (no axis before the long-press timeout), or the press started in the bottom
+ * system-gesture strip [excludeBottomPx].
  *
- * #191: "a long-press fired first" is timed on the same clock as the tile and home long-press detectors (a timeout
- * from when the down was handled), not from event timestamps. Right after a cold start the main thread is busy, so
+ * #191: "a long-press fired first" is timed on the same clock as the home long-press detectors (a timeout from when
+ * the down was handled), not from event timestamps. (Tiles decide on event uptimes since #280; a tile that took the
+ * gesture consumes its moves, which ends this detector the same way.) Right after a cold start the main thread is busy, so
  * the down is handled late and the rest of the swipe arrives as one late event, often just the lift far from the
  * down (API 29 `input swipe` waits for the down to be handled). Its timestamp is past the timeout although no
  * long-press fired, and with no moves there is no fling velocity either, so the first swipe did nothing. A lift that
@@ -87,6 +89,7 @@ fun Modifier.swipeUpToOpen(enabled: () -> Boolean, excludeBottomPx: () -> Float 
             return false
         }
         // Until an axis passes slop: if the long-press timeout runs out first, the long-press fired first, so no swipe.
+        // (A draggable tile claims the gesture earlier, from half the timeout; its consumed moves end this above.)
         val decided = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
             var over = false
             while (!over && axis == null) over = step()
