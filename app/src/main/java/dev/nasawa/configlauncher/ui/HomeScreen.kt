@@ -439,11 +439,27 @@ fun HomeScreen(vm: HomeViewModel) {
     }
     // #329 ux.md §4.2 `+ Page`: an empty page after the current one (nothing written yet), then go there (a jump with
     // reduced motion), announced as `Page N of M`. At 20 pages: `home_full`, nothing added.
-    val addPage = {
-        val id = vm.store.addPage(pages.getOrNull(pager.settledPage)?.id)
+    val addPageAfter = { after: String? ->
+        val id = vm.store.addPage(after)
         if (id == null) note(res.getString(R.string.home_full)) else addedPage = id
-        Unit
+        id != null
     }
+    val addPage = { addPageAfter(pages.getOrNull(pager.settledPage)?.id); Unit }
+    // #328 ux.md §4.2: a dragged item held 600 ms at the window's start/end edge turns to the previous/next page (a jump
+    // with reduced motion) and keeps turning while held. Past the last page it adds one empty page there (the `+ Page`
+    // draft: nothing written until the drop lands on it); on that new page it stops, as at the first page or at 20.
+    drag.onEdgeHold = { dir ->
+        val at = pager.targetPage // where a turn still animating is going
+        val to = at + dir
+        when {
+            to < 0 -> false
+            to < pages.size -> { scope.launch { if (ReducedMotion.on(ctx)) pager.scrollToPage(to) else pager.animateScrollToPage(to) }; true }
+            vm.store.drafts.value.any { it.id == pages.getOrNull(at)?.id } -> false // already on a new empty page
+            else -> { addPageAfter(pages.getOrNull(at)?.id); false }
+        }
+    }
+    // #328: after a turn, the cell under a resting finger is on the new page.
+    LaunchedEffect(pager) { androidx.compose.runtime.snapshotFlow { pager.settledPage }.collect { drag.refreshTarget() } }
     // `+ Page` pages exist only in edit mode: whatever ends it (or a recreate that starts outside it) drops the unwritten ones.
     LaunchedEffect(editing) { if (!editing) vm.store.drafts.value = emptyList() }
     LaunchedEffect(pages, addedPage) {
@@ -635,6 +651,9 @@ fun HomeScreen(vm: HomeViewModel) {
                             )
                         }, key = { pages.getOrNull(it)?.id ?: it },
                     userScrollEnabled = drag.dragged == null,
+                    // #328: while dragging, every page stays composed, so the lifted tile's gesture (on its own page) survives
+                    // an edge page turn and keeps the drag alive.
+                    beyondViewportPageCount = if (drag.dragged != null) pages.size else 0,
                 ) { index ->
                     pages.getOrNull(index)?.let { PageGrid(it, ui.layout.grid, vm.apps, drag, editing, onOpen, onLong, a11y, onEmptyLong = { homeMenu = true },
                         tiles = if (cardsLive) consentTiles(it.id) else consentTiles(it.id).filter { t -> t.reason == ConsentUi.Reason.Update },
@@ -1232,7 +1251,7 @@ internal fun PageGrid(page: ResolvedPage, grid: Grid, apps: InstalledApps, drag:
                 .width(pitch.blockW.dp)
                 .height(pitch.blockH.dp)
                 .align(Alignment.Center)
-                .onGloballyPositioned { drag.gridRect = it.boundsInRoot() }
+                .onGloballyPositioned { if (drag.currentPageId.let { it == null || it == page.id }) drag.gridRect = it.boundsInRoot() } // #328: other pages stay composed while dragging
             Column(blockMod.padding(if (pitch.capped) 0.dp else 8.dp)) {
                 for (y in 0 until rows) {
                     Row(Modifier.fillMaxWidth().weight(1f)) {
