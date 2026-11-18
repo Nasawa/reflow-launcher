@@ -83,6 +83,8 @@ class ResizeFrameTest {
     @Test fun explanationNamesTheWidgetWithoutAnArticle() {
         val s = ApplicationProvider.getApplicationContext<android.content.Context>().getString(R.string.bind_explain_body, "Analog clock")
         assertTrue(s, s.contains("add the widget \"Analog clock\""))
+        // #315 (Pragma): the approved copy, word for word, with the label substituted.
+        assertTrue(s, s.startsWith("Android will ask you to let Reflow Launcher add the widget \"Analog clock\"."))
         assertFalse(s.contains(" a Analog"))
     }
 

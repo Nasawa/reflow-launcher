@@ -569,6 +569,9 @@ page dim. An accepted drop settles into its cell in 150 ms. With reduced motion,
   no highlight and springs back.
 - The plate is a 12 dp rounded `surfaceContainerHigh` rect with an 8 dp shadow; the lifted item draws at 0.92 alpha.
 - The tick is `CLOCK_TICK` with the default flags (the system touch-feedback setting decides); none when leaving to no target.
+  Re-entering a cell from no target ticks too, even the cell it just left (#306 Pragma: intended). The current target
+  holds while the finger stays within about 4 dp of its edge (hysteresis), so a finger resting on a border doesn't
+  chatter between two cells; the highlight and the drop use the same rule.
 - The accepted drop animates first and writes after. The lifted item then stays drawn at the target until the frame
   with the committed layout has drawn (at most 1 s), so it never shows back in its old cell. The §4.1 cell outlines are
   the grid: no second grid is drawn.
@@ -1408,7 +1411,8 @@ with cell reservation → `appWidget` host → first-party `text`/`clock`.
 
 ### 16.1 Adding a widget (Q-W1)
 - **Entry:** home long-press menu → `Widgets` (after `Pages`, empty cells only, §1.1). Also available from edit mode's
-  top bar as `+ Widget`. Both open the same picker. Not in the drawer (drawer is apps).
+  top bar as `+ Widget`. Both open the same picker. Not in the drawer (drawer is apps). With the §1.5 rail (no edit
+  bar), `+ Widget` is the **first** item of the rail ⋮ menu in edit mode, with `+ Page` directly below it (#313 Pragma).
 - **Picker:** a full-screen sheet titled `Widgets`. Search field at the top (hint `Search widgets`), then groups by
   app (app icon + label as a sticky header). Each provider is a row: `previewImage` or `previewLayout` when available
   (else a grey rectangle with the app icon), provider label, and size chip `2 × 1`. Long-press a row for `App info`.
@@ -1456,6 +1460,9 @@ or the user has dismissed this explanation for that package.
 ### 16.4 Resize (Q-W4)
 - **Edit mode only.** Selecting a widget shows a white 24 % frame and four edge handles (and corners if both axes are
   allowed). Drag a handle; size snaps to whole cells. Soft haptic at each cell step. Release → one write (`w`/`h`).
+- **Start and top handles:** growing left (start) or up moves `x`/`y` with `w`/`h` in the same write, the same way
+  stock Android and One UI resize from those edges. The start handle mirrors in RTL (it sits on the right and grows
+  toward the right; #315 Pragma).
 - **Occupied cells:** the drag **stops** at the last free rectangle (red outline on the blocked edge; with reduced
   motion, the outline only). No reflow, no auto-move of other items (matches §4.2 "no automatic reflow", and
   Christopher's keep-it-simple). Dropping onto an occupied cell is refused.
@@ -1757,7 +1764,8 @@ Long-press: the item sheet with the title, `Widget · from launcher.json`, then 
 - **Count chip:** a 20 dp pill (48 dp touch area) at the end of the §6.1 **notice row**, `shield` icon + number, tap →
   review list. Shown while the count is > 0. If the B-banner ▲ chip is also showing, this chip sits to its start (left in
   LTR), 8 dp apart. It doesn't get a strip of its own: with a page label showing it costs no grid height (#173 L1).
-- **⋮ / menu badges:** the same number on the home long-press menu's `Widgets` item (`Widgets · 2 to review`), on the
+- **⋮ / menu badges:** the same number on the home long-press menu's cards-review item (`Review cards · 2`; the picker
+  keeps `Widgets`, #313 Pragma), on the
   interim ⋮ menu (R10) and on Settings → `Widget permissions` once Settings exists. A ⋮ icon by itself only gets a dot, not
   a number, because a number on ⋮ doesn't say what it counts.
 
@@ -2136,7 +2144,7 @@ builds S3-C from it.
 | `b9_review` | `Review` | — | R · S3 | B9 button |
 | `b9_dismiss_a11y` | `Dismiss` | — | A · S3 | B9 `×` button (collapses to the chip) |
 | `chip_review_a11y` (plurals) | one: `Widget permissions, %d needs your OK` · other: `Widget permissions, %d need your OK` | d = count | A · S3 | Count chip |
-| `menu_widgets_review` (plurals) | one/other: `Widgets · %d to review` | d = count | R · S3 | Home long-press `Widgets` item and interim ⋮ item when count > 0 |
+| `menu_widgets_review` (plurals) | one/other: `Review cards · %d` | d = count | R · S3 | Home long-press cards-review item and interim ⋮ item when count > 0 |
 | `menu_dot_a11y` | `New widget permissions to review` | — | A · S3 | ⋮ icon dot |
 
 **Review list `Widget permissions` (§17.4)**

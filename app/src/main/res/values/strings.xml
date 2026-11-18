@@ -295,8 +295,8 @@
         <item quantity="other">Widget permissions, %d need your OK</item>
     </plurals>
     <plurals name="menu_widgets_review">
-        <item quantity="one">Widgets · %d to review</item>
-        <item quantity="other">Widgets · %d to review</item>
+        <item quantity="one">Review cards · %d</item>
+        <item quantity="other">Review cards · %d</item>
     </plurals>
     <string name="menu_dot_a11y">New widget permissions to review</string>
     <string name="review_title">Widget permissions</string>
