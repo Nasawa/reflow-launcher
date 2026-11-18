@@ -278,8 +278,9 @@ internal class SafWrites(
      * - it's byte-identical to the target;
      * - (AGENTS.md only) it's byte-identical to a shipped template ([AgentDocs.SHIPPED_SHA256]): the app can write that
      *   again (Add agent instructions); a deleted AGENTS.md is still never re-created.
-     * Anything else is kept, with a Warnings (▲) line naming it, every start until the user deletes it (or it comes to
-     * match the target). Never a folder. Journaled temps don't come here ([sweepOne], #263 rules).
+     * Anything else is kept, with one Warnings (▲) line naming it, every start until the user deletes it (or it comes to
+     * match the target): [legacyBrokenTargetWarning] when the target is missing, empty or (launcher.json) invalid,
+     * else [legacyKeptWarning] (Pragma, #293). Never a folder. Journaled temps don't come here ([sweepOne], #263 rules).
      */
     private fun settleLegacySidecar(rootDocId: String, id: String, tmpName: String, target: String): String? {
         val info = tree.info(id) ?: return null
@@ -288,7 +289,11 @@ internal class SafWrites(
         val current = tree.list(rootDocId)[target]?.takeIf { it.mime != Document.MIME_TYPE_DIR }?.let { tree.read(it.docId) }
         val delete = temp.isEmpty() || (current != null && current.contentEquals(temp)) ||
             (target == AgentDocs.NAME && ConfigCodec.sha256(temp) in AgentDocs.SHIPPED_SHA256)
-        if (!delete) return legacyKeptWarning(tmpName, target)
+        if (!delete) {
+            val broken = current == null || current.isEmpty() ||
+                (target == SafSource.FILE && ConfigCodec.decode(current) is ParseResult.Invalid)
+            return if (broken) legacyBrokenTargetWarning(tmpName, target) else legacyKeptWarning(tmpName, target)
+        }
         tree.delete(id)
         return null
     }
@@ -305,9 +310,12 @@ internal class SafWrites(
         private val LEGACY_SIDECAR = Regex("""(launcher\.json|AGENTS\.md)(?: \(\d+\))?\.tmp(?: \(\d+\))?""")
         /** The root file a pre-#274 sidecar temp named [displayName] belongs to, or null. */
         fun legacySidecarTarget(displayName: String): String? = LEGACY_SIDECAR.matchEntire(displayName)?.groupValues?.get(1)
-        /** #274: the ▲ line for a kept pre-#274 sidecar temp (ux.md §4.3, AQ-4). */
+        /** #274: the ▲ line for a kept pre-#274 sidecar temp next to a valid target (ux.md §4.3, AQ-4). */
         fun legacyKeptWarning(tmpName: String, target: String) =
             "An older version of the app left $DIR_NAME/$tmpName, and it doesn't match $target. It's kept in case it's your only copy. Delete it once you don't need it."
+        /** #293: the ▲ line for a kept pre-#274 sidecar temp next to a missing, empty or (launcher.json) invalid target. */
+        fun legacyBrokenTargetWarning(tmpName: String, target: String) =
+            "An older version of the app left $DIR_NAME/$tmpName, and $target is missing or broken. The .tmp may be your only good copy. Copy it over $target to keep it."
         /** #262: starts in a row a journaled temp may fail to settle before its entry (never the file) is dropped. */
         const val MAX_STRIKES = 5
         /** The root files that go through [writeVerified] (launcher.json, AGENTS.md). */
