@@ -18,7 +18,12 @@ class WidgetHost(context: Context) : WidgetBindings.Host {
     private val app = context.applicationContext
     val host: AppWidgetHost = object : AppWidgetHost(app, HOST_ID) {
         override fun onCreateView(context: Context, appWidgetId: Int, appWidget: AppWidgetProviderInfo?): android.appwidget.AppWidgetHostView = LongPressHostView(context)
+        // #309 review: Android re-registered or dropped a provider (e.g. after a reinstall). Arrives while listening,
+        // after AppWidgetService has the provider, unlike the LauncherApps package callback.
+        override fun onProvidersChanged() { onProvidersChanged?.invoke() }
     }
+    /** Set by [WidgetRuntime]: re-read the providers. */
+    @Volatile var onProvidersChanged: (() -> Unit)? = null
     val manager get() = mgr
     private val mgr: AppWidgetManager? = AppWidgetManager.getInstance(app)
 
@@ -27,6 +32,9 @@ class WidgetHost(context: Context) : WidgetBindings.Host {
         val info = mgr?.getAppWidgetInfo(appWidgetId) ?: return null
         host.createView(context, appWidgetId, info) as? LongPressHostView
     }.getOrNull()
+
+    /** False when Android has no widget for [appWidgetId] any more (deleted, or its provider is gone). */
+    fun alive(appWidgetId: Int): Boolean = runCatching { mgr?.getAppWidgetInfo(appWidgetId) != null }.getOrDefault(false)
 
     fun start() { runCatching { host.startListening() } }
     fun stop() { runCatching { host.stopListening() } }

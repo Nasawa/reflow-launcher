@@ -29,10 +29,14 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
         .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.Eagerly, HomeUi(Reconcile.resolve(store.state.value.config, emptyList()), store.state.value))
 
+    /** Home start: the host wasn't listening while stopped, so provider changes may have been missed. */
+    fun refreshWidgets() { viewModelScope.launch(Dispatchers.IO) { widgets.refresh() } }
+
     init {
         viewModelScope.launch(Dispatchers.IO) {
             installed.value = apps.load()
-            apps.changes().collect { installed.value = apps.load() }
+            // #309 review: providers refresh on every package event, not on the deduplicated list.
+            apps.changes().collect { installed.value = apps.load(); widgets.refresh() }
         }
         // #54: keep .configlauncher/apps.json current on app changes and after a source switch;
         // #72: also when drawer.hidden or the Include hidden apps setting changes.
@@ -41,9 +45,10 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
                 .filter { it.first.isNotEmpty() }
                 .collect { (inst, incl) -> store.engine.writeApps(inst, includeHidden = incl) }
         }
-        // #300: providers come and go with packages (the existing LauncherApps.Callback path), never on a timer.
+        // #300: providers come and go with packages (every LauncherApps event above, AppWidgetHost.onProvidersChanged
+        // and home start), never on a timer.
         // Any provider, binding or cell-size change refreshes status.json `appWidgets` (deduplicated by the engine).
-        viewModelScope.launch(Dispatchers.IO) { installed.collect { widgets.refresh() } }
+        viewModelScope.launch(Dispatchers.IO) { widgets.refresh() }
         viewModelScope.launch(Dispatchers.IO) {
             combine(widgets.version, widgets.bindings?.version ?: flowOf(0)) { a, b -> a to b }.collect {
                 store.engine.appWidgetsChanged()

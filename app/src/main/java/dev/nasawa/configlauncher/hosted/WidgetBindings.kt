@@ -106,6 +106,12 @@ class WidgetBindings(private val dir: File?, private val host: Host) {
         save()
     }
 
+    /** #309 review: [elementId]'s ID can't be shown any more (Android has no widget for it): free it → `needsSetup`. */
+    @Synchronized fun forget(elementId: String, appWidgetId: Int) {
+        val b = entries[elementId]?.takeIf { it.appWidgetId == appWidgetId } ?: return
+        entries.remove(elementId); host.delete(b.appWidgetId); save()
+    }
+
     /**
      * NW-6: keep [elementId]'s binding through the next [settle]s while its Remove can still be undone.
      * **Call this before the Remove write.** [settle] runs inside that write (the engine settles after every

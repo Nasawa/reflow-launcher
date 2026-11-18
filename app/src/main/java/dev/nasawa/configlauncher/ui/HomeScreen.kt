@@ -131,7 +131,7 @@ fun HomeScreen(vm: HomeViewModel) {
     LaunchedEffect(hostedAll) { widgets.silentBind(ui.load.config) }
     fun hostedTap(t: dev.nasawa.configlauncher.hosted.HostedWidgets.Tile): (() -> Unit)? = when (t.state) {
         dev.nasawa.configlauncher.hosted.HostedWidgets.State.NOT_INSTALLED -> { { hostedSheet = t } }
-        dev.nasawa.configlauncher.hosted.HostedWidgets.State.FAILED -> { { widgets.clearFailed(t.id) } }
+        dev.nasawa.configlauncher.hosted.HostedWidgets.State.FAILED -> { { widgets.retry(t.id) } }
         dev.nasawa.configlauncher.hosted.HostedWidgets.State.NEEDS_SETUP,
         dev.nasawa.configlauncher.hosted.HostedWidgets.State.NEEDS_CONFIG -> { { widgets.flow.tap(t.id, t.pkg, t.cls) } }
         else -> null
@@ -731,7 +731,7 @@ fun HomeScreen(vm: HomeViewModel) {
             HostedWidgetSheet(t, installed,
                 onEditLayout = { hostedSheet = null; editing = true },
                 onAppInfo = { hostedSheet = null; vm.apps.appInfo(t.pkg, null, dev.nasawa.configlauncher.model.Profile.PERSONAL) },
-                onRetry = { hostedSheet = null; widgets.clearFailed(t.id) },
+                onRetry = { hostedSheet = null; widgets.retry(t.id) },
                 onDismiss = { hostedSheet = null },
                 onReconfigure = if (t.state == dev.nasawa.configlauncher.hosted.HostedWidgets.State.BOUND &&
                     widgets.info(t.pkg, t.cls)?.let(widgets::target)?.reconfigurable == true) { { hostedSheet = null; widgets.flow.reconfigure(t.id) } } else null)

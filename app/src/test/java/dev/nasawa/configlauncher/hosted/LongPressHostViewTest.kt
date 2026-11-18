@@ -43,4 +43,12 @@ class LongPressHostViewTest {
         shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(v.timeoutMs + 10))
         assertEquals(0, n)
     }
+
+    // #309 review nit 1: a live widget with the §16.5 cue tells TalkBack.
+    @Test fun sizeCueIsAppendedForTalkBack() {
+        val v = LongPressHostView(ctx).apply { contentDescription = "Search" }
+        assertFalse(v.createAccessibilityNodeInfo().contentDescription?.toString().orEmpty().contains("size"))
+        v.sizeCue = ", size may be wrong"
+        assertEquals("Search, size may be wrong", v.createAccessibilityNodeInfo().contentDescription.toString())
+    }
 }

@@ -20,22 +20,32 @@ import java.util.concurrent.ConcurrentHashMap
  *
  * Debug builds only ([BuildConfig.DEBUG]): logcat tag [TAG] and [debugProviders] for the hands-on session.
  */
-class WidgetRuntime(context: Context, val host: WidgetHost, val bindings: WidgetBindings?) : AppWidgetStatus {
+class WidgetRuntime(
+    context: Context, val host: WidgetHost, val bindings: WidgetBindings?,
+    private val installedProviders: () -> List<AppWidgetProviderInfo> = { host.providers() },
+) : AppWidgetStatus {
     private val app = context.applicationContext
     private val density get() = app.resources.displayMetrics.density
     @Volatile private var providers: List<AppWidgetProviderInfo> = emptyList()
     /** Cell width and height (dp) of the main grid as last drawn; null before the first layout. */
     @Volatile var cellDp: Pair<Float, Float>? = null
         private set
-    private val failed: MutableSet<String> = ConcurrentHashMap.newKeySet()
+    /** Element id → the appWidgetId whose host view failed; a new binding for that element isn't failed. */
+    private val failed = ConcurrentHashMap<String, Int>()
     private val _version = MutableStateFlow(0)
     /** Bumps when providers, the cell size or a host-view failure change. */
     val version: StateFlow<Int> = _version
 
-    /** Re-reads the installed providers (home start, app installed/removed/changed). True when the list changed. */
-    fun refresh(): Boolean {
+    init { host.onProvidersChanged = { refresh() } }
+
+    /**
+     * Re-reads the installed providers. Called on home start, on **every** package event and from
+     * `AppWidgetHost.onProvidersChanged` (#309 review: the deduplicated app list can fire before Android has
+     * re-registered a reinstalled provider). True when the list changed. Also prunes bindings whose ID Android deleted.
+     */
+    @Synchronized fun refresh(): Boolean {
         bindings?.prune()
-        val next = host.providers()
+        val next = installedProviders()
         val changed = next.map { it.provider } != providers.map { it.provider }
         providers = next
         if (changed) { _version.value++; debug { "providers: ${next.size}" } }
@@ -50,8 +60,25 @@ class WidgetRuntime(context: Context, val host: WidgetHost, val bindings: Widget
         return true
     }
 
-    fun markFailed(id: String) { if (failed.add(id)) { _version.value++; debug { "$id: host view failed" } } }
-    fun clearFailed(id: String) { if (failed.remove(id)) _version.value++ }
+    fun markFailed(id: String, appWidgetId: Int) { if (failed.put(id, appWidgetId) != appWidgetId) { _version.value++; debug { "$id: host view failed" } } }
+    fun clearFailed(id: String) { if (failed.remove(id) != null) _version.value++ }
+
+    /**
+     * The grid couldn't make a view for [elementId]'s [appWidgetId]. If Android no longer has that widget (deleted ID,
+     * e.g. after a provider uninstall), the binding is dropped → `Tap to set up`; otherwise it's a real failure.
+     */
+    fun viewMissing(elementId: String, appWidgetId: Int) {
+        if (!host.alive(appWidgetId) && bindings != null) { debug { "$elementId: id=$appWidgetId gone" }; bindings.forget(elementId, appWidgetId); clearFailed(elementId) }
+        else markFailed(elementId, appWidgetId)
+    }
+
+    /** `Can't show this widget` → Retry: re-read providers; a dead or stored-failed binding goes back to setup. */
+    fun retry(elementId: String) {
+        clearFailed(elementId)
+        refresh()
+        val b = bindings?.binding(elementId) ?: return
+        if (b.state == WidgetBindings.State.FAILED || !host.alive(b.appWidgetId)) bindings.forget(elementId, b.appWidgetId)
+    }
 
     fun info(pkg: String, cls: String): AppWidgetProviderInfo? = WidgetHost.find(providers, pkg, cls)
 
@@ -75,8 +102,10 @@ class WidgetRuntime(context: Context, val host: WidgetHost, val bindings: Widget
     }
 
     fun tiles(c: LauncherConfig, pageId: String? = null): List<HostedWidgets.Tile> =
-        HostedWidgets.tiles(c, bindings?.all().orEmpty(), lookup, failed, pageId) { id, pkg, cls ->
-            flow.hint(id) ?: BindFlow.Hint.BINDING.takeIf { flow.silentPending(id, info(pkg, cls)?.let(::target)) }
+        bindings?.all().orEmpty().let { all ->
+            HostedWidgets.tiles(c, all, lookup, failed.filter { (e, id) -> all[e]?.appWidgetId == id }.keys, pageId) { id, pkg, cls ->
+                flow.hint(id) ?: BindFlow.Hint.BINDING.takeIf { flow.silentPending(id, info(pkg, cls)?.let(::target)) }
+            }
         }
 
     override fun states(c: LauncherConfig) = HostedWidgets.states(tiles(c))

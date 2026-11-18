@@ -35,7 +35,7 @@ class MainActivity : ComponentActivity() {
 
     // Poll immediately when the user comes home, then every 2 s while visible (ARCHITECTURE.md §4).
     // #299: hosted widgets get updates only while home is visible (no polling).
-    override fun onStart() { super.onStart(); (application as ConfigLauncherApp).widgetHost.start(); vm.store.start() }
+    override fun onStart() { super.onStart(); (application as ConfigLauncherApp).widgetHost.start(); vm.store.start(); vm.refreshWidgets() }
     // #301: bind and configure screens start only while home is resumed; their answers come back here.
     override fun onResume() { super.onResume(); val w = (application as ConfigLauncherApp).widgets; w.activity = this; w.flow.resumed = true }
     override fun onPause() { val w = (application as ConfigLauncherApp).widgets; w.flow.resumed = false; if (w.activity === this) w.activity = null; super.onPause() }
