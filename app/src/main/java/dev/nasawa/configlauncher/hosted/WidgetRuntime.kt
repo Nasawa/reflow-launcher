@@ -150,13 +150,16 @@ class WidgetRuntime(
     }
 
     /** #302 picker rows: every personal provider with its app, label and default size on [grid] (D3: no work ones). */
-    data class Pick(val pkg: String, val cls: String, val label: String, val app: String, val w: Int, val h: Int, val info: AppWidgetProviderInfo)
+    /** [sized] false = the grid hasn't reported its cell size yet: [w]×[h] is only a 1×1 stand-in, shown nowhere (#313 nit 3). */
+    data class Pick(val pkg: String, val cls: String, val label: String, val app: String, val w: Int, val h: Int, val info: AppWidgetProviderInfo,
+                    val sized: Boolean = true)
 
     fun picks(grid: dev.nasawa.configlauncher.model.Grid): List<Pick> = providers.mapNotNull { i ->
-        val (w, h) = defaultCells(i, grid) ?: (1 to 1)
+        val cells = defaultCells(i, grid)
+        val (w, h) = cells ?: (1 to 1)
         val pkg = i.provider.packageName
         val app = runCatching { app.packageManager.getApplicationLabel(app.packageManager.getApplicationInfo(pkg, 0)).toString() }.getOrDefault(pkg)
-        Pick(pkg, i.provider.className, runCatching { i.loadLabel(this.app.packageManager) }.getOrNull() ?: i.provider.shortClassName, app, w, h, i)
+        Pick(pkg, i.provider.className, runCatching { i.loadLabel(this.app.packageManager) }.getOrNull() ?: i.provider.shortClassName, app, w, h, i, sized = cells != null)
     }
 
     /**

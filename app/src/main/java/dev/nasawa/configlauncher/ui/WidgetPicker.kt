@@ -103,7 +103,8 @@ private fun PickRow(p: WidgetRuntime.Pick, onPick: () -> Unit, onLong: () -> Uni
         Spacer(Modifier.width(16.dp))
         Text(p.label, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
         Spacer(Modifier.width(8.dp))
-        AssistChip(onClick = onPick, label = { Text(size) })
+        // #313 nit 3: no size until the grid knows its cell size (apps.json leaves it out then too).
+        if (p.sized) AssistChip(onClick = onPick, label = { Text(size) })
     }
 }
 

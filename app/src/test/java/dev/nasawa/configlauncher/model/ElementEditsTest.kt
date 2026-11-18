@@ -120,6 +120,14 @@ class ElementEditsTest {
         assertFalse(apply(c, Edit.ResizeElement("w-a", 4, 1)).applied)   // the app at (3,0)
         assertFalse(apply(c, Edit.ResizeElement("w-a", 1, 3)).applied)   // w-b at (0,2)
         assertFalse(apply(c, Edit.ResizeElement("w-a", 1, 1)).applied)   // unchanged
+        // #304: a start/top handle moves the anchor in the same write; only the keys that changed.
+        val c2 = cfg(doc(listOf(page("home")), aw("w-m", x = 2, y = 2, w = 1, h = 1)))
+        val grown = apply(c2, Edit.ResizeElement("w-m", 3, 2, x = 0, y = 1))
+        assertTrue(grown.applied)
+        assertEquals(Elements.Placement("home", 0, 1, 3, 2), grown.config.place("w-m"))
+        assertEquals(ElementEdits.element(c2, "w-m")!!.keys.toList(), ElementEdits.element(grown.config, "w-m")!!.keys.toList())
+        assertFalse(apply(c2, Edit.ResizeElement("w-m", 1, 1, x = 2, y = 2)).applied)   // unchanged
+        assertFalse(apply(c, Edit.ResizeElement("w-a", 2, 1, x = 3)).applied)            // the app at (3,0)
         assertEquals(3, ElementEdits.maxFree(c, "w-a", horizontal = true, other = 1))
         assertEquals(2, ElementEdits.maxFree(c, "w-a", horizontal = false, other = 1))
     }
