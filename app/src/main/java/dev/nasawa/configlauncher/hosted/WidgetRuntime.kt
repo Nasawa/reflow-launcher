@@ -95,17 +95,14 @@ class WidgetRuntime(
         val label = runCatching { i.loadLabel(app.packageManager) }.getOrNull()
         val (cw, ch) = cellDp ?: return HostedWidgets.Facts(label)
         val d = density
-        val resH = i.resizeMode and AppWidgetProviderInfo.RESIZE_HORIZONTAL != 0
-        val resV = i.resizeMode and AppWidgetProviderInfo.RESIZE_VERTICAL != 0
-        val minW = (if (resH && i.minResizeWidth > 0) i.minResizeWidth else i.minWidth) / d
-        val minH = (if (resV && i.minResizeHeight > 0) i.minResizeHeight else i.minHeight) / d
-        var maxW: Int? = null; var maxH: Int? = null
-        if (Build.VERSION.SDK_INT >= 31) {
-            if (i.maxResizeWidth > 0) maxW = HostedWidgets.cellsFit(i.maxResizeWidth / d, cw)
-            if (i.maxResizeHeight > 0) maxH = HostedWidgets.cellsFit(i.maxResizeHeight / d, ch)
-        }
-        val mw = HostedWidgets.cells(minW, cw); val mh = HostedWidgets.cells(minH, ch)
-        return HostedWidgets.Facts(label, mw, mh, maxW?.coerceAtLeast(mw), maxH?.coerceAtLeast(mh), resH, resV)
+        val new = Build.VERSION.SDK_INT >= 31
+        return HostedWidgets.facts(label, HostedWidgets.ProviderSize(
+            resizeW = i.resizeMode and AppWidgetProviderInfo.RESIZE_HORIZONTAL != 0,
+            resizeH = i.resizeMode and AppWidgetProviderInfo.RESIZE_VERTICAL != 0,
+            minWDp = i.minWidth / d, minHDp = i.minHeight / d,
+            minResizeWDp = i.minResizeWidth / d, minResizeHDp = i.minResizeHeight / d,
+            maxResizeWDp = if (new) i.maxResizeWidth / d else 0f, maxResizeHDp = if (new) i.maxResizeHeight / d else 0f,
+            targetW = if (new) i.targetCellWidth else 0, targetH = if (new) i.targetCellHeight else 0), cw, ch)
     }
 
     fun tiles(c: LauncherConfig, pageId: String? = null): List<HostedWidgets.Tile> =
