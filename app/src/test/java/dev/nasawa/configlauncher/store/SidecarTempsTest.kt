@@ -216,14 +216,42 @@ class SidecarTempsTest {
     // ---- #276 NO-GO at 5fa0299 (Grace) + manager: a legacy temp has no hash, so the current file always wins ----
 
     private fun kept(name: String, target: String) = SafWrites.legacyKeptWarning(name, target)
+    private fun brokenLine(name: String, target: String) = SafWrites.legacyBrokenTargetWarning(name, target)
+
+    @Test fun legacyBrokenTargetLineIsPragmasCopyItOverWording() {   // Pragma on #293: missing or broken target
+        assertEquals(
+            "An older version of the app left .configlauncher/launcher.json.tmp, and launcher.json is missing or broken. " +
+                "The .tmp may be your only good copy. Copy it over launcher.json to keep it.",
+            brokenLine("launcher.json.tmp", "launcher.json"),
+        )
+        assertEquals(
+            "An older version of the app left .configlauncher/AGENTS.md (2).tmp, and AGENTS.md is missing or broken. " +
+                "The .tmp may be your only good copy. Copy it over AGENTS.md to keep it.",
+            brokenLine("AGENTS.md (2).tmp", "AGENTS.md"),
+        )
+    }
+
+    @Test fun legacyKeptLineIsPragmasPlainSentences() {   // Pragma's #276 copy check: no semicolon, three sentences
+        assertEquals(
+            "An older version of the app left .configlauncher/AGENTS.md.tmp, and it doesn't match AGENTS.md. " +
+                "It's kept in case it's your only copy. Delete it once you don't need it.",
+            kept("AGENTS.md.tmp", "AGENTS.md"),
+        )
+        assertEquals(
+            "An older version of the app left .configlauncher/launcher.json (1).tmp, and it doesn't match launcher.json. " +
+                "It's kept in case it's your only copy. Delete it once you don't need it.",
+            kept("launcher.json (1).tmp", "launcher.json"),
+        )
+    }
 
     /** Plants [cur] (null: no file) and a legacy temp [tmp] for [target], runs two starts, and checks nothing was lost. */
-    private fun keptCase(target: String, cur: ByteArray?, tmp: ByteArray) {
+    private fun keptCase(target: String, cur: ByteArray?, tmp: ByteArray, broken: Boolean = false) {
         val s = setup()
         cur?.let { s.rootFile(target, it) }
         s.legacy("$target.tmp", tmp)
         repeat(2) { // and again on the next start: still kept, still warned
-            assertEquals(listOf(kept("$target.tmp", target)), s.start().sweepRootTemps("root"))
+            val line = if (broken) brokenLine("$target.tmp", target) else kept("$target.tmp", target)
+            assertEquals("one line, never both", listOf(line), s.start().sweepRootTemps("root"))
             assertEquals("the current file always wins", cur?.let { String(it) }, s.root(target))
             assertEquals("the temp is kept", String(tmp), s.text(s.sidecar(), "$target.tmp"))
         }
@@ -246,7 +274,7 @@ class SidecarTempsTest {
 
     @Test fun anEmptyAgentsMdIsNotRestoredFromTheLegacyTemp() {
         // The only complete copy: kept with the ▲ line, and the (empty) target is not overwritten.
-        keptCase("AGENTS.md", ByteArray(0), "# rules v2\n".toByteArray())
+        keptCase("AGENTS.md", ByteArray(0), "# rules v2\n".toByteArray(), broken = true)
     }
 
     @Test fun anEditedAgentsMdIsNotTreatedAsSupersedingTheLegacyTemp() {
@@ -259,14 +287,14 @@ class SidecarTempsTest {
 
     @Test fun aPartialLegacyLauncherJsonTempIsNotRestored() {
         keptCase("launcher.json", valid.toByteArray(), (valid + "{").toByteArray())
-        keptCase("launcher.json", ByteArray(0), validNew.take(30).toByteArray()) // doesn't parse
+        keptCase("launcher.json", ByteArray(0), validNew.take(30).toByteArray(), broken = true) // doesn't parse
     }
 
     @Test fun aTornOrEmptyLauncherJsonIsNotRestoredFromAValidLegacyTemp() {
-        keptCase("launcher.json", validNew.take(20).toByteArray(), validNew.toByteArray()) // a prefix
-        keptCase("launcher.json", ByteArray(0), validNew.toByteArray())                    // empty
-        keptCase("launcher.json", "{ an agent's half edit".toByteArray(), validNew.toByteArray()) // invalid
-        keptCase("launcher.json", null, validNew.toByteArray())                             // missing
+        keptCase("launcher.json", validNew.take(20).toByteArray(), validNew.toByteArray(), broken = true) // a prefix
+        keptCase("launcher.json", ByteArray(0), validNew.toByteArray(), broken = true)                    // empty
+        keptCase("launcher.json", "{ an agent's half edit".toByteArray(), validNew.toByteArray(), broken = true) // invalid
+        keptCase("launcher.json", null, validNew.toByteArray(), broken = true)                             // missing
     }
 
     @Test fun aValidLauncherJsonDoesNotMakeADifferentLegacyTempOutdated() {
@@ -274,8 +302,8 @@ class SidecarTempsTest {
     }
 
     @Test fun aMissingAgentsMdIsNeverRecreatedAndANonTemplateTempIsKept() {
-        keptCase("AGENTS.md", null, "my own rules".toByteArray())
-        keptCase("AGENTS.md", null, (String(template) + "\nmy edit").toByteArray()) // resembles a template: not one
+        keptCase("AGENTS.md", null, "my own rules".toByteArray(), broken = true)
+        keptCase("AGENTS.md", null, (String(template) + "\nmy edit").toByteArray(), broken = true) // resembles a template: not one
     }
 
     @Test fun aKeptLegacyTempGoesOnceItMatchesTheTarget() {
@@ -285,6 +313,14 @@ class SidecarTempsTest {
         s.t.write(t, validNew.toByteArray()) // the user copied it over
         assertEquals(emptyList<String>(), s.start().sweepRootTemps("root"))
         assertEquals(emptyList<String>(), s.inSidecar())
+    }
+
+    @Test fun theLegacyLineSwitchesOnceTheBrokenTargetIsFixed() {   // Pragma on #293: never both lines for one file
+        val s = setup()
+        val t = s.rootFile("launcher.json", "{ an agent's half edit".toByteArray()); s.legacy("launcher.json.tmp", validNew.toByteArray())
+        assertEquals(listOf(brokenLine("launcher.json.tmp", "launcher.json")), s.start().sweepRootTemps("root"))
+        s.t.write(t, valid.toByteArray()) // the user fixed launcher.json by hand, differently
+        assertEquals(listOf(kept("launcher.json.tmp", "launcher.json")), s.start().sweepRootTemps("root"))
     }
 
     @Test fun legacyShippedTemplateIsDeletedEvenWhenAgentsMdIsGone() {

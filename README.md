@@ -217,7 +217,7 @@ Shape in brief:
   was stopped mid-save, the next start uses the copy to finish the save, then deletes it. A `launcher.json.tmp` or
   `AGENTS.md.tmp` left by an older version is never copied over your file: it's deleted when it's empty, matches the
   file, or is the unedited shipped `AGENTS.md`; otherwise it stays and the phone lists it under Warnings until you
-  delete it.
+  delete it or copy it over your file.
 - `launcher-config.v1.schema.json`: an offline copy of the schema, so agents can validate without network. Replaced on
   app updates unless you edited it.
 - `broken/`: copies of invalid files saved before a phone edit replaced them.
