@@ -28,11 +28,12 @@ class ResizeFrameTest {
 
     private val writes = mutableListOf<ResizeMath.Rect>()
     private val active = mutableListOf<Boolean>()
+    private var ticks = 0
 
     private fun show(p: Elements.Placement, free: (Int, Int, Int, Int) -> Boolean = { _, _, _, _ -> true }) {
         rule.setContent { MaterialTheme { Box(Modifier.size(400.dp, 500.dp)) {
             ResizeFrame(p, ElementInfo.Limits(1, 4, 1, 5), 4, 5, 100.dp, 100.dp, 0.dp, 0.dp, 400.dp, 500.dp, rtl = false, reducedMotion = true,
-                free = free, onActive = { active += it }, onResize = { writes += it })
+                free = free, onActive = { active += it }, onResize = { writes += it }, onTick = { ticks++ })
         } } }
     }
 
@@ -50,6 +51,14 @@ class ResizeFrameTest {
         dragBy("resize-END", 120f, 0f)          // 1.2 cells → 1
         assertEquals(listOf(ResizeMath.Rect(1, 1, 2, 1)), writes)
         assertEquals(listOf(true, false), active)
+    }
+
+    @Test fun oneBuzzPerCellStep() {
+        // dev1 fix: 2.5 cells → +1, +2 (no buzz between cells or on release).
+        show(Elements.Placement("home", 0, 0, 1, 1))
+        dragBy("resize-END", 250f, 0f)
+        assertEquals(2, ticks)
+        assertEquals(listOf(ResizeMath.Rect(0, 0, 3, 1)), writes)
     }
 
     @Test fun cornerResizesBothAxesAndStopsAtTakenCells() {
@@ -83,6 +92,8 @@ class ResizeFrameTest {
     @Test fun explanationNamesTheWidgetWithoutAnArticle() {
         val s = ApplicationProvider.getApplicationContext<android.content.Context>().getString(R.string.bind_explain_body, "Analog clock")
         assertTrue(s, s.contains("add the widget \"Analog clock\""))
+        // #315 (Pragma): the approved copy, word for word, with the label substituted.
+        assertTrue(s, s.startsWith("Android will ask you to let Reflow Launcher add the widget \"Analog clock\"."))
         assertFalse(s.contains(" a Analog"))
     }
 

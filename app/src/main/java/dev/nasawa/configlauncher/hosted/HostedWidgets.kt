@@ -88,6 +88,26 @@ object HostedWidgets {
     /** Cells a provider dimension (dp) needs on a grid whose cell is [cellDp] wide or tall. */
     fun cells(dp: Float, cellDp: Float): Int = if (cellDp <= 0f) 1 else maxOf(1, kotlin.math.ceil((dp - 0.5f) / cellDp).toInt())
 
+    /** What Android reports for a provider's size, in dp (0 = unset), and its `targetCell*` (0 = unset; API 31+). */
+    data class ProviderSize(val resizeW: Boolean, val resizeH: Boolean, val minWDp: Float, val minHDp: Float,
+                            val minResizeWDp: Float = 0f, val minResizeHDp: Float = 0f,
+                            val maxResizeWDp: Float = 0f, val maxResizeHDp: Float = 0f, val targetW: Int = 0, val targetH: Int = 0)
+
+    /**
+     * [s] in cells of [cw] × [ch] dp. dev1 fix (S25 Ultra weather): a `maxResize*` floored to our cells can come out
+     * below the provider's own default size (a 2-row widget with a 1-row max), so the widget came in "over max" and,
+     * once shrunk, could never grow back. Like Launcher3, the default size is always within the range.
+     */
+    fun facts(label: String?, s: ProviderSize, cw: Float, ch: Float): Facts {
+        val minW = cells(if (s.resizeW && s.minResizeWDp > 0f) s.minResizeWDp else s.minWDp, cw)
+        val minH = cells(if (s.resizeH && s.minResizeHDp > 0f) s.minResizeHDp else s.minHDp, ch)
+        val defW = if (s.targetW > 0) s.targetW else cells(s.minWDp, cw)
+        val defH = if (s.targetH > 0) s.targetH else cells(s.minHDp, ch)
+        val maxW = if (s.maxResizeWDp > 0f) cellsFit(s.maxResizeWDp, cw).coerceAtLeast(maxOf(minW, defW)) else null
+        val maxH = if (s.maxResizeHDp > 0f) cellsFit(s.maxResizeHDp, ch).coerceAtLeast(maxOf(minH, defH)) else null
+        return Facts(label, minW, minH, maxW, maxH, s.resizeW, s.resizeH)
+    }
+
     /** Cells that fit in a maximum dimension (dp). */
     fun cellsFit(dp: Float, cellDp: Float): Int = if (cellDp <= 0f) 1 else maxOf(1, kotlin.math.floor((dp + 0.5f) / cellDp).toInt())
 }

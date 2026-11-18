@@ -3,6 +3,9 @@
      LauncherApps results are subject to package visibility (Android 11+), so the <queries>
      entry below makes every MAIN/LAUNCHER activity visible, which is all a launcher needs. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- dev1 fix: the per-cell drag/resize tick (ui/Haptics.kt). One UI drops View tick feedback, so it plays the
+         predefined tick as a touch vibration (the system's touch-feedback setting still applies). Normal permission. -->
+    <uses-permission android:name="android.permission.VIBRATE" />
     <queries>
         <intent>
             <action android:name="android.intent.action.MAIN" />

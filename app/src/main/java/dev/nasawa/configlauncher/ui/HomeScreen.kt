@@ -580,7 +580,7 @@ fun HomeScreen(vm: HomeViewModel) {
                                 DropdownMenuItem({ Text(stringResource(if (agentAction == AgentDocs.MenuAction.ADD) R.string.agent_docs_add else R.string.agent_docs_update)) },
                                     { menuOpen = false; runAgentUpdate(false) })
                             }
-                            // §17.4: `Widget permissions`, or `Widgets · N to review` while some wait (R10 interim ⋮ item).
+                            // §17.4: `Widget permissions`, or `Review cards · N` while some wait (R10 interim ⋮ item).
                             if (cardsLive && consent != null) DropdownMenuItem({ Text(if (reviewCount > 0) pluralStringResource(R.plurals.menu_widgets_review, reviewCount, reviewCount) else stringResource(R.string.review_title)) },
                                 { menuOpen = false; reviewOpen = true })
                             DropdownMenuItem({ Text(stringResource(R.string.menu_reload)) }, { menuOpen = false; vm.store.pollNow() })
@@ -745,6 +745,7 @@ fun HomeScreen(vm: HomeViewModel) {
                                 // menuOpen state is driven from here, so mirror the items.
                                 DropdownMenu(menuOpen, { menuOpen = false }) {
                                     // #302: the rail has no edit bar, so edit mode's `+ Widget` lives here (head stays Done only).
+                                    // #313 (Pragma): `+ Widget` is the first item; a `+ Page` item goes directly below it.
                                     if (editing) DropdownMenuItem({ Text(stringResource(R.string.action_add_widget)) }, { menuOpen = false; pickerOpen = true })
                                     // #329: `+ Page` right after `+ Widget` (#313 Pragma).
                                     if (editing) DropdownMenuItem({ Text(stringResource(R.string.edit_add_page)) }, { menuOpen = false; addPage() },

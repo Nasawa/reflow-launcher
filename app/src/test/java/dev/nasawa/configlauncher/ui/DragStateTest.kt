@@ -155,6 +155,43 @@ class DragStateTest {
         assertEquals(3, ticks)
     }
 
+    @Test fun borderHysteresisStopsChatterAndTheDropFollowsTheHighlight() {
+        // #306 (Pragma): ~4 dp on cell borders; 10 px here. Finger starts at (50, 50); x 150 is cell (1,0).
+        drag.hysteresisPx = 10f
+        rule.runOnIdle { drag.start(item, tile); drag.move(Offset(100f, 0f)) }
+        assertEquals(Edit.MoveToCell("a", "home", 1, 0), drag.target!!.edit)
+        assertEquals(1, ticks)
+        rule.runOnIdle { drag.move(Offset(55f, 0f)) }   // x 205: 5 px into (2,0), within the hysteresis of (1,0)
+        assertEquals(Edit.MoveToCell("a", "home", 1, 0), drag.target!!.edit)
+        assertEquals("no tick inside the hysteresis", 1, ticks)
+        rule.runOnIdle { drag.move(Offset(10f, 0f)) }   // x 215: past it
+        assertEquals(Edit.MoveToCell("a", "home", 2, 0), drag.target!!.edit)
+        assertEquals(2, ticks)
+        rule.runOnIdle { drag.move(Offset(-12f, 0f)); drag.move(Offset(-8f, 0f)); drag.move(Offset(6f, 0f)) } // x 203, 195, 201
+        assertEquals("wobbling on the border keeps (2,0)", Edit.MoveToCell("a", "home", 2, 0), drag.target!!.edit)
+        assertEquals("and doesn't tick", 2, ticks)
+        rule.runOnIdle { drag.move(Offset(-16f, 0f)) }  // x 185: clearly back in (1,0)
+        assertEquals(Edit.MoveToCell("a", "home", 1, 0), drag.target!!.edit)
+        assertEquals(3, ticks)
+        rule.runOnIdle { drag.move(Offset(30f, 0f)); drag.move(Offset(-20f, 0f)) } // x 215 → (2,0), then 195: still (2,0)
+        assertEquals(Edit.MoveToCell("a", "home", 2, 0), drag.target!!.edit)
+        reduced = true
+        rule.runOnIdle { drag.drop() }
+        // targetAt(195) alone would say (1,0): the drop follows the highlight, not the raw hit.
+        assertEquals("the drop lands on the highlighted cell", listOf<Edit>(Edit.MoveToCell("a", "home", 2, 0)), submitted)
+    }
+
+    @Test fun reEnteringTheSameCellFromNoTargetTicks() {
+        // #306 (Pragma): intended, even for the cell it left.
+        drag.hysteresisPx = 10f
+        rule.runOnIdle { drag.start(item, tile); drag.move(Offset(100f, 0f)) } // (1,0)
+        assertEquals(1, ticks)
+        rule.runOnIdle { drag.move(Offset(0f, 520f)) }  // y 570: between the grid and the dock, no target
+        assertNull(drag.target)
+        rule.runOnIdle { drag.move(Offset(0f, -520f)) } // back on (1,0)
+        assertEquals(2, ticks)
+    }
+
     // --- lift ---
 
     @Test fun raiseEasesInOver120ms() {
