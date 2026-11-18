@@ -139,6 +139,8 @@ fun HomeScreen(vm: HomeViewModel) {
     LaunchedEffect(editing) { if (!editing) selectedElement = null }
     var picked by remember { mutableStateOf<String?>(null) }
     var pickedPage by remember { mutableStateOf<String?>(null) }
+    /** #329: the `+ Page` page to scroll to once it's in the pager. */
+    var addedPage by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(hostedAll, picked) {
         val t = hostedAll.firstOrNull { it.id == picked } ?: return@LaunchedEffect
         when {
@@ -182,7 +184,7 @@ fun HomeScreen(vm: HomeViewModel) {
     drag.scope = rememberCoroutineScope(); drag.reducedMotion = { ReducedMotion.on(ctx) }
     WireDragHaptics(drag) // #281: a tick when a drag starts, per the system touch-feedback setting
     // #282: a target the engine would refuse (full dock, its own cell, a reserved cell) gets no highlight and springs back.
-    drag.accepts = { e -> Edits.apply(vm.store.engine.state.value.config, e).applied }
+    drag.accepts = { e -> Edits.apply(vm.store.shownConfig(), e).applied }
     var cloudUri by remember { mutableStateOf<android.net.Uri?>(null) }
     var onboarded by remember { mutableStateOf(vm.store.prefs.onboarded) }
     // #61: default home app. Re-checked on every resume (the user may change it in system settings).
@@ -285,7 +287,7 @@ fun HomeScreen(vm: HomeViewModel) {
     androidx.activity.compose.BackHandler(editing) { leaveEdit() }
     // §14 R3: a folder goes with one write and an Undo snackbar, no confirm dialog (sheet and TalkBack action alike).
     val removeItem = { r: ResolvedItem ->
-        val undo = (r.item as? FolderItem)?.let { Edits.undoRemove(vm.store.engine.state.value.config, it.id) }
+        val undo = (r.item as? FolderItem)?.let { Edits.undoRemove(vm.store.shownConfig(), it.id) }
         vm.store.edit(Edit.Remove(r.item.id))
         if (undo != null) undoSnack = UndoSnack(res.getString(R.string.removed_folder, Labels.clean(r.title)), undo, Labels.clean(r.title))
     }
@@ -306,7 +308,7 @@ fun HomeScreen(vm: HomeViewModel) {
                 override fun hold(id: String) = cs.hold(id); override fun restore(id: String) = cs.restore(id); override fun release(id: String) = cs.release(id)
                 override fun setAside(id: String) = cs.setAside(id) } },
         )
-        ElementUndo({ vm.store.engine.state.value.config }, { e -> vm.store.tryEdit(e) }, holds) { e, onKept, onUnkept -> vm.store.editKept(e, onKept, onUnkept) }
+        ElementUndo({ vm.store.shownConfig() }, { e -> vm.store.tryEdit(e) }, holds) { e, onKept, onUnkept -> vm.store.editKept(e, onKept, onUnkept) }
     }
     var elementSnack by remember { mutableStateOf<ElementSnack?>(null) }
     var elementNote by remember { mutableStateOf<ElementNote?>(null) }
@@ -316,7 +318,7 @@ fun HomeScreen(vm: HomeViewModel) {
     var elementResize by remember { mutableStateOf<Pair<String, String>?>(null) }
     val undoWindowMs = remember { ElementSnack.windowMs(ctx) }
     fun note(text: String) { elementNote = ElementNote(text); view.announceForAccessibility(text) }
-    fun elementName(id: String) = ElementInfo.name(vm.store.engine.state.value.config, id, hostedAll.firstOrNull { it.id == id }?.label)
+    fun elementName(id: String) = ElementInfo.name(vm.store.shownConfig(), id, hostedAll.firstOrNull { it.id == id }?.label)
     fun pageName(pageId: String): String {
         val i = ui.layout.pages.indexOfFirst { it.id == pageId }
         return ui.layout.pages.getOrNull(i)?.let(PageList::title) ?: res.getString(R.string.page_untitled, i + 1)
@@ -361,7 +363,7 @@ fun HomeScreen(vm: HomeViewModel) {
         }
     }
     fun moveElement(id: String) {
-        if (ElementInfo.pagesWithRoom(vm.store.engine.state.value.config, id).isEmpty()) note(res.getString(R.string.move_element_no_room_any))
+        if (ElementInfo.pagesWithRoom(vm.store.shownConfig(), id).isEmpty()) note(res.getString(R.string.move_element_no_room_any))
         else elementMove = id to elementName(id)
     }
     fun writeMove(id: String, name: String, pageId: String, x: Int, y: Int) {
@@ -431,9 +433,28 @@ fun HomeScreen(vm: HomeViewModel) {
     // #302: show the page the picker placed the widget on, once that page is in the pager.
     LaunchedEffect(pages, pickedPage) {
         val i = pages.indexOfFirst { it.id == pickedPage }.takeIf { it >= 0 } ?: return@LaunchedEffect
-        pickedPage = null
+        // #329: scroll before clearing; clearing first restarted this effect and cancelled the scroll it had just begun.
         if (i < pager.pageCount && i != pager.currentPage) pager.animateScrollToPage(i)
+        pickedPage = null
     }
+    // #329 ux.md §4.2 `+ Page`: an empty page after the current one (nothing written yet), then go there (a jump with
+    // reduced motion), announced as `Page N of M`. At 20 pages: `home_full`, nothing added.
+    val addPage = {
+        val id = vm.store.addPage(pages.getOrNull(pager.settledPage)?.id)
+        if (id == null) note(res.getString(R.string.home_full)) else addedPage = id
+        Unit
+    }
+    // `+ Page` pages exist only in edit mode: whatever ends it (or a recreate that starts outside it) drops the unwritten ones.
+    LaunchedEffect(editing) { if (!editing) vm.store.drafts.value = emptyList() }
+    LaunchedEffect(pages, addedPage) {
+        val i = pages.indexOfFirst { it.id == addedPage }.takeIf { it >= 0 } ?: return@LaunchedEffect
+        // Scroll first: clearing [addedPage] restarts this effect, which would cancel a scroll still running.
+        if (i < pager.pageCount && i != pager.currentPage) { if (ReducedMotion.on(ctx)) pager.scrollToPage(i) else pager.animateScrollToPage(i) }
+        // The page dots announce `Page N of M` themselves (polite live region); they only appear at 2 pages, so say it then.
+        if (pages.size == 2) view.announceForAccessibility(res.getString(R.string.page_of, i + 1, pages.size))
+        addedPage = null
+    }
+    val addPageSaid = stringResource(R.string.edit_add_page_a11y)
     // §1.5: a posture change cancels a drag with nothing written (the layout under the finger moved).
     LaunchedEffect(fold) { if (drag.dragged != null) drag.cancel() }
     // ux.md §1 / §14 R4: Home on home leaves edit mode (saving first), closes drawer and folder, goes to page 1.
@@ -503,6 +524,7 @@ fun HomeScreen(vm: HomeViewModel) {
                     // #182: on the wallpaper like Done, so white with the label shadow (and the scrim with Label backdrop on).
                     Box(Modifier.weight(1f)) { WallpaperText(stringResource(R.string.editing_layout), backdrop) }
                     WallpaperTextButton({ pickerOpen = true }, backdrop) { Text(stringResource(R.string.action_add_widget)) }
+                    WallpaperTextButton(addPage, backdrop, Modifier.semantics { contentDescription = addPageSaid }) { Text(stringResource(R.string.edit_add_page)) }
                     WallpaperTextButton(leaveEdit, backdrop) { Text(stringResource(R.string.done)) }
                 } else Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     // #217: hidden by `Show config location`, but always back while the source needs attention (any banner issue).
@@ -624,14 +646,14 @@ fun HomeScreen(vm: HomeViewModel) {
                         onHostedLong = { t -> hostedSheet = t }, onHostedTap = ::hostedTap,
                         onCell = { w, h -> if (widgets.setCell(w, h)) hostedScope.launch(kotlinx.coroutines.Dispatchers.IO) { vm.store.engine.appWidgetsChanged() } },
                         elementActions = elementActions, selected = selectedElement,
-                        canDropElement = { id, x, y -> ElementEdits.fits(vm.store.engine.state.value.config, it.id, x, y,
-                            ElementEdits.element(vm.store.engine.state.value.config, id)?.let(dev.nasawa.configlauncher.config.Elements::placement)?.w ?: 1,
-                            ElementEdits.element(vm.store.engine.state.value.config, id)?.let(dev.nasawa.configlauncher.config.Elements::placement)?.h ?: 1, ignore = id) },
+                        canDropElement = { id, x, y -> ElementEdits.fits(vm.store.shownConfig(), it.id, x, y,
+                            ElementEdits.element(vm.store.shownConfig(), id)?.let(dev.nasawa.configlauncher.config.Elements::placement)?.w ?: 1,
+                            ElementEdits.element(vm.store.shownConfig(), id)?.let(dev.nasawa.configlauncher.config.Elements::placement)?.h ?: 1, ignore = id) },
                         onDropElement = { id, x, y -> writeMove(id, elementName(id), it.id, x, y) },
                         onSelectElement = { id -> selectedElement = id },
                         resizeBounds = { id -> ElementInfo.sizeBounds(ui.load.config, id,
                             hostedAll.firstOrNull { t -> t.id == id }?.let { t -> widgets.info(t.pkg, t.cls)?.let(widgets::facts) }) },
-                        canResize = { id, x, y, w, h -> ElementEdits.fits(vm.store.engine.state.value.config, it.id, x, y, w, h, ignore = id) },
+                        canResize = { id, x, y, w, h -> ElementEdits.fits(vm.store.shownConfig(), it.id, x, y, w, h, ignore = id) },
                         onResizeElement = { id, r -> writeResize(id, elementName(id), r) },
                         onResizeActive = { a -> resizingElement = a }, reducedMotion = ReducedMotion.on(ctx)) }
                 }
@@ -678,7 +700,7 @@ fun HomeScreen(vm: HomeViewModel) {
                         UndoSnackbar(u, onUndo = {
                             undoSnack = null
                             // Restore only fails when home has no room left; say so instead of doing nothing (Grace, #70).
-                            val cfg = vm.store.engine.state.value.config
+                            val cfg = vm.store.shownConfig()
                             val undo = u.undo
                             when {
                                 undo !is Edit.Restore || Edits.apply(cfg, undo).applied -> vm.store.edit(undo)
@@ -724,6 +746,9 @@ fun HomeScreen(vm: HomeViewModel) {
                                 DropdownMenu(menuOpen, { menuOpen = false }) {
                                     // #302: the rail has no edit bar, so edit mode's `+ Widget` lives here (head stays Done only).
                                     if (editing) DropdownMenuItem({ Text(stringResource(R.string.action_add_widget)) }, { menuOpen = false; pickerOpen = true })
+                                    // #329: `+ Page` right after `+ Widget` (#313 Pragma).
+                                    if (editing) DropdownMenuItem({ Text(stringResource(R.string.edit_add_page)) }, { menuOpen = false; addPage() },
+                                        Modifier.semantics { contentDescription = addPageSaid })
                                     if (TitleBarEdits.state(ui.load.config) != TitleBarEdits.State.Unavailable)
                                         DropdownMenuItem({ Text(stringResource(R.string.titlebar_title)) }, { menuOpen = false; titleBarSheet = true })
                                     DropdownMenuItem({ Text(stringResource(R.string.menu_config_folder)) }, { menuOpen = false; folderInfo = vm.store.engine.source.location ?: "" })
@@ -801,7 +826,7 @@ fun HomeScreen(vm: HomeViewModel) {
                 drawerSheet = null
                 when (a) {
                     DrawerAction.ADD_TO_HOME -> {
-                        val cfg = vm.store.engine.state.value.config
+                        val cfg = vm.store.shownConfig()
                         val item = AppItem(Edits.newId(cfg, app.packageName), app.packageName, app.activityName,
                             profile = app.profile.takeIf { it == Profile.WORK })
                         if (Edits.apply(cfg, Edit.AddToHome(item)).applied) { drawerOpen = false; vm.store.edit(Edit.AddToHome(item)) }
@@ -843,7 +868,7 @@ fun HomeScreen(vm: HomeViewModel) {
             else ElementResizeDialog(name, ui.load.config, id, limits, onDone = { w, h ->
                 elementResize = null
                 vm.store.launch {
-                    val p = ElementEdits.element(vm.store.engine.state.value.config, id)?.let(dev.nasawa.configlauncher.config.Elements::placement)
+                    val p = ElementEdits.element(vm.store.shownConfig(), id)?.let(dev.nasawa.configlauncher.config.Elements::placement)
                     if (p != null && (p.w != w || p.h != h) && !vm.store.tryEdit(Edit.ResizeElement(id, w, h)))
                         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) { note(res.getString(R.string.resize_element_taken, name)) }
                 }
@@ -905,7 +930,7 @@ fun HomeScreen(vm: HomeViewModel) {
             val grid = ui.load.config.effectiveGrid
             val picks = remember(widgetsVersion, grid) { widgets.picks(grid) }
             WidgetPicker(picks, onPick = { p ->
-                val cfg = vm.store.engine.state.value.config
+                val cfg = vm.store.shownConfig()
                 val edit = dev.nasawa.configlauncher.hosted.WidgetPlacement.place(cfg, pages.getOrNull(pager.currentPage)?.id, p.pkg, p.cls, p.w, p.h, p.label)
                 if (edit == null || !Edits.apply(cfg, edit).applied) toast(res.getString(R.string.home_full))
                 else {
@@ -960,9 +985,9 @@ fun HomeScreen(vm: HomeViewModel) {
                 notice = changedSnack)
         }
         if (titleBarSheet) TitleBarSheet(TitleBarEdits.state(ui.load.config),
-            onToggle = { on -> TitleBarEdits.toggle(vm.store.engine.state.value.config, on)?.let(vm.store::edit) },
+            onToggle = { on -> TitleBarEdits.toggle(vm.store.shownConfig(), on)?.let(vm.store::edit) },
             onPick = { slot, choice ->
-                (TitleBarEdits.state(vm.store.engine.state.value.config) as? TitleBarEdits.State.Present)?.let { p ->
+                (TitleBarEdits.state(vm.store.shownConfig()) as? TitleBarEdits.State.Present)?.let { p ->
                     TitleBarEdits.pick(p.id, slot, choice)?.let(vm.store::edit)
                 }
             },
