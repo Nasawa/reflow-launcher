@@ -130,6 +130,7 @@ class EditKeptTest {
         assertEquals(2 to 2, onDisk(inner).elements!!.single().let(::pos))
         assertNull("the agent's element never gets the old ID", bindings.binding("w-a"))
         assertTrue(bindings.isAside("w-a"))
+        assertNull("#319 review: no '1 change skipped' under 'already back'", e.state.value.merge)
         undo.release(removed)
         assertEquals(listOf(55), host.deleted)
     }
@@ -168,8 +169,25 @@ class EditKeptTest {
         assertNull("the agent's element never gets the old ID", w.bindings.binding("w-a"))
         assertTrue(w.bindings.isAside("w-a"))
         assertNull(w.e.state.value.issue)
+        assertNull("only the Undo was skipped, and it says so itself", w.e.state.value.merge)
         w.undo.release(removed)
         assertEquals(listOf(55), w.host.deleted)
+    }
+
+    @Test fun anotherSkippedChangeStillGetsTheSkipSnackbarNextToAnUndoSkip() = runBlocking {
+        val inner = LocalFileSource(tmp.newFolder())
+        val other = """{"id":"a-x","type":"app","package":"p.x","x":0,"y":3}"""
+        inner.file.writeText(doc(1, el).replace("\"items\":[]", "\"items\":[$other]")); inner.file.setLastModified(1000)
+        val src = Flaky(inner)
+        val w = wired(src)
+        val removed = w.undo.remove("w-a")!!
+        // A plain phone edit on a-x is pending with the Undo; the agent re-adds w-a and removes a-x meanwhile.
+        assertTrue(w.e.edit(Edit.MoveToCell("a-x", "home", 1, 3)))
+        inner.file.writeText(doc(7, agentEl)); inner.file.setLastModified(5000)
+        assertEquals(dev.nasawa.configlauncher.ui.ElementUndo.Undone.Back, w.undo.undo(removed))
+        val n = w.e.state.value.merge!!
+        assertEquals("the Move's skip is still said; the Undo's isn't counted twice", 1, n.skipped)
+        assertEquals(0, n.kept)
     }
 
     @Test fun useFileDropsAWaitingUndo() = runBlocking {

@@ -138,6 +138,13 @@ class ConfigEngine(
         for (w in waiters) if (!w.kept && skipped.none { it === w.edit }) { w.kept = true; runCatching { w.onKept() } }
     }
 
+    /**
+     * #319 review: skipped edits whose [editKept] caller reports the outcome itself (ElementUndo's "already back on home")
+     * aren't counted again in the merge snackbar. Call before [finishWaiters] (it clears [waiters]).
+     */
+    private fun unreportedSkips(skipped: List<dev.nasawa.configlauncher.model.Skip>) =
+        skipped.filter { s -> waiters.none { it.edit === s.edit } }
+
     /** After the write succeeded (or the pending ops were dropped: [dropped]). */
     private fun finishWaiters(skipped: List<Edit>, dropped: Boolean = false) {
         for (w in waiters) w.done.complete(!dropped && w.kept && skipped.none { it === w.edit })
@@ -464,6 +471,7 @@ class ConfigEngine(
         keepWaiters(rep.skipped.map { it.edit })
         // #317: changed again under the merge's own write: the caller ([flushLocked]) merges onto the newer file.
         val written = try { writeLocked(out, expectOf(fileBytes)) } catch (e: ConcurrentChangeException) { throw e } catch (e: Exception) { fail(Issue.SaveFailed.of(e)); return true }
+        val shown = unreportedSkips(rep.skipped)
         pending.clear(); finishWaiters(rep.skipped.map { it.edit })
         // §9.1: all-skipped merges have no Undo (nothing of ours was written).
         val undo = rep.kept > 0
@@ -471,7 +479,8 @@ class ConfigEngine(
         else clearUndo()
         _state.update {
             it.copy(pendingEdits = 0, issue = null, mergeUndo = undo,
-                merge = MergeNotice(rep.kept, rep.skipped.size, rep.onlyFolder, undo))
+                // Nothing left to say when the only skip is one its caller already reported (#319 review).
+                merge = MergeNotice(rep.kept, shown.size, shown.singleOrNull()?.folder?.takeIf { rep.kept == 0 }, undo).takeUnless { n -> n.kept == 0 && n.skipped == 0 })
         }
         return true
     }
@@ -535,11 +544,12 @@ class ConfigEngine(
         val out = merged.copy(revision = maxOf(merged.revision ?: 0, _state.value.config.revision ?: 0) + 1)
         keepWaiters(rep.skipped.map { it.edit })
         try { writeLocked(out, expectOf(bytes)) } catch (e: ConcurrentChangeException) { throw e } catch (e: Exception) { return fail(Issue.SaveFailed.of(e)) }
+        val shown = unreportedSkips(rep.skipped)
         pending.clear(); finishWaiters(rep.skipped.map { it.edit })
         _state.update {
             it.copy(conflict = false, pendingEdits = 0, issue = null,
                 // §9.1: Keep mine uses the same copy, without Undo; all kept shows nothing extra.
-                merge = MergeNotice(rep.kept, rep.skipped.size, rep.onlyFolder, undo = false).takeUnless { n -> n.silent })
+                merge = MergeNotice(rep.kept, shown.size, shown.singleOrNull()?.folder?.takeIf { rep.kept == 0 }, undo = false).takeUnless { n -> n.silent })
         }
         return true
     }
