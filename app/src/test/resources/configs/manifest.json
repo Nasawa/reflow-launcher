@@ -744,7 +744,7 @@
     "note": "#79"
   },
   {
-    "file": "valid/titlebar-requires-5.json",
+    "file": "valid/titlebar-requires-6.json",
     "expect": "valid with a warning: requires above the feature level skips the bar (kept verbatim, unknown keys allowed)",
     "layer": "both",
     "ref": "title-bar.md §6",
@@ -881,7 +881,7 @@
   },
   {
     "file": "invalid/card-requires-3.json",
-    "expect": "invalid, B2: requires 3 is appWidget's level; cards need 4",
+    "expect": "invalid, B2: cards need requires 4 (level 3 is retired)",
     "layer": "both",
     "ref": "#137",
     "note": ""
@@ -936,5 +936,98 @@
     "layer": "parser",
     "ref": "#120",
     "note": ""
+  },
+  {
+    "file": "valid/appwidget-personal.json",
+    "expect": "valid: a level-5 appWidget; a v1.0.0 (level 4) phone skips it with an Update the app warning and keeps its cells",
+    "layer": "both",
+    "ref": "native-widgets.md §2.2",
+    "note": "#298"
+  },
+  {
+    "file": "valid/appwidget-work.json",
+    "expect": "valid: profile work is valid in the file (not hosted in this milestone, D3)",
+    "layer": "both",
+    "ref": "native-widgets.md §2.3",
+    "note": "#298"
+  },
+  {
+    "file": "valid/appwidget-key-order.json",
+    "expect": "valid: appWidget keys are written back in canonical order, x- keys last",
+    "layer": "both",
+    "ref": "#298",
+    "note": ""
+  },
+  {
+    "file": "invalid/appwidget-no-class.json",
+    "expect": "invalid, B2: provider needs package and class",
+    "layer": "both",
+    "ref": "native-widgets.md §2.2",
+    "note": "#298"
+  },
+  {
+    "file": "invalid/appwidget-style.json",
+    "expect": "invalid, B2: appWidget does not support style yet (plain sentence)",
+    "layer": "both",
+    "ref": "native-widgets.md §2.2",
+    "note": "#298, Pragma #297"
+  },
+  {
+    "file": "invalid/appwidget-requires-4.json",
+    "expect": "invalid, B2: an appWidget needs requires 5",
+    "layer": "both",
+    "ref": "native-widgets.md §2.1",
+    "note": "#298"
+  },
+  {
+    "file": "invalid/appwidget-no-requires.json",
+    "expect": "invalid, B2: an appWidget must set requires 5",
+    "layer": "both",
+    "ref": "native-widgets.md §2.1",
+    "note": "#298"
+  },
+  {
+    "file": "invalid/appwidget-bad-profile.json",
+    "expect": "invalid, B2: profile is personal or work",
+    "layer": "both",
+    "ref": "native-widgets.md §2.2",
+    "note": "#298"
+  },
+  {
+    "file": "invalid/appwidget-content-x-key.json",
+    "expect": "invalid, B2: x- keys are allowed only at the element top level, not in content",
+    "layer": "both",
+    "ref": "native-widgets.md §2.2",
+    "note": "#298"
+  },
+  {
+    "file": "invalid/appwidget-provider-x-key.json",
+    "expect": "invalid, B2: no x- keys inside provider",
+    "layer": "both",
+    "ref": "native-widgets.md §2.2",
+    "note": "#298"
+  },
+  {
+    "file": "invalid/appwidget-label-41.json",
+    "expect": "invalid, B2: label is at most 40 characters",
+    "layer": "both",
+    "ref": "native-widgets.md §2.2",
+    "note": "#298"
+  },
+  {
+    "file": "invalid/appwidget-overlap.json",
+    "expect": "invalid, B2: two appWidgets in one cell",
+    "layer": "kotlin-only",
+    "ref": "native-widgets.md §2.3",
+    "note": "#298",
+    "kotlinOnly": "overlapping-cells"
+  },
+  {
+    "file": "invalid/appwidget-outside-grid.json",
+    "expect": "invalid, B2: x + w past the grid",
+    "layer": "kotlin-only",
+    "ref": "native-widgets.md §2.3",
+    "note": "#298",
+    "kotlinOnly": "cell-outside-grid"
   }
 ]

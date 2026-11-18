@@ -48,7 +48,7 @@ This scope is based on main `d37afdb` (6 commits after the `v0.0.1-dev9` tag at 
 | Issue | Reasoning |
 |---|---|
 | **1.1:** [#137](https://github.com/Nasawa/reflow-launcher/issues/137), [#140](https://github.com/Nasawa/reflow-launcher/issues/140), [#141](https://github.com/Nasawa/reflow-launcher/issues/141), [#142](https://github.com/Nasawa/reflow-launcher/issues/142), [#143](https://github.com/Nasawa/reflow-launcher/issues/143) S3 cards | Decided: card rendering is 1.1 (section 1). #137 is already merged (#147) and #142's UI is merged (S3-C.1/.2). Those two stay open only as trackers until the render lands. |
-| [#224](https://github.com/Nasawa/reflow-launcher/issues/224) `fold.halfOpened` override | It's already designed (FEATURE_LEVEL 5). It's opt-in and nobody here has a foldable to test it on. |
+| [#224](https://github.com/Nasawa/reflow-launcher/issues/224) `fold.halfOpened` override | It's already designed (the next free feature level, likely 6; 5 went to `appWidget`, #298). It's opt-in and nobody here has a foldable to test it on. |
 | [#226](https://github.com/Nasawa/reflow-launcher/issues/226) overlays off a separating hinge | Same reason: foldable-only polish, and the flat or no-hinge behaviour doesn't change. |
 | [#208](https://github.com/Nasawa/reflow-launcher/issues/208) reclaim chrome on short split-screen panes | The spec already has an interim floor of 32 dp (#209). This only matters in rare, very short multi-window panes. |
 | [#204](https://github.com/Nasawa/reflow-launcher/issues/204) phone-landscape banner pushes the grid under 48 dp | It's temporary, because it goes away when the banner is dismissed, and ux.md §1.5 step 4 already documents it. |

@@ -148,7 +148,8 @@ SIZES = {'size-257k': _size('size-257k.json'), 'just-under': _size('size-just-un
 
 # #79 elements container (feature level 1) + Stage 1 cell reservation (docs/research/widgets.md §5.1)
 def els(*e): return lambda c: c.__setitem__('elements', list(e))
-_w = {'id':'w-weather','type':'appWidget','page':'home','x':0,'y':1,'w':2,'h':1,'provider':'com.example.weather/.Widget'}
+# #298: an unknown type (appWidget is a known type from level 5), so these stay about skipped elements.
+_w = {'id':'w-weather','type':'gauge','page':'home','x':0,'y':1,'w':2,'h':1,'provider':'com.example.weather/.Widget'}
 add(V,'elements-skipped.json',m(lambda c:(els({'id':'t-main','type':'banner','anchor':'top','content':{'slots':{'center':'{page}'}}}, _w,
     {'id':'w-new','type':'clock','requires':9,'page':'home','x':3,'y':0,'w':1,'h':1,'future':True})(c),
     c['pages'][0].__setitem__('overrides',{'t-main':{'enabled':False},'t-gone':{'content':{}}}))),
@@ -157,7 +158,7 @@ add(I,'element-overlaps-item.json',m(els(dict(_w, y=0))),'invalid, B2: a grid-pl
 add(I,'element-overlaps-element.json',m(els(_w, dict(_w, id='w-two', x=1))),'invalid, B2: two elements in one cell','kotlin','widgets.md §5.1','#79 Stage 1')
 add(I,'element-outside-grid.json',m(els(dict(_w, x=3))),'invalid, B2: x + w past the grid','kotlin','widgets.md §5.1','#79 Stage 1')
 add(I,'element-anchor-and-grid.json',m(els(dict(_w, anchor='top'))),'invalid, B2: anchor and a grid position','both','widgets.md §5.1','#79')
-add(I,'element-partial-placement.json',m(els({'id':'w-x','type':'appWidget','page':'home','x':0})),'invalid, B2: grid-placed elements need page, x, y, w and h','both','widgets.md §5.1','#79')
+add(I,'element-partial-placement.json',m(els({'id':'w-x','type':'gauge','page':'home','x':0})),'invalid, B2: grid-placed elements need page, x, y, w and h','both','widgets.md §5.1','#79')
 add(I,'element-missing-type.json',m(els({'id':'w-x','anchor':'top'})),'invalid, B2','both','title-bar.md §4','#79')
 add(I,'override-unknown-key.json',m(lambda c:c['pages'][0].__setitem__('overrides',{'t-main':{'hidden':True}})),'invalid, B2: overrides take enabled, content or style','both','title-bar.md §4','#79')
 add(I,'element-duplicate-id.json',m(els(dict(_w, id='a-settings'))),'invalid, B2: element IDs are unique with item IDs','kotlin','title-bar.md §8','#79')
@@ -176,7 +177,7 @@ add(V,'titlebar-shorthands.json',m(els(_tb(content={'slots':{'start':'pageTitle'
 add(V,'titlebar-low-contrast.json',m(els(_tb(style={'color':'dark','backdrop':'scrim'}))),'valid with a contrast warning (dark text on the scrim)','both','ux.md §15.1','#79')
 add(V,'override-low-contrast.json',m(lambda c:(els(_tb(style={'color':'light','backdrop':'scrim'}))(c),
     c['pages'][0].__setitem__('overrides',{'t-main':{'style':{'color':'dark'}}}))),'valid with a contrast warning: a page override darkens the text on the scrim','both','#118','#79')
-add(V,'titlebar-requires-5.json',m(els(_tb(requires=5, future={'a':1}))),'valid with a warning: requires above the feature level skips the bar (kept verbatim, unknown keys allowed)','both','title-bar.md §6','#79')
+add(V,'titlebar-requires-6.json',m(els(_tb(requires=6, future={'a':1}))),'valid with a warning: requires above the feature level skips the bar (kept verbatim, unknown keys allowed)','both','title-bar.md §6','#79')
 add(I,'token-unknown.json',m(els(_slot('{wether}'))),'invalid, B2: unknown token','kotlin','ux.md §15.1','#79')
 add(I,'token-letter.json',m(els(_slot('{time:HH:mm:ss}'))),'invalid, B2: seconds are not allowed','kotlin','ux.md §15.1','#79')
 add(I,'token-run.json',m(els(_slot('{date:MMMMMM}'))),'invalid, B2: too many pattern letters in a row','kotlin','title-bar.md §5','#79')
@@ -210,7 +211,7 @@ add(V,'card-key-order.json',m(els({'x-note':'mine','layouts':{'1x1':[{'type':'ic
     'capabilities':[{'packages':['com.android.settings'],'kind':'ui.openApp'}],'h':1,'w':1,'y':1,'x':0,'page':'home','requires':4,'type':'card','id':'w-settings'})),
     'valid: card keys are written back in canonical order, x- keys last','both','#137','')
 add(I,'card-no-requires.json',m(lambda c:(els(_card())(c), c['elements'][0].pop('requires'))),'invalid, B2: a card must set requires 4','both','#137','')
-add(I,'card-requires-3.json',m(els(_card(requires=3))),'invalid, B2: requires 3 is appWidget\'s level; cards need 4','both','#137','')
+add(I,'card-requires-3.json',m(els(_card(requires=3))),'invalid, B2: cards need requires 4 (level 3 is retired)','both','#137','')
 add(I,'card-layout-key.json',m(els(_card(layouts={'4X3':[{'type':'text','text':'x'}]}))),'invalid, B2: layout keys use a lowercase x','both','dynamic-widgets.md §1','#137')
 add(I,'card-node-type.json',m(els(_card(layouts={'1x1':[{'type':'chart'}]}))),'invalid, B2: unknown node type','both','dynamic-widgets.md §1','#137')
 add(I,'card-openurl-hosts.json',m(els(_card(capabilities=[{'kind':'ui.openUrl','hosts':['anigeek.com']}]))),'invalid, B2: ui.openUrl takes no hosts (Q-D5)','both','#137','')
@@ -221,7 +222,27 @@ add(I,'number-too-large.json',raw_nums(copy.deepcopy(B),'x-n',['1e309']),'B2: x-
 # #120: not RFC 8259 numbers; the phone's pre-scan rejects them like json.loads (full list: test-fixtures/json-numbers.json).
 add(I,'number-leading-zero.json',raw_nums(copy.deepcopy(B),'x-n',['00']),'parse error, B1: leading zero','parser','#120','')
 add(I,'number-bare-minus.json',raw_nums(copy.deepcopy(B),'x-n',['-']),'parse error, B1: a bare minus is not a number','parser','#120','')
-RULES={'number-too-large.json':'number-range','token-unknown.json':'template-grammar','token-letter.json':'template-grammar','token-run.json':'template-grammar','token-unclosed.json':'template-grammar','token-stray.json':'template-grammar','token-pattern-long.json':'template-grammar','token-pattern-on-page.json':'template-grammar','tokens-many.json':'template-grammar','override-bad-template.json':'template-grammar','titlebar-twice.json':'single-title-bar','duplicate-id.json':'duplicate-ids','overlapping-cells.json':'overlapping-cells','cell-outside-grid.json':'cell-outside-grid','2016-items.json':'item-total','duplicate-key.json':'duplicate-keys','depth-17.json':'parser-depth','deep-nesting.json':'parser-depth','size-just-over-2mib.json':'byte-cap','nul-in-label.json':'nul-or-encoding','invalid-utf8.json':'nul-or-encoding','lone-surrogate.json':'nul-or-encoding','utf16.json':'nul-or-encoding','element-overlaps-item.json':'overlapping-cells','element-overlaps-element.json':'overlapping-cells','element-outside-grid.json':'cell-outside-grid','element-duplicate-id.json':'duplicate-ids','card-tap-undeclared.json':'card-capability-ref'}
+# #298 NW-1: hosted appWidget (feature level 5; docs/design/native-widgets.md §2.1-§2.2). Schema only, no host yet.
+_aw = lambda **kw: {**{'id':'w-weather','type':'appWidget','requires':5,'page':'home','x':0,'y':1,'w':2,'h':1,
+    'content':{'provider':{'package':'com.example.weather','class':'com.example.weather.WeatherWidget'}}}, **kw}
+add(V,'appwidget-personal.json',m(els(_aw(enabled=True, content={'provider':{'package':'com.example.weather','class':'.WeatherWidget'},'profile':'personal','label':'Weather'}))),
+    'valid: a level-5 appWidget; a v1.0.0 (level 4) phone skips it with an Update the app warning and keeps its cells','both','native-widgets.md §2.2','#298')
+add(V,'appwidget-work.json',m(els(_aw(content={'provider':{'package':'com.google.android.calendar','class':'com.android.calendar.widget.CalendarAppWidgetProvider'},'profile':'work'}))),
+    'valid: profile work is valid in the file (not hosted in this milestone, D3)','both','native-widgets.md §2.3','#298')
+add(V,'appwidget-key-order.json',m(els({'x-note':'mine','content':{'label':'Weather','profile':'personal','provider':{'class':'.W','package':'com.example.weather'}},
+    'h':1,'w':2,'y':1,'x':0,'page':'home','enabled':True,'requires':5,'type':'appWidget','id':'w-weather'})),
+    'valid: appWidget keys are written back in canonical order, x- keys last','both','#298','')
+add(I,'appwidget-no-class.json',m(els(_aw(content={'provider':{'package':'com.example.weather'}}))),'invalid, B2: provider needs package and class','both','native-widgets.md §2.2','#298')
+add(I,'appwidget-style.json',m(els(_aw(style={'padding':8}))),'invalid, B2: appWidget does not support style yet (plain sentence)','both','native-widgets.md §2.2','#298, Pragma #297')
+add(I,'appwidget-requires-4.json',m(els(_aw(requires=4))),'invalid, B2: an appWidget needs requires 5','both','native-widgets.md §2.1','#298')
+add(I,'appwidget-no-requires.json',m(lambda c:(els(_aw())(c), c['elements'][0].pop('requires'))),'invalid, B2: an appWidget must set requires 5','both','native-widgets.md §2.1','#298')
+add(I,'appwidget-bad-profile.json',m(els(_aw(content={'provider':{'package':'com.example.weather','class':'.W'},'profile':'private'}))),'invalid, B2: profile is personal or work','both','native-widgets.md §2.2','#298')
+add(I,'appwidget-content-x-key.json',m(els(_aw(content={'provider':{'package':'com.example.weather','class':'.W'},'x-note':'mine'}))),'invalid, B2: x- keys are allowed only at the element top level, not in content','both','native-widgets.md §2.2','#298')
+add(I,'appwidget-provider-x-key.json',m(els(_aw(content={'provider':{'package':'com.example.weather','class':'.W','x-note':'mine'}}))),'invalid, B2: no x- keys inside provider','both','native-widgets.md §2.2','#298')
+add(I,'appwidget-label-41.json',m(els(_aw(content={'provider':{'package':'com.example.weather','class':'.W'},'label':'x'*41}))),'invalid, B2: label is at most 40 characters','both','native-widgets.md §2.2','#298')
+add(I,'appwidget-overlap.json',m(els(_aw(), _aw(id='w-two', x=1))),'invalid, B2: two appWidgets in one cell','kotlin','native-widgets.md §2.3','#298')
+add(I,'appwidget-outside-grid.json',m(els(_aw(x=3))),'invalid, B2: x + w past the grid','kotlin','native-widgets.md §2.3','#298')
+RULES={'number-too-large.json':'number-range','token-unknown.json':'template-grammar','token-letter.json':'template-grammar','token-run.json':'template-grammar','token-unclosed.json':'template-grammar','token-stray.json':'template-grammar','token-pattern-long.json':'template-grammar','token-pattern-on-page.json':'template-grammar','tokens-many.json':'template-grammar','override-bad-template.json':'template-grammar','titlebar-twice.json':'single-title-bar','duplicate-id.json':'duplicate-ids','overlapping-cells.json':'overlapping-cells','cell-outside-grid.json':'cell-outside-grid','2016-items.json':'item-total','duplicate-key.json':'duplicate-keys','depth-17.json':'parser-depth','deep-nesting.json':'parser-depth','size-just-over-2mib.json':'byte-cap','nul-in-label.json':'nul-or-encoding','invalid-utf8.json':'nul-or-encoding','lone-surrogate.json':'nul-or-encoding','utf16.json':'nul-or-encoding','element-overlaps-item.json':'overlapping-cells','element-overlaps-element.json':'overlapping-cells','element-outside-grid.json':'cell-outside-grid','element-duplicate-id.json':'duplicate-ids','card-tap-undeclared.json':'card-capability-ref','appwidget-overlap.json':'overlapping-cells','appwidget-outside-grid.json':'cell-outside-grid'}
 for e in man:
     r=RULES.get(e['file'].split('/')[1])
     if r: e['kotlinOnly']=r; e['layer']='kotlin-only'

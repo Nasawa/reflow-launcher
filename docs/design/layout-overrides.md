@@ -42,7 +42,8 @@ without much foreseeable value, cut that thread. Functional, not one-size-fits-a
    `dock.edge`, `fold.halfOpened`). Entries apply in file order, and a later matching entry wins field by field.
 2. **Two global fields, with no matcher:** root `orientationLock` and root `scale` (§5.4, §7).
 3. **Versioning.** This takes the **Q-A10 route**: optional root keys on **`schemaVersion` 1**. They're understood from
-   **FEATURE_LEVEL 5**, and an older app rejects the file (B2, last good layout kept, §8). `net.fetch` moves to level 6.
+   the **next free feature level** (likely 6: #298 gave level 5 to `appWidget`), and an older app rejects the file (B2,
+   last good layout kept, §8). `net.fetch` takes the free level after that (likely 7).
 4. **Positions.** An entry with `grid` is its own *layout* with a `positions` map. An item with no entry there inherits
    its **main spot** when that fits and is free, and is otherwise **not shown on that layout**. It's then counted in a
    load-time warning, announced by a snackbar when you rotate into the layout, and listed in `Hidden here` (§6.4).
@@ -107,7 +108,7 @@ without much foreseeable value, cut that thread. Functional, not one-size-fits-a
 
 ## 4. Schema shape
 
-### 4.1 Root keys (all optional, FEATURE_LEVEL 5)
+### 4.1 Root keys (all optional, next free feature level, likely 6)
 | Key | Type | Notes |
 |---|---|---|
 | `windowOverrides` | array of entries | If it's absent or empty, every window gets the ux.md §1.5 defaults |
@@ -338,14 +339,14 @@ means empty in the file: no main item on it and no `positions[…].page` pointin
 ## 8. Versioning and how old phones fail
 
 **The Q-A10 route** (optional root keys, `schemaVersion` 1), not `schemaVersion` 2.
-- **FEATURE_LEVEL 5** means the app understands `windowOverrides`, `orientationLock` and `scale`. `Elements.FEATURE_LEVEL`
-  and `validate.py` go to 5 in O1. **`net.fetch` moves from its proposed level 5 to 6**, and the docs that say "net.fetch,
-  level 5" are updated in O1.
-- **Apps at FEATURE_LEVEL 4 or below (including dev8):** the root keys are strict, so the file is **B2: rejected,
+- **Level N** (the next free feature level when O1 merges, likely 6; level 5 went to `appWidget` in #298, see
+  native-widgets.md §2.1) means the app understands `windowOverrides`, `orientationLock` and `scale`.
+  `Elements.FEATURE_LEVEL` and `validate.py` go to N in O1. **`net.fetch` takes the free level after that** (likely 7).
+- **Apps below level N (including dev8 and v1.0.0):** the root keys are strict, so the file is **B2: rejected,
   with the last good layout kept**, via the existing `unknown key "…"` error. Nothing is written. Once the app updates,
   the file loads. This is acceptable pre-release (Christopher, Q3). Older `validate.py` gives the same error.
-- **Level-5 `validate.py`** prints an info line when any of these keys is present: `windowOverrides, orientationLock and
-  scale need Reflow Launcher feature level 5 or later; older versions reject this file.`
+- **Level-N `validate.py`** prints an info line when any of these keys is present: `windowOverrides, orientationLock and
+  scale need Reflow Launcher feature level N or later; older versions reject this file.` (N as above.)
 - **Later additions** (a new matcher or field) take the same route: the next feature level understands them, and
   older apps reject the file. With one device and one app version that's enough, so there's no per-entry `requires`
   (§2).
@@ -423,7 +424,7 @@ Strict keys keep any field from a later slice rejected until that slice lands.
 
 | Slice | Contents | Tests |
 |---|---|---|
-| **O1** schema + matcher | `windowOverrides` (`id`, `label`, `when`), root `scale`, the validators, FEATURE_LEVEL → 5 and `net.fetch` → 6 in the docs; pure `resolve(entries, WindowContext) → Resolved` (leaf merge); `cellCap` and `scale` in `HomeGeometry` | Fixtures valid and invalid; resolver unit tests; L1 (no write on rotate); the `icon: 2` L-check |
+| **O1** schema + matcher | `windowOverrides` (`id`, `label`, `when`), root `scale`, the validators, FEATURE_LEVEL → the next free level (likely 6) and `net.fetch` → the one after (likely 7) in the docs; pure `resolve(entries, WindowContext) → Resolved` (leaf merge); `cellCap` and `scale` in `HomeGeometry` | Fixtures valid and invalid; resolver unit tests; L1 (no write on rotate); the `icon: 2` L-check |
 | **O2** dock edge | `dock.edge` (top bar, start/end rail), the drag index on both axes, insets, RTL | L5/L6 rerun with each edge |
 | **O3** orientation lock | Root `orientationLock`, the lock before the first frame, the `validate.py` unreachable line, `warn_orientation_lock_ignored` | A landscape-only phone emulator; a tablet AVD at API 36 with a test build targeting 36 |
 | **O4** grid layouts, read-only | `grid` + `positions` parse and validate; the optional main spot; §6.1 placement; `warn_override_hidden`, `_position_id`, `warn_main_hidden`; §11.1 read-only behaviour; `Hidden here` from the long-press menu and the edit bar (`Show here` on main only); the new-items snackbar; `edit_main_follow` (main stays editable) | Rotate between layouts with the file hash unchanged; O9; O12 on main; §11.1 copy and TalkBack |
@@ -553,4 +554,4 @@ Reused unchanged: `No room`, `home_full`, `move_element_taken`, `undo_element_mo
 - **Archimedes:**
   - an ARCHITECTURE §19 entry;
   - the schema and `validate.py` text in O1;
-  - the `net.fetch` → level 6 renumbering.
+  - the `net.fetch` renumbering (now: the free level after `windowOverrides`, likely 7).

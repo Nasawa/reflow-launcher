@@ -23,7 +23,7 @@ class CardTest {
         assertTrue(errors(doc(card().replace("\"requires\":4,", ""))).contains("elements[0]: missing required \"requires\""))
         assertTrue(errors(doc(card().replace("\"requires\":4", "\"requires\":3"))).contains("elements[0].requires: a card needs feature level 4 or higher"))
         // Above the level: skipped like any element, cells kept.
-        assertEquals(1, Elements.warnings(ok(doc(card().replace("\"requires\":4", "\"requires\":5") .replace("\"layouts\"", "\"future\":1,\"layouts\"")))).size)
+        assertEquals(1, Elements.warnings(ok(doc(card().replace("\"requires\":4", "\"requires\":6") .replace("\"layouts\"", "\"future\":1,\"layouts\"")))).size)
     }
 
     @Test fun unknownCapabilityKindSkipsTheCardWithAWarning() {

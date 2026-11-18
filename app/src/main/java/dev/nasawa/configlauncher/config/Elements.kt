@@ -14,10 +14,12 @@ import kotlinx.serialization.json.JsonPrimitive
  * - A known type validates strictly (unknown keys are errors) through its [ElementType].
  *
  * Feature level 1 was the container release (no element type). Level 2 adds the title bar ([TitleBar]). Level 3 is
- * reserved for the hosted `appWidget` (stage 2, not built). Level 4 adds the dashboard `card` ([Card], #137).
+ * retired, never used (native-widgets.md §2.1: a level is fixed when its feature merges). Level 4 adds the dashboard
+ * `card` ([Card], #137). Level 5 adds the hosted `appWidget` ([AppWidget], #298; no host until NW-2). Designed but
+ * unbuilt features (`windowOverrides`, `net.fetch`) take the next free numbers when they land.
  */
 object Elements {
-    const val FEATURE_LEVEL = 4
+    const val FEATURE_LEVEL = 5
     val TYPE = Regex("^[a-zA-Z][a-zA-Z0-9]{0,31}$")
     /** Grid-placement base block (docs/research/widgets.md §5.1). An element has these or `anchor`, never both. */
     val PLACEMENT = listOf("page", "x", "y", "w", "h")
@@ -63,7 +65,7 @@ object Elements {
     }
 
     /** Known types by name. */
-    val types: Map<String, ElementType> = listOf<ElementType>(TitleBar, Card).associateBy { it.name }
+    val types: Map<String, ElementType> = listOf<ElementType>(TitleBar, Card, AppWidget).associateBy { it.name }
 
     sealed interface Skip {
         data class UnknownType(val type: String) : Skip

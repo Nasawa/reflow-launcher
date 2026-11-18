@@ -28,6 +28,9 @@ The working folder contains `launcher.json` (usually with `.configlauncher/` bes
 6. After sync, read `.configlauncher/status.json`. Errors mean the phone kept its last working layout; fix the listed paths and repeat. A parse error on read means a write in progress: retry after a second.
 7. Optional, with adb: `adb shell am broadcast -a com.anigeek.reflowlauncher.RELOAD -p com.anigeek.reflowlauncher` (or `-n com.anigeek.reflowlauncher/dev.nasawa.configlauncher.ReloadReceiver`) reloads immediately and rewrites `status.json`. Result codes: `0` unchanged, `1` reloaded, `2` rejected (read `status.json` and fix), `3` unavailable (retry later), `4` busy: phone edit, drag, or conflict pending (back off and retry), `5` timeout after 8 s (retry later).
 
+## Android widgets
+Root `elements[]` entry, not a page item: `{"id": "w-…", "type": "appWidget", "requires": 5, "page", "x", "y", "w", "h", "content": {"provider": {"package", "class"}}}`, optional `enabled`, `content.label` (≤ 40), `content.profile` (`personal` | `work`). Cells inside the grid, no overlap with items or elements. No `style` (rejected). Never invent a provider. The phone binds it silently when Android allows and no setup screen is needed; otherwise it shows `Tap to set up`. Older app versions skip it with an "Update the app" warning and keep its cells.
+
 ## Never
 Private-space apps, user IDs or serials, work-profile items unless `apps.json` lists them, writes inside `.configlauncher/`, comments, unknown non-`x-` keys, `widget`/`text` items, files over 2 MiB.
 

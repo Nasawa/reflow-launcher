@@ -188,7 +188,7 @@ Feature levels continue title-bar.md §6: level 1 = container, level 2 = title b
 |---|---|---|---|
 | 0. Docs (this PR) | Research and recommendation; Pragma's UX answers; Christopher's policy answers | — | Archimedes, Pragma |
 | 1. Container release (already planned) | Add to the container the **grid placement base block** (`page`, `x`, `y`, `w`, `h`) and the rule that skipped grid elements still reserve cells. No grid type yet. | 1 (amend before it ships) | Archimedes (schema), Sprite, Grace |
-| 2. Schema for widgets | `appWidget` type in `schema/` (provider, profile, label, frame-only style), examples and fixtures; `validate.py` support | 3 | Archimedes, Grace |
+| 2. Schema for widgets | `appWidget` type in `schema/` (provider, profile, label, frame-only style), examples and fixtures; `validate.py` support | ~~3~~ **5**, no `style` (superseded by native-widgets.md §2.1–§2.2, #298) | Archimedes, Grace |
 | 3. Host AppWidgets | `AppWidgetHost` in Compose, binding table, picker, bind/configure flow, placeholders, move/resize write-back, size reporting, garbage collection, work-profile pause | 3 | Sprite, Pragma (UX), Grace (S25/A53/A51; One UI quirks) |
 | 4. First-party `text` and `clock` | Reuse template grammar and style; per-type sizes | 4 | Archimedes (design + schema), Sprite |
 | 5. Local data | `{status}`, `{nextAlarm}`, `{data:…}` from `widgets-data.json` | 5+ | Archimedes, Sprite |

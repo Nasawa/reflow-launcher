@@ -77,7 +77,7 @@
   "elements": [
     {
       "id": "w-x",
-      "type": "appWidget",
+      "type": "gauge",
       "page": "home",
       "x": 0
     }

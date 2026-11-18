@@ -6,7 +6,7 @@ import kotlinx.serialization.json.*
  * #137 S3-A: the `card` element (feature level 4), docs/design/dynamic-widgets.md §1–§4, §9, §11. Schema, codec and
  * validation only: nothing renders yet (S3-E), there's no consent store (S3-B) and no data runtime (S3-D).
  *
- * - Grid-placed (`page`, `x`, `y`, `w`, `h`), `requires` 4 or higher (feature level 3 stays reserved for `appWidget`).
+ * - Grid-placed (`page`, `x`, `y`, `w`, `h`), `requires` 4 or higher (level 3 is retired; `appWidget` is level 5).
  * - `capabilities`: the stage-3 kinds only, with kind-specific keys (§4): `data.file` and `ui.reload` (no fields),
  *   `ui.openApp` + `packages`, and a bare `ui.openUrl` (Q-D5: no `hosts`; taps to the card's optional `source` site
  *   open silently, any other host asks on every tap). On the phone, a kind this launcher doesn't know **skips the

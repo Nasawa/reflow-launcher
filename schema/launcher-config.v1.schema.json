@@ -62,7 +62,7 @@
       "$ref": "#/$defs/drawer"
     },
     "elements": {
-      "description": "Non-app elements (title bar first, widgets later): docs/design/title-bar.md. An element whose type this launcher doesn't know, or whose requires is above its feature level, is skipped with a warning and kept in the file.",
+      "description": "Non-app elements (titleBar, card, appWidget): docs/design/title-bar.md, dynamic-widgets.md, native-widgets.md. An element whose type this launcher doesn't know, or whose requires is above its feature level, is skipped with a warning and kept in the file.",
       "type": "array",
       "maxItems": 32,
       "items": {
@@ -448,7 +448,7 @@
       }
     },
     "element": {
-      "description": "Common element fields, checked for every element (docs/design/title-bar.md §3, docs/research/widgets.md §5.1). An element is anchored (anchor) or grid-placed (page, x, y, w, h), never both; a grid-placed element reserves its cells even when this launcher skips it. No additionalProperties here: an unknown type accepts any other keys (skipped, kept verbatim); each known type's own definition is strict. Known types (feature level 4): titleBar (level 2) and card (level 4); level 3 is reserved for appWidget.",
+      "description": "Common element fields, checked for every element (docs/design/title-bar.md §3, docs/research/widgets.md §5.1). An element is anchored (anchor) or grid-placed (page, x, y, w, h), never both; a grid-placed element reserves its cells even when this launcher skips it. No additionalProperties here: an unknown type accepts any other keys (skipped, kept verbatim); each known type's own definition is strict. Known types (feature level 5): titleBar (level 2), card (level 4) and appWidget (level 5); level 3 is retired and never used.",
       "type": "object",
       "required": [
         "id",
@@ -572,7 +572,7 @@
                 "const": "titleBar"
               },
               "requires": {
-                "maximum": 4
+                "maximum": 5
               }
             }
           },
@@ -590,12 +590,30 @@
                 "const": "card"
               },
               "requires": {
-                "maximum": 4
+                "maximum": 5
               }
             }
           },
           "then": {
             "$ref": "#/$defs/card"
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "const": "appWidget"
+              },
+              "requires": {
+                "maximum": 5
+              }
+            }
+          },
+          "then": {
+            "$ref": "#/$defs/appWidget"
           }
         }
       ]
@@ -1398,6 +1416,75 @@
             "maxItems": 12,
             "items": {
               "$ref": "#/$defs/cardNode"
+            }
+          }
+        }
+      },
+      "patternProperties": {
+        "^x-": {}
+      },
+      "additionalProperties": false
+    },
+    "appWidget": {
+      "description": "Hosted Android AppWidget (#298 NW-1, feature level 5; docs/design/native-widgets.md §2.2). Grid-placed, requires 5 or higher. content.provider names the widget provider (package and class); profile is personal (default) or work; label (optional) is shown only on the placeholder before the provider is known. No style yet: the launcher and scripts/validate.py reject it with a plain sentence. The binding (appWidgetId) is device-local and never in the file. No host yet (NW-2).",
+      "type": "object",
+      "required": [
+        "id",
+        "type",
+        "requires",
+        "page",
+        "x",
+        "y",
+        "w",
+        "h",
+        "content"
+      ],
+      "properties": {
+        "id": {},
+        "type": {
+          "const": "appWidget"
+        },
+        "requires": {
+          "type": "integer",
+          "minimum": 5
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "page": {},
+        "x": {},
+        "y": {},
+        "w": {},
+        "h": {},
+        "content": {
+          "type": "object",
+          "required": [
+            "provider"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "provider": {
+              "type": "object",
+              "required": [
+                "package",
+                "class"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "package": {
+                  "$ref": "#/$defs/packageName"
+                },
+                "class": {
+                  "$ref": "#/$defs/className"
+                }
+              }
+            },
+            "profile": {
+              "$ref": "#/$defs/profile"
+            },
+            "label": {
+              "type": "string",
+              "maxLength": 40
             }
           }
         }

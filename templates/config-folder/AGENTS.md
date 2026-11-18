@@ -19,6 +19,11 @@ Schema `$id`: https://reflowlauncher.com/schema/launcher-config.v1.schema.json (
 - Leave out blocks you don't use (for example `drawer`); don't add default values you didn't change.
 - **Never write:** private-space apps, user IDs or serial numbers, `profile: "work"` items unless `apps.json` lists work apps, anything inside `.configlauncher/`, or apps just to "list" them (unplaced apps already show in the drawer).
 
+## Android widgets (`appWidget`)
+- Widgets go in the root `elements` array, never in page items: `{"id": "w-weather", "type": "appWidget", "requires": 5, "page": "home", "x": 0, "y": 1, "w": 4, "h": 2, "content": {"provider": {"package": "com.example.weather", "class": "com.example.weather.WeatherWidget"}}}`.
+- `requires` is 5. The cells (`x`, `y`, `w`, `h`) must be inside the grid and must not overlap items or other elements. Optional: `"enabled": false`, `content.label` (up to 40 characters, shown until the widget is set up), `content.profile` (`"work"` only if `apps.json` lists work apps; work widgets show a placeholder for now). No `style`.
+- Never invent a provider: use one the user names or that `.configlauncher/apps.json` lists. The phone binds a new widget by itself when Android allows it and the widget has no setup screen; otherwise it shows `Tap to set up` on the phone. Older app versions skip it with a warning and keep its cells free.
+
 ## Limits
 2 MiB file, 20 pages, 144 items per page, 2000 items total, 48 per folder, 7 in the dock, grid 2–12 × 2–12, labels 60 characters, IDs 64, other strings 256, 16 tags per item.
 

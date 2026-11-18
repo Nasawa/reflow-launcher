@@ -19,6 +19,56 @@
       "pages[0].items[0].activity: \"com.x/.Main;S.extra=1\" is not valid"
     ]
   },
+  "invalid/appwidget-bad-profile.json": {
+    "errors": [
+      "elements[0].content.profile: must be personal or work"
+    ]
+  },
+  "invalid/appwidget-content-x-key.json": {
+    "errors": [
+      "elements[0].content: unknown key \"x-note\""
+    ]
+  },
+  "invalid/appwidget-label-41.json": {
+    "errors": [
+      "elements[0].content.label: longer than 40 characters"
+    ]
+  },
+  "invalid/appwidget-no-class.json": {
+    "errors": [
+      "elements[0].content.provider: missing required \"class\""
+    ]
+  },
+  "invalid/appwidget-no-requires.json": {
+    "errors": [
+      "elements[0]: missing required \"requires\""
+    ]
+  },
+  "invalid/appwidget-outside-grid.json": {
+    "errors": [
+      "elements[0]: x 3 + w 2 is outside the grid (4 columns)"
+    ]
+  },
+  "invalid/appwidget-overlap.json": {
+    "errors": [
+      "elements[1]: overlaps elements[0] at cell (1, 1)"
+    ]
+  },
+  "invalid/appwidget-provider-x-key.json": {
+    "errors": [
+      "elements[0].content.provider: unknown key \"x-note\""
+    ]
+  },
+  "invalid/appwidget-requires-4.json": {
+    "errors": [
+      "elements[0].requires: an appWidget needs feature level 5 or higher"
+    ]
+  },
+  "invalid/appwidget-style.json": {
+    "errors": [
+      "elements[0]: appWidget \"w-weather\" doesn't support \"style\" yet. Remove it."
+    ]
+  },
   "invalid/card-layout-key.json": {
     "errors": [
       "elements[0].layouts: \"4X3\" is not a size like \"4x3\" (lowercase x, 1 to 12)"
@@ -514,6 +564,15 @@
   "valid/2000-items-long-strings.json": {
     "canonicalSha256": "cf16cca1335c34f41933810f1a842488051042808a0413c253d7328f17e003fc"
   },
+  "valid/appwidget-key-order.json": {
+    "canonicalSha256": "ae269cd3aaa56dae4800d7b03d72c3e5d54d92aa373e4545b10c0771d9166fe4"
+  },
+  "valid/appwidget-personal.json": {
+    "canonicalSha256": "b854fc5bdd2e202d7c978b6736794c71ac86acea6c9727273e9e6d78e88a0362"
+  },
+  "valid/appwidget-work.json": {
+    "canonicalSha256": "c78a644209d379373d775caa7f7fe1b530c6f6f5a86bcf8a5ebd84a1a70486bc"
+  },
   "valid/bidi-label.json": {
     "canonicalSha256": "2284025e13563ee896f9a893ec2e6d0df610934583572e8c833dea64e277eae3"
   },
@@ -530,11 +589,11 @@
     "canonicalSha256": "44d8f9807adf1cea56c04b3ff8f311e9e6fd6f385007f40558ad1603f753f07e"
   },
   "valid/elements-skipped.json": {
-    "canonicalSha256": "8d212e8bcced811a474fc37b3336a6c419b9848b9c0fa4c807e2fd5894f2fac3",
+    "canonicalSha256": "42313577356e83ddf0e960079faaf9b04c9ec0fecafd2c3b4f3243cf76deb872",
     "warnings": [
       "elements[0]: type \"banner\" isn't supported by this Reflow Launcher, so it was skipped. It stays in the file.",
-      "elements[1]: type \"appWidget\" isn't supported by this Reflow Launcher, so it was skipped. It stays in the file.",
-      "elements[2] needs feature level 9, but this Reflow Launcher supports up to 4, so it was skipped. It stays in the file. Update the app to show it.",
+      "elements[1]: type \"gauge\" isn't supported by this Reflow Launcher, so it was skipped. It stays in the file.",
+      "elements[2] needs feature level 9, but this Reflow Launcher supports up to 5, so it was skipped. It stays in the file. Update the app to show it.",
       "pages[0].overrides: \"t-gone\" doesn't match any element, so it was ignored."
     ]
   },
@@ -589,10 +648,10 @@
   "valid/titlebar-preset.json": {
     "canonicalSha256": "07eca8cf0c0448a111655e7df997974a1ff0b4b2875f4d586f9fd264ae579af8"
   },
-  "valid/titlebar-requires-5.json": {
-    "canonicalSha256": "c33de4ea26a4290f0a20cb8c79d32db90d04317a50d4c951885e1bd678aa0310",
+  "valid/titlebar-requires-6.json": {
+    "canonicalSha256": "39ae174f5dedfc8510550e13c6aa1b72dc6359d8f25153dedf0c2c8d1ff92374",
     "warnings": [
-      "elements[0] needs feature level 5, but this Reflow Launcher supports up to 4, so it was skipped. It stays in the file. Update the app to show it."
+      "elements[0] needs feature level 6, but this Reflow Launcher supports up to 5, so it was skipped. It stays in the file. Update the app to show it."
     ]
   },
   "valid/titlebar-shorthands.json": {
