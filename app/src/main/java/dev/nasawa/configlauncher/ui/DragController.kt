@@ -141,6 +141,8 @@ class DragController(private val engine: () -> ConfigEngine, private val onCance
      */
     var overlayBounds = Rect.Zero
     var topInsetPx = 0f
+    /** #306 (Pragma): hysteresis on cell and slot borders, px ([BORDER_HYSTERESIS_DP]; set by [DragOverlay], 0 = none). */
+    var hysteresisPx = 0f
     var liftGapPx = 0f
 
     /** #282: the drop target under the finger right now (null: none, or refused). The overlay highlights it. */
@@ -203,8 +205,9 @@ class DragController(private val engine: () -> ConfigEngine, private val onCance
     fun move(delta: Offset) {
         if (returning || settling || landing || dragged == null) return
         offset += delta
-        val t = targetAt(fingerInRoot)
-        if (t != null && t.edit != target?.edit) tick() // a new cell or slot; leaving to "no target" is silent
+        val t = hit(fingerInRoot)
+        // A new cell or slot, re-entering from no target included (#306: intended); leaving to "no target" is silent.
+        if (t != null && t.edit != target?.edit) tick()
         target = t
     }
 
@@ -348,10 +351,24 @@ class DragController(private val engine: () -> ConfigEngine, private val onCance
         return t.takeIf { acceptsCached(it.edit) }
     }
 
+    /**
+     * #306: [targetAt] with hysteresis. The current target holds while the finger stays within [hysteresisPx] of its
+     * rect (same page), so a finger resting on a border doesn't chatter between two cells. The highlight and the drop
+     * both use this, so they still can't disagree.
+     */
+    fun hit(point: Offset): DropTarget? {
+        val cur = target
+        if (cur != null && hysteresisPx > 0f && cur.rect.inflate(hysteresisPx).contains(point)) {
+            val samePage = (cur.edit as? Edit.MoveToCell)?.let { it.pageId == currentPageId } ?: true
+            if (samePage && acceptsCached(cur.edit)) return cur
+        }
+        return targetAt(point)
+    }
+
     fun drop() {
         dragged ?: return
         if (returning || settling || landing) return
-        val t = targetAt(fingerInRoot)
+        val t = hit(fingerInRoot)
         target = null
         if (t == null) { springBack(); return }
         raiseJob?.cancel(); raiseJob = null
@@ -478,6 +495,7 @@ fun DragOverlay(drag: DragController, modifier: Modifier = Modifier) {
     val density = LocalDensity.current
     drag.topInsetPx = WindowInsets.safeDrawing.getTop(density).toFloat()
     drag.liftGapPx = with(density) { LIFT_GAP_DP.dp.toPx() }
+    drag.hysteresisPx = with(density) { BORDER_HYSTERESIS_DP.dp.toPx() }
     val plate = MaterialTheme.colorScheme.surfaceContainerHigh
     val accent = MaterialTheme.colorScheme.primary
     Layout(
@@ -603,6 +621,8 @@ object LiftPlacement {
 const val LIFT_GAP_DP = 16
 const val PLATE_CORNER_DP = 12
 const val PLATE_ELEVATION_DP = 8
+/** #306 (Pragma): about 4 dp of hysteresis on cell borders, so the target (and its tick) doesn't chatter. */
+const val BORDER_HYSTERESIS_DP = 4
 
 /**
  * #281: the drag-start tick goes through Compose's [LocalHapticFeedback] as [HapticFeedbackType.LongPress]. On
