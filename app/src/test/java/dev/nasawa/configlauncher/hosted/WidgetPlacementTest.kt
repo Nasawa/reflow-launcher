@@ -98,6 +98,28 @@ class WidgetPlacementTest {
         assertFalse(Edits.apply(c, Edit.AddElement(WidgetPlacement.element("w-o", "home", 3, 0, 2, 1, "a.b", "a.b.W"))).applied)
     }
 
+    // #313 review (Grace's surviving mutants): a replayed AddElement must hold on its own, not only through place().
+    @Test fun addElementNewPageRespectsThe20PageCap() {
+        val full = cfg(doc(4, 5, (1..20).joinToString(",") { page("p$it") }))
+        val e = Edit.AddElement(WidgetPlacement.element("w-n", "page-21", 0, 0, 1, 1, "a.b", "a.b.W"), newPage = "page-21")
+        val r = Edits.apply(full, e)
+        assertFalse("21st page refused", r.applied)
+        assertEquals(20, r.config.pages.size)
+        // One below the cap: the page is added with the element, in one edit.
+        val ok = Edits.apply(cfg(doc(4, 5, (1..19).joinToString(",") { page("p$it") })), e)
+        assertTrue(ok.applied)
+        assertEquals(20, ok.config.pages.size)
+        assertEquals("page-21", ok.config.pages.last().id)
+    }
+
+    @Test fun addElementOnAMissingPageIsRefused() {
+        val c = cfg(doc(4, 5, page("home")))
+        val r = Edits.apply(c, Edit.AddElement(WidgetPlacement.element("w-x", "gone", 0, 0, 1, 1, "a.b", "a.b.W")))
+        assertFalse(r.applied)
+        assertTrue(r.config.elements.orEmpty().isEmpty())
+        assertEquals(listOf("home"), r.config.pages.map { it.id })
+    }
+
     /** The screen-matrix fixtures (the grids Grace's harness runs): every default size places, and never overlaps. */
     @Test fun screenMatrixGridsPlaceWithoutOverlap() {
         val dir = listOf(File("../scripts/screen-matrix"), File("scripts/screen-matrix")).first { it.isDirectory }

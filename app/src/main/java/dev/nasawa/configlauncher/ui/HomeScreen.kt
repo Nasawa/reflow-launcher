@@ -133,6 +133,8 @@ fun HomeScreen(vm: HomeViewModel) {
     // new widget goes through the NW-4 flow: a silent bind if Android allows it, else the tap flow (user's own pick).
     var pickerOpen by remember { mutableStateOf(false) }
     var selectedElement by remember { mutableStateOf<String?>(null) }
+    /** #304: a resize handle is held (the idle timer pauses). */
+    var resizingElement by remember { mutableStateOf(false) }
     LaunchedEffect(editing) { if (!editing) selectedElement = null }
     var picked by remember { mutableStateOf<String?>(null) }
     var pickedPage by remember { mutableStateOf<String?>(null) }
@@ -279,7 +281,6 @@ fun HomeScreen(vm: HomeViewModel) {
     val onLong: (ResolvedItem) -> Unit = { sheetFor = it }
     // §14 R4/R5: every way out of edit mode saves pending edits and drops empty pages in that write.
     val leaveEdit = { if (editing) { editing = false; vm.store.leaveEditMode() } }
-    LaunchedEffect(editing, ui.load.config) { if (editing) { kotlinx.coroutines.delay(30_000); if (drag.dragged == null) leaveEdit() } }
     androidx.activity.compose.BackHandler(editing) { leaveEdit() }
     // §14 R3: a folder goes with one write and an Undo snackbar, no confirm dialog (sheet and TalkBack action alike).
     val removeItem = { r: ResolvedItem ->
@@ -354,6 +355,13 @@ fun HomeScreen(vm: HomeViewModel) {
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) { note(res.getString(R.string.move_element_taken, name)) }
         }
     }
+    /** #304: a handle release; one write of `w`/`h` (and `x`/`y` for a start or top handle). Taken by then → no write. */
+    fun writeResize(id: String, name: String, r: ResizeMath.Rect) {
+        vm.store.launch {
+            if (!vm.store.tryEdit(Edit.ResizeElement(id, r.w, r.h, r.x, r.y)))
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) { note(res.getString(R.string.resize_element_taken, name)) }
+        }
+    }
     val elementActions: (String, ElementKind) -> List<CustomAccessibilityAction> = { id, kind ->
         val noRoom = ElementInfo.pagesWithRoom(ui.load.config, id).isEmpty()
         ElementActionList.of(kind).map { a ->
@@ -363,6 +371,13 @@ fun HomeScreen(vm: HomeViewModel) {
                 ElementAction.REMOVE -> CustomAccessibilityAction(res.getString(R.string.action_remove_home)) { removeElement(id); true }
             }
         }
+    }
+    // §4.1 30 s idle exit. #313 nit 1: paused while the picker or an edit sheet/dialog is up, or a handle is held;
+    // closing it starts a fresh 30 s (the key changes). One timer (a stale duplicate left edit mode without saving).
+    val editPaused = EditIdle.paused(pickerOpen, hostedSheet != null, widgetSheet != null, sheetFor != null, moveFor != null,
+        elementMove != null, elementResize != null, homeMenu, resizingElement)
+    LaunchedEffect(editing, ui.load.config, editPaused) {
+        if (editing && !editPaused) { kotlinx.coroutines.delay(EditIdle.MS); if (drag.dragged == null) leaveEdit() }
     }
     // ux.md §12: drag-free editing through TalkBack custom actions, one write each.
     val a11y: (ResolvedItem, TilePlace) -> List<CustomAccessibilityAction> = { r, place ->
@@ -376,8 +391,6 @@ fun HomeScreen(vm: HomeViewModel) {
             }
         }
     }
-    LaunchedEffect(editing, ui.load.config) { if (editing) { kotlinx.coroutines.delay(30_000); if (drag.dragged == null) editing = false } }
-    androidx.activity.compose.BackHandler(editing) { editing = false }
 
     val winConfig = androidx.compose.ui.platform.LocalConfiguration.current
     // §1.5 Foldables: a separating hinge puts home in one half, laid out as if that half were the window.
@@ -598,7 +611,13 @@ fun HomeScreen(vm: HomeViewModel) {
                         canDropElement = { id, x, y -> ElementEdits.fits(vm.store.engine.state.value.config, it.id, x, y,
                             ElementEdits.element(vm.store.engine.state.value.config, id)?.let(dev.nasawa.configlauncher.config.Elements::placement)?.w ?: 1,
                             ElementEdits.element(vm.store.engine.state.value.config, id)?.let(dev.nasawa.configlauncher.config.Elements::placement)?.h ?: 1, ignore = id) },
-                        onDropElement = { id, x, y -> writeMove(id, elementName(id), it.id, x, y) }) }
+                        onDropElement = { id, x, y -> writeMove(id, elementName(id), it.id, x, y) },
+                        onSelectElement = { id -> selectedElement = id },
+                        resizeBounds = { id -> ElementInfo.sizeBounds(ui.load.config, id,
+                            hostedAll.firstOrNull { t -> t.id == id }?.let { t -> widgets.info(t.pkg, t.cls)?.let(widgets::facts) }) },
+                        canResize = { id, x, y, w, h -> ElementEdits.fits(vm.store.engine.state.value.config, it.id, x, y, w, h, ignore = id) },
+                        onResizeElement = { id, r -> writeResize(id, elementName(id), r) },
+                        onResizeActive = { a -> resizingElement = a }, reducedMotion = ReducedMotion.on(ctx)) }
                 }
                 } // LocalLabelBackdrop
             } // top part (the top half on a tabletop)
@@ -1116,7 +1135,11 @@ internal fun PageGrid(page: ResolvedPage, grid: Grid, apps: InstalledApps, drag:
                      onCell: (Float, Float) -> Unit = { _, _ -> },
                      elementActions: (String, ElementKind) -> List<CustomAccessibilityAction> = { _, _ -> emptyList() },
                      canDropElement: (String, Int, Int) -> Boolean = { _, _, _ -> false },
-                     onDropElement: (String, Int, Int) -> Unit = { _, _, _ -> }, selected: String? = null) {
+                     onDropElement: (String, Int, Int) -> Unit = { _, _, _ -> }, selected: String? = null,
+                     onSelectElement: (String) -> Unit = {}, resizeBounds: (String) -> ElementInfo.Limits? = { null },
+                     canResize: (String, Int, Int, Int, Int) -> Boolean = { _, _, _, _, _ -> false },
+                     onResizeElement: (String, ResizeMath.Rect) -> Unit = { _, _ -> }, onResizeActive: (Boolean) -> Unit = {},
+                     reducedMotion: Boolean = false) {
     val byCell = page.items.associateBy { (it.item.x ?: 0) to (it.item.y ?: 0) }
     val rows = grid.rows
     val occupied by rememberUpdatedState(byCell.keys + tiles.flatMap { it.placement.cells() } + live.flatMap { it.placement.cells() } + placeholders.flatMap { it.placement.cells() } + hosted.flatMap { it.placement.cells() })
@@ -1285,10 +1308,22 @@ internal fun PageGrid(page: ResolvedPage, grid: Grid, apps: InstalledApps, drag:
             if (editing) {
                 @Composable fun target(id: String, p: dev.nasawa.configlauncher.config.Elements.Placement, onLongPress: () -> Unit) =
                     ElementDragTarget(p, cellWDp, cellHDp, baseXDp, baseYDp, rtl, selected = id == selected,
-                        canDrop = { x, y -> canDropElement(id, x, y) }, onDrop = { x, y -> onDropElement(id, x, y) }, onLong = onLongPress)
+                        canDrop = { x, y -> canDropElement(id, x, y) }, onDrop = { x, y -> onDropElement(id, x, y) }, onLong = onLongPress,
+                        onTap = { onSelectElement(id) })
                 hosted.forEach { t -> key("drag-" + t.id) { target(t.id, t.placement) { onHostedLong(t) } } }
                 live.forEach { l -> key("drag-" + l.id) { target(l.id, l.placement) { onWidgetLong(WidgetSheetFor(null, l)) } } }
                 tiles.forEach { t -> t.id?.let { id -> key("drag-$id") { target(id, t.placement) { onWidgetLong(WidgetSheetFor(t, null)) } } } }
+                // #304: the selected one gets its frame and drag-resize handles, on top of everything else.
+                val sel = selected?.let { id -> (hosted.firstOrNull { it.id == id }?.placement ?: live.firstOrNull { it.id == id }?.placement
+                    ?: tiles.firstOrNull { it.id == id }?.placement)?.let { id to it } }
+                sel?.let { (id, p) ->
+                    val b = resizeBounds(id) ?: ElementInfo.Limits(p.w, p.w, p.h, p.h)
+                    key("resize-$id") {
+                        ResizeFrame(p, b, grid.columns, rows, cellWDp, cellHDp, baseXDp, baseYDp, availW.dp, availH.dp, rtl, reducedMotion,
+                            free = { x, y, w, h -> canResize(id, x, y, w, h) }, onActive = onResizeActive,
+                            onResize = { r -> onResizeElement(id, r) })
+                    }
+                }
             }
             placeholders.forEach { t ->
                 val p = t.placement

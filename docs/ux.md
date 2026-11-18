@@ -1441,8 +1441,9 @@ when `bindAppWidgetIdIfAllowed` returned false. Skipped when: the launcher alrea
 or the user has dismissed this explanation for that package.
 
 - Title: `Allow this widget?`
-- Body: `Android will ask you to let Reflow Launcher create a <App> widget. Your layout file only names the widget; the
-  phone still needs your OK, once per app.`
+- Body: `Android will ask you to let Reflow Launcher add the widget "<Widget>". Your layout file only names the widget;
+  the phone still needs your OK, once per app.` (`<Widget>` is the provider's widget label, else its package. Quoted
+  rather than "a/an <Widget>", so no article has to be guessed.)
 - Buttons: `Continue` (primary) · `Not now` (stays on the placeholder, `Tap to allow`).
 - After Continue, the system dialog runs. Cancel → placeholder `Tap to allow`, `deleteAppWidgetId`. Allow → if a
   required configure activity exists, open it; cancel there → `Tap to finish setup`. Optional configure is skipped

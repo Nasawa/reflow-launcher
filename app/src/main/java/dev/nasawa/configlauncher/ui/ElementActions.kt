@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.padding
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.liveRegion
@@ -100,10 +101,22 @@ object ElementInfo {
      * range stay reachable as the starting point.
      */
     fun limits(c: LauncherConfig, id: String, facts: dev.nasawa.configlauncher.hosted.HostedWidgets.Facts? = null): Limits? {
+        val p = ElementEdits.element(c, id)?.let(Elements::placement) ?: return null
+        val b = sizeBounds(c, id, facts) ?: return null
+        val g = c.effectiveGrid
+        val colsLeft = g.columns - p.x; val rowsLeft = g.rows - p.y
+        return Limits(b.minW, b.maxW.coerceAtMost(maxOf(colsLeft, b.minW)), b.minH, b.maxH.coerceAtMost(maxOf(rowsLeft, b.minH)))
+    }
+
+    /**
+     * #304: the same bounds before the element's position is taken into account (the grid size caps the max, not
+     * the cells left of its anchor), for handles that can also grow toward the start or top.
+     */
+    fun sizeBounds(c: LauncherConfig, id: String, facts: dev.nasawa.configlauncher.hosted.HostedWidgets.Facts? = null): Limits? {
         val e = ElementEdits.element(c, id) ?: return null
         val p = Elements.placement(e) ?: return null
         val g = c.effectiveGrid
-        val colsLeft = g.columns - p.x; val rowsLeft = g.rows - p.y
+        val colsLeft = g.columns; val rowsLeft = g.rows
         var minW = 1; var minH = 1; var maxW = colsLeft; var maxH = rowsLeft
         if (e.str("type") == "appWidget") {
             facts?.minW?.let { minW = it }; facts?.minH?.let { minH = it }
@@ -232,16 +245,18 @@ object ElementActionList {
 fun ElementDragTarget(
     p: Elements.Placement, cellW: androidx.compose.ui.unit.Dp, cellH: androidx.compose.ui.unit.Dp,
     baseX: androidx.compose.ui.unit.Dp, baseY: androidx.compose.ui.unit.Dp, rtl: Boolean, selected: Boolean,
-    canDrop: (Int, Int) -> Boolean, onDrop: (Int, Int) -> Unit, onLong: () -> Unit,
+    canDrop: (Int, Int) -> Boolean, onDrop: (Int, Int) -> Unit, onLong: () -> Unit, onTap: () -> Unit = {},
 ) {
     var drag by remember { mutableStateOf<Pair<Float, Float>?>(null) }
     val density = androidx.compose.ui.platform.LocalDensity.current
     val cwPx = with(density) { cellW.toPx() }; val chPx = with(density) { cellH.toPx() }
     val drop by rememberUpdatedState(onDrop); val long by rememberUpdatedState(onLong); val can by rememberUpdatedState(canDrop)
+    val tap by rememberUpdatedState(onTap)
     val target = drag?.let { (dx, dy) -> ElementActionList.cellDelta(dx, dy, cwPx, chPx, rtl).let { (a, b) -> (p.x + a) to (p.y + b) } }
     val frame = Modifier.offset(baseX + cellW * p.x, baseY + cellH * p.y).size(cellW * p.w, cellH * p.h)
     androidx.compose.foundation.layout.Box(frame
-        .then(if (selected) Modifier.border(2.dp, androidx.compose.ui.graphics.Color(0x3DFFFFFF), androidx.compose.foundation.shape.RoundedCornerShape(12.dp)) else Modifier)
+        // #304: a tap selects (the frame and handles are drawn by ResizeFrame).
+        .pointerInput(Unit) { detectTapGestures(onTap = { tap() }) }
         .pointerInput(p) {
             detectDragGesturesAfterLongPress(
                 onDragStart = { drag = 0f to 0f },

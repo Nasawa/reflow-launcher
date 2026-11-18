@@ -87,9 +87,14 @@ object ElementEdits {
         val i = index(c, e.id).takeIf { it >= 0 } ?: return ApplyResult(c, false)
         val el = c.elements!![i]
         val p = Elements.placement(el) ?: return ApplyResult(c, false)
-        if (p.w == e.w && p.h == e.h) return ApplyResult(c, false)
-        if (!fits(c, p.page, p.x, p.y, e.w, e.h, ignore = e.id)) return ApplyResult(c, false)
-        return set(c, i, el.with("w" to JsonPrimitive(e.w), "h" to JsonPrimitive(e.h)))
+        val x = e.x ?: p.x; val y = e.y ?: p.y
+        if (p.w == e.w && p.h == e.h && p.x == x && p.y == y) return ApplyResult(c, false)
+        if (!fits(c, p.page, x, y, e.w, e.h, ignore = e.id)) return ApplyResult(c, false)
+        val kv = buildList {
+            if (x != p.x) add("x" to JsonPrimitive(x)); if (y != p.y) add("y" to JsonPrimitive(y))
+            add("w" to JsonPrimitive(e.w)); add("h" to JsonPrimitive(e.h))
+        }
+        return set(c, i, el.with(*kv.toTypedArray()))
     }
 
     /** Largest [w] (or [h]) the element can grow to in place, given free cells (§16.4: the drag stops at the last free cell). */

@@ -189,9 +189,13 @@ class WidgetRuntimeTest {
         r.refresh()
         val grid = dev.nasawa.configlauncher.model.Grid(4, 5)
         assertNull(r.appsEntries(grid))
+        // #313 review nit 3: no size chip before the cell size is known (apps.json leaves sizes out too).
+        assertTrue(r.picks(grid).isNotEmpty())
+        assertTrue(r.picks(grid).none { it.sized })
         r.setCell(80f, 100f)
         val entries = r.appsEntries(grid)!!
         val picks = r.picks(grid).associateBy { it.cls }
+        assertTrue(picks.values.all { it.sized })
         for (e in entries) {
             val size = e["size"] as kotlinx.serialization.json.JsonObject
             val p = picks[(e["class"] as kotlinx.serialization.json.JsonPrimitive).content]!!

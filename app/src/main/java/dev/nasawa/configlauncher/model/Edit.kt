@@ -53,8 +53,11 @@ sealed interface Edit {
     data class RestoreElement(val element: JsonObject, val index: Int) : Edit
     /** #303 §16.7.2: move grid element [id] to [pageId] at ([x], [y]); skipped when that rectangle isn't free. */
     data class MoveElement(val id: String, val pageId: String, val x: Int, val y: Int) : Edit
-    /** #303 §16.4: resize grid element [id] to [w]×[h] in place; skipped when the cells aren't free or leave the grid. */
-    data class ResizeElement(val id: String, val w: Int, val h: Int) : Edit
+    /**
+     * #303 §16.4: resize grid element [id] to [w]×[h]; skipped when the cells aren't free or leave the grid.
+     * #304: a start or top handle also moves the anchor ([x] / [y], null = unchanged), in the same one write.
+     */
+    data class ResizeElement(val id: String, val w: Int, val h: Int, val x: Int? = null, val y: Int? = null) : Edit
     // #302: [newPage] appends that (empty) page first, in the same write, when the file doesn't have it yet (the
     // widget picker's "new page"). A grid-placed element is skipped unless all its cells are inside the grid and free.
     /**
