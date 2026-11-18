@@ -994,6 +994,27 @@
     "note": "#298"
   },
   {
+    "file": "invalid/appwidget-content-x-key.json",
+    "expect": "invalid, B2: x- keys are allowed only at the element top level, not in content",
+    "layer": "both",
+    "ref": "native-widgets.md §2.2",
+    "note": "#298"
+  },
+  {
+    "file": "invalid/appwidget-provider-x-key.json",
+    "expect": "invalid, B2: no x- keys inside provider",
+    "layer": "both",
+    "ref": "native-widgets.md §2.2",
+    "note": "#298"
+  },
+  {
+    "file": "invalid/appwidget-label-41.json",
+    "expect": "invalid, B2: label is at most 40 characters",
+    "layer": "both",
+    "ref": "native-widgets.md §2.2",
+    "note": "#298"
+  },
+  {
     "file": "invalid/appwidget-overlap.json",
     "expect": "invalid, B2: two appWidgets in one cell",
     "layer": "kotlin-only",

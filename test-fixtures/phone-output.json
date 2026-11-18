@@ -24,6 +24,16 @@
       "elements[0].content.profile: must be personal or work"
     ]
   },
+  "invalid/appwidget-content-x-key.json": {
+    "errors": [
+      "elements[0].content: unknown key \"x-note\""
+    ]
+  },
+  "invalid/appwidget-label-41.json": {
+    "errors": [
+      "elements[0].content.label: longer than 40 characters"
+    ]
+  },
   "invalid/appwidget-no-class.json": {
     "errors": [
       "elements[0].content.provider: missing required \"class\""
@@ -42,6 +52,11 @@
   "invalid/appwidget-overlap.json": {
     "errors": [
       "elements[1]: overlaps elements[0] at cell (1, 1)"
+    ]
+  },
+  "invalid/appwidget-provider-x-key.json": {
+    "errors": [
+      "elements[0].content.provider: unknown key \"x-note\""
     ]
   },
   "invalid/appwidget-requires-4.json": {

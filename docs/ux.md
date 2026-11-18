@@ -1236,8 +1236,8 @@ Showing the last working layout.`). Warnings never raise a banner.
 | Too many tokens | Error | `elements[0].content.slots.center has 9 tokens; the maximum is 8.` |
 | Template too long | Error | `elements[0].content.slots.center is 130 characters; the maximum is 120.` |
 | Second title bar | Error | `elements[1]: only one titleBar is allowed (elements[0] is already one).` |
-| Unknown element type | Warning | `elements[2]: type "appWidget" isn't supported by this Reflow Launcher, so it was skipped. It stays in the file.` |
-| `requires` too high | Warning | `elements[2] needs feature level 3, but this Reflow Launcher supports up to 2, so it was skipped. It stays in the file. Update the app to show it.` |
+| Unknown element type | Warning | `elements[2]: type "gauge" isn't supported by this Reflow Launcher, so it was skipped. It stays in the file.` |
+| `requires` too high | Warning | `elements[2] needs feature level 6, but this Reflow Launcher supports up to 5, so it was skipped. It stays in the file. Update the app to show it.` |
 | Override for a missing element | Warning | `pages[1].overrides: "t-clock" doesn't match any element, so it was ignored.` |
 | Pattern on a token that has none | Error | `elements[0].content.slots.center: {page:x} doesn't take a pattern. Only {time} and {date} do.` |
 | Empty pattern | Error | `elements[0].content.slots.end: {time:} has an empty pattern. Write {time} for the default format.` |
