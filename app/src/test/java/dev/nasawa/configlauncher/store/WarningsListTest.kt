@@ -106,7 +106,7 @@ class WarningsListTest {
         val before = assertSame(dir, e)
         assertTrue(before.isNotEmpty())
         val broken = object : ConfigSource by LocalFileSource(tmp.newFolder()) {
-            override fun write(bytes: ByteArray) { throw java.io.IOException("read-only") }
+            override fun write(bytes: ByteArray, expectHash: String?) { throw java.io.IOException("read-only") }
         }
         assertFalse(e.moveTo(broken, useMine = true))
         assertSame(src, e.source)

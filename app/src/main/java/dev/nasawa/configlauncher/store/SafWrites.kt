@@ -107,7 +107,14 @@ internal class SafWrites(
     private val token: () -> String = { java.util.UUID.randomUUID().toString().take(8) }, // 8 lowercase hex,
 ) {
 
-    fun writeVerified(rootDocId: String, name: String, mime: String, bytes: ByteArray, what: String) = synchronized(lock) {
+    /**
+     * #317: with [expectHash] (see [ConfigSource.write]) the target is re-read right before its truncate-write and the
+     * save stops with [ConcurrentChangeException] when it no longer matches, leaving the other writer's file alone.
+     * After the write, a read-back that is neither our bytes, a torn copy of them nor the original means someone else
+     * wrote mid-save: that file is kept (no restore over it) and the same exception is thrown. What's left: a write that
+     * lands between the re-read and the truncate (one provider call), or one we then overwrite in full, isn't seen.
+     */
+    fun writeVerified(rootDocId: String, name: String, mime: String, bytes: ByteArray, what: String, expectHash: String? = null) = synchronized(lock) {
         val want = ConfigCodec.sha256(bytes)
         val tmpName = ".$name.${token()}.tmp"
         // #274: a random-name sidecar temp in `.configlauncher/`, else a root temp; both journaled and deleted by id.
@@ -129,10 +136,18 @@ internal class SafWrites(
             val target = dirs.ensure(rootDocId, name, mime)
             // The target's current bytes, kept in memory: the restore puts these back (not the temp's new bytes).
             val original = tree.read(target)
+            // #317: the last look before the target changes (an agent's write since the caller's check stops the save).
+            requireUnchanged(expectHash, original)
             try {
                 tree.write(target, bytes)
-                if (tree.read(target)?.let { ConfigCodec.sha256(it) } != want) throw IOException("write verification failed")
-            } catch (e: Exception) {
+                val back = tree.read(target)
+                if (back?.let { ConfigCodec.sha256(it) } != want) {
+                    // #317: not ours, not a torn copy of ours, not the original: another writer's bytes landed mid-save.
+                    if (expectHash != null && back != null && back.isNotEmpty() && !bytes.startsWith(back) && original?.contentEquals(back) != true)
+                        throw ConcurrentChangeException(back, "launcher.json changed while saving (someone else wrote it)")
+                    throw IOException("write verification failed")
+                }
+            } catch (e: ConcurrentChangeException) { throw e } catch (e: Exception) {
                 val restored = original != null &&
                     runCatching { tree.write(target, original); tree.read(target)?.contentEquals(original) == true }.getOrDefault(false)
                 // Keep or delete the root temp:

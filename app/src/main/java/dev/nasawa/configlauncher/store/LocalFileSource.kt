@@ -26,9 +26,11 @@ class LocalFileSource(val dir: File, val sidecars: Boolean = true) : ConfigSourc
         return file.inputStream().use { it.readCapped(maxBytes) }
     }
 
-    override fun write(bytes: ByteArray) {
+    override fun write(bytes: ByteArray, expectHash: String?) {
         if (!dir.isDirectory && !dir.mkdirs()) throw IOException("can't create ${dir.path}")
         FileOutputStream(temp).use { it.write(bytes); it.fd.sync() }
+        // #317: re-check right before the rename (atomic), so only a write landing between this read and it is lost.
+        try { requireUnchanged(expectHash, if (file.isFile) file.readBytes() else null) } catch (e: ConcurrentChangeException) { temp.delete(); throw e }
         if (!temp.renameTo(file)) throw IOException("could not replace ${file.name}")
     }
 
