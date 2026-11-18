@@ -46,7 +46,8 @@ class WidgetBindings(private val dir: File?, private val host: Host) {
     private val _version = kotlinx.coroutines.flow.MutableStateFlow(0)
     /** #300: bumps on every change, so the home grid redraws hosted widgets. */
     val version: kotlinx.coroutines.flow.StateFlow<Int> = _version
-    private var entries: MutableMap<String, Binding> = load()
+    // #308 review (2): a temp left by a save that died before its rename is stale; the real file is the truth.
+    private var entries: MutableMap<String, Binding> = run { dir?.let { File(it, "$FILE.tmp").delete() }; load() }
     private val held = mutableSetOf<String>()
     /** IDs allocated by a bind in progress (NW-4), not yet [put]: never treated as orphans. */
     private val inFlight = mutableSetOf<Int>()
@@ -89,9 +90,9 @@ class WidgetBindings(private val dir: File?, private val host: Host) {
                 else -> next[id] = b
             }
         }
-        val alive = runCatching { host.ids() }.getOrNull()?.toSet()
+        val alive = aliveIds()
         // #308 review (5): Android already deleted the ID (e.g. the provider was uninstalled): the binding is gone too.
-        if (alive != null) next.entries.removeAll { it.value.appWidgetId !in alive }
+        if (alive != null && (alive.isNotEmpty() || next.isEmpty())) next.entries.removeAll { it.value.appWidgetId !in alive }
         val owned = next.values.map { it.appWidgetId }.toSet() + inFlight
         alive?.forEach { if (it !in owned) host.delete(it) }
         if (next != entries) { entries = next; save() }
@@ -99,11 +100,15 @@ class WidgetBindings(private val dir: File?, private val host: Host) {
 
     /** #308 review (5): drop bindings whose ID Android has deleted (provider uninstalled). Called on package changes. */
     @Synchronized fun prune() {
-        val alive = runCatching { host.ids() }.getOrNull()?.toSet() ?: return
+        val alive = aliveIds() ?: return
+        // #310 review (a): an empty list while we hold bindings is suspicious (host not ready); never prune everything.
+        if (alive.isEmpty()) return
         if (entries.values.all { it.appWidgetId in alive }) return
         entries = entries.filterValues { it.appWidgetId in alive }.toMutableMap()
         save()
     }
+
+    private fun aliveIds(): Set<Int>? = runCatching { host.ids() }.getOrNull()?.toSet()
 
     /** #309 review: [elementId]'s ID can't be shown any more (Android has no widget for it): free it → `needsSetup`. */
     @Synchronized fun forget(elementId: String, appWidgetId: Int) {
@@ -111,7 +116,11 @@ class WidgetBindings(private val dir: File?, private val host: Host) {
         entries.remove(elementId); host.delete(b.appWidgetId); save()
     }
 
-    /** NW-6: keep [elementId]'s binding through the next [settle]s while its Remove can still be undone. */
+    /**
+     * NW-6: keep [elementId]'s binding through the next [settle]s while its Remove can still be undone.
+     * **Call this before the Remove write.** [settle] runs inside that write (the engine settles after every
+     * successful write, the phone's own included), so a binding that isn't held yet is freed immediately.
+     */
     @Synchronized fun hold(elementId: String): Boolean = (elementId in entries).also { if (it) held += elementId }
 
     /** NW-6 Undo: the element is back; the binding is kept as it was. */

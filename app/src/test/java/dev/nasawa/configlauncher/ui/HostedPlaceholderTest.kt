@@ -57,4 +57,15 @@ class HostedPlaceholderTest {
         rule.onNodeWithContentDescription("w-1, widget, Not installed, size may be wrong").performClick()
         assertEquals(1, taps)
     }
+
+    // #301: no `Tap to set up` flash while a silent bind is pending; `Tap to allow` after a refusal.
+    @Test fun bindHintsChangeTheReasonLine() {
+        val pending = tile(State.NEEDS_SETUP).copy(hint = dev.nasawa.configlauncher.hosted.BindFlow.Hint.BINDING)
+        assertNull(reasonRes(pending))
+        assertEquals("Tap to allow", ctx.getString(reasonRes(tile(State.NEEDS_SETUP).copy(hint = dev.nasawa.configlauncher.hosted.BindFlow.Hint.ALLOW))!!))
+        var taps = 0
+        rule.setContent { MaterialTheme { Box(Modifier.size(160.dp)) { HostedPlaceholder(pending, onLong = {}, onTap = { taps++ }) } } }
+        rule.onNodeWithContentDescription("Weather, widget").performClick()
+        assertEquals(1, taps)
+    }
 }

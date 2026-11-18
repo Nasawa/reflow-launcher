@@ -132,4 +132,73 @@ class WidgetBindingsTest {
         assertEquals(listOf(7), host.deleted)
         assertNull(b.binding("w-1"))
     }
+
+    // #308 review (5): Android already deleted the ID (provider uninstalled) → binding pruned, back to needsSetup.
+    @Test fun bindingWhoseIdAndroidDeletedIsPruned() {
+        val dir = tmp.newFolder()
+        val host = FakeHost(7, 8)
+        val b = WidgetBindings(dir, host)
+        b.put("w-1", bound(7)); b.put("w-2", bound(8))
+        host.alive -= 7                                  // the system removed it, not us
+        b.prune()
+        assertNull(b.binding("w-1"))
+        assertEquals(bound(8), b.binding("w-2"))
+        assertNull(WidgetBindings(dir, host).binding("w-1"))
+        assertTrue(host.deleted.isEmpty())
+        // The only binding's ID gone: the host list is empty, so (#310 review (a)) it's kept here; the grid's
+        // view check (WidgetRuntime.viewMissing) frees it instead.
+        host.alive -= 8
+        b.prune()
+        assertEquals(bound(8), b.binding("w-2"))
+    }
+
+    @Test fun pruneKeepsEverythingWhenTheHostCantList() {
+        val host = object : WidgetBindings.Host { override fun ids(): IntArray = error("binder died"); override fun delete(appWidgetId: Int) {} }
+        val b = WidgetBindings(tmp.newFolder(), host)
+        b.put("w-1", bound(7))
+        b.prune()
+        assertEquals(bound(7), b.binding("w-1"))
+    }
+
+    // #308 review (2): the save replaces the file through a rename (a new inode), never writes it in place.
+    @Test fun saveIsAtomicRenameAndStaleTempIsCleaned() {
+        val dir = tmp.newFolder()
+        val host = FakeHost(7, 8)
+        val file = File(dir, WidgetBindings.FILE)
+        val b = WidgetBindings(dir, host)
+        b.put("w-1", bound(7))
+        val ino = java.nio.file.Files.getAttribute(file.toPath(), "unix:ino")
+        b.put("w-2", bound(8))
+        assertNotEquals("a direct write keeps the inode", ino, java.nio.file.Files.getAttribute(file.toPath(), "unix:ino"))
+        assertFalse(File(dir, "${WidgetBindings.FILE}.tmp").exists())
+        // A save that died before its rename leaves a temp; the next start drops it and keeps the real file.
+        File(dir, "${WidgetBindings.FILE}.tmp").writeText("{half")
+        val again = WidgetBindings(dir, host)
+        assertFalse(File(dir, "${WidgetBindings.FILE}.tmp").exists())
+        assertEquals(bound(8), again.binding("w-2"))
+    }
+
+    // #310 review (a): an empty ID list while bindings exist is suspicious; neither prune nor settle drops them.
+    @Test fun emptyHostListNeverPrunesEverything() {
+        val host = FakeHost(7)
+        val b = WidgetBindings(tmp.newFolder(), host)
+        b.put("w-1", bound(7))
+        host.alive.clear()
+        b.prune()
+        assertEquals(bound(7), b.binding("w-1"))
+        b.settle(cfg(doc(aw("w-1"))))
+        assertEquals(bound(7), b.binding("w-1"))
+    }
+
+    // #310 review (b): settle drops a binding whose ID Android deleted, keeps the live ones, frees nothing extra.
+    @Test fun settleDropsDeadIds() {
+        val host = FakeHost(7, 8)
+        val b = WidgetBindings(tmp.newFolder(), host)
+        b.put("w-1", bound(7)); b.put("w-2", bound(8))
+        host.alive -= 7
+        b.settle(cfg(doc(aw("w-1"), aw("w-2", x = 1))))
+        assertNull(b.binding("w-1"))
+        assertEquals(bound(8), b.binding("w-2"))
+        assertTrue(host.deleted.isEmpty())
+    }
 }

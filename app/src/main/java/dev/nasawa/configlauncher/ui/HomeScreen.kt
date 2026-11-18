@@ -119,39 +119,21 @@ fun HomeScreen(vm: HomeViewModel) {
     val widgets = vm.widgets
     val widgetsVersion by widgets.version.collectAsStateWithLifecycle()
     val bindingsVersion by (widgets.bindings?.version ?: kotlinx.coroutines.flow.MutableStateFlow(0)).collectAsStateWithLifecycle()
-    val hostedAll = remember(ui.load.config, widgetsVersion, bindingsVersion) { widgets.tiles(ui.load.config) }
+    val flowVersion by widgets.flow.version.collectAsStateWithLifecycle()
+    val hostedAll = remember(ui.load.config, widgetsVersion, bindingsVersion, flowVersion) { widgets.tiles(ui.load.config) }
     if (BuildConfig.DEBUG) LaunchedEffect(hostedAll) {
         hostedAll.forEach { t -> dev.nasawa.configlauncher.hosted.WidgetRuntime.debug { "${t.id} ${t.state.key} ${t.pkg}/${t.cls} ${t.placement.w}x${t.placement.h}${t.range?.let { r -> " range(below=${r.below} ${r.limitW}x${r.limitH})" } ?: ""}" } }
     }
     var hostedSheet by remember { mutableStateOf<dev.nasawa.configlauncher.hosted.HostedWidgets.Tile?>(null) }
     val hostedScope = rememberCoroutineScope()
-    // Debug builds only: a stand-in for NW-4's bind flow, so the hands-on session can bind (silent if allowed, else
-    // Android's own bind dialog). No configure step. Release builds never offer a tap on `Tap to set up` until NW-4.
-    var debugPending by remember { mutableStateOf<Triple<String, Int, dev.nasawa.configlauncher.hosted.HostedWidgets.Tile>?>(null) }
-    val debugBind = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()) { r ->
-        val (eid, id, t) = debugPending ?: return@rememberLauncherForActivityResult
-        debugPending = null
-        if (r.resultCode == android.app.Activity.RESULT_OK) widgets.debugBound(eid, id, t.pkg, t.cls) else widgets.debugAbandon(id)
-    }
+    // #301 NW-4: tap to set up / allow / finish setup runs the bind flow; D1 silent binds follow every change.
+    val bindPending by widgets.flow.pending.collectAsStateWithLifecycle()
+    LaunchedEffect(hostedAll) { widgets.silentBind(ui.load.config) }
     fun hostedTap(t: dev.nasawa.configlauncher.hosted.HostedWidgets.Tile): (() -> Unit)? = when (t.state) {
         dev.nasawa.configlauncher.hosted.HostedWidgets.State.NOT_INSTALLED -> { { hostedSheet = t } }
         dev.nasawa.configlauncher.hosted.HostedWidgets.State.FAILED -> { { widgets.retry(t.id) } }
-        dev.nasawa.configlauncher.hosted.HostedWidgets.State.NEEDS_SETUP -> if (!BuildConfig.DEBUG) null else { {
-            widgets.info(t.pkg, t.cls)?.let { info ->
-                val (id, ok) = widgets.debugTryBind(info)
-                if (ok) widgets.debugBound(t.id, id, t.pkg, t.cls)
-                else {
-                    debugPending = Triple(t.id, id, t)
-                    runCatching {
-                        debugBind.launch(android.content.Intent(android.appwidget.AppWidgetManager.ACTION_APPWIDGET_BIND)
-                            .putExtra(android.appwidget.AppWidgetManager.EXTRA_APPWIDGET_ID, id)
-                            .putExtra(android.appwidget.AppWidgetManager.EXTRA_APPWIDGET_PROVIDER, info.provider)
-                            .putExtra(android.appwidget.AppWidgetManager.EXTRA_APPWIDGET_PROVIDER_PROFILE, info.profile))
-                    }.onFailure { debugPending = null; widgets.debugAbandon(id) }
-                }
-            }
-            Unit
-        } }
+        dev.nasawa.configlauncher.hosted.HostedWidgets.State.NEEDS_SETUP,
+        dev.nasawa.configlauncher.hosted.HostedWidgets.State.NEEDS_CONFIG -> { { widgets.flow.tap(t.id, t.pkg, t.cls) } }
         else -> null
     }
     var changedSnack by remember { mutableStateOf<String?>(null) }
@@ -750,7 +732,12 @@ fun HomeScreen(vm: HomeViewModel) {
                 onEditLayout = { hostedSheet = null; editing = true },
                 onAppInfo = { hostedSheet = null; vm.apps.appInfo(t.pkg, null, dev.nasawa.configlauncher.model.Profile.PERSONAL) },
                 onRetry = { hostedSheet = null; widgets.retry(t.id) },
-                onDismiss = { hostedSheet = null })
+                onDismiss = { hostedSheet = null },
+                onReconfigure = if (t.state == dev.nasawa.configlauncher.hosted.HostedWidgets.State.BOUND &&
+                    widgets.info(t.pkg, t.cls)?.let(widgets::target)?.reconfigurable == true) { { hostedSheet = null; widgets.flow.reconfigure(t.id) } } else null)
+        }
+        bindPending?.takeIf { it.step == dev.nasawa.configlauncher.hosted.BindFlow.Step.EXPLAIN }?.let { p ->
+            BindExplainSheet(p.target.label ?: p.target.pkg, onContinue = { widgets.flow.explainContinue() }, onNotNow = { widgets.flow.explainNotNow() })
         }
         widgetSheet?.let { w ->
             WidgetItemSheet(w.name, w.live != null, reason = w.tile?.takeIf { it.placement.w == 1 && it.placement.h == 1 }?.reason, onAction = { a ->

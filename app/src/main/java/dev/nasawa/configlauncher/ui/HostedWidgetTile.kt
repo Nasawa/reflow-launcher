@@ -40,6 +40,13 @@ import dev.nasawa.configlauncher.hosted.WidgetRuntime
 internal val SizeCueAmber = Color(0xFFFFB300)
 
 /** ux.md §16.2 reason line for a placeholder state; null for a live widget. */
+/** #301: the reason line also reflects the bind flow: none while a silent bind is pending, `Tap to allow` after a refusal. */
+internal fun reasonRes(t: HostedWidgets.Tile): Int? = when (t.hint) {
+    dev.nasawa.configlauncher.hosted.BindFlow.Hint.BINDING -> null
+    dev.nasawa.configlauncher.hosted.BindFlow.Hint.ALLOW -> R.string.hosted_tap_to_allow
+    else -> reasonRes(t.state)
+}
+
 internal fun reasonRes(s: State): Int? = when (s) {
     State.BOUND -> null
     State.NEEDS_SETUP -> R.string.hosted_tap_to_set_up
@@ -107,9 +114,9 @@ internal fun reportSize(v: LongPressHostView, w: Float, h: Float) {
 fun HostedPlaceholder(tile: HostedWidgets.Tile, onLong: () -> Unit, onTap: (() -> Unit)?, modifier: Modifier = Modifier) {
     val ctx = LocalContext.current
     val label = tile.label ?: tile.id
-    val reason = reasonRes(tile.state)?.let { stringResource(it) } ?: ""
+    val reason = reasonRes(tile)?.let { stringResource(it) } ?: ""
     val cue = if (tile.range != null) stringResource(R.string.hosted_size_cue_a11y) else ""
-    val said = stringResource(R.string.hosted_a11y, label, reason) + cue
+    val said = (if (reason.isEmpty()) stringResource(R.string.hosted_a11y_plain, label) else stringResource(R.string.hosted_a11y, label, reason)) + cue
     val icon = remember(tile.pkg) {
         runCatching { ctx.packageManager.getApplicationIcon(tile.pkg).toBitmap(96, 96).asImageBitmap() }.getOrNull()
     }
@@ -147,23 +154,40 @@ fun HostedPlaceholder(tile: HostedWidgets.Tile, onLong: () -> Unit, onTap: (() -
 /**
  * ux.md §16.2 / §16.7.3 long-press sheet for an `appWidget`: label, `Widget · from launcher.json`, the reason, then
  * `Edit layout`, `App info` (when installed) and, for a failed view, `Retry`. `Remove from home`, `Move to…` and
- * `Resize…` come with NW-6 (#303); `Reconfigure` with NW-4 (#301).
+ * `Resize…` come with NW-6 (#303). `Reconfigure` (#301) for a bound widget whose provider is reconfigurable.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HostedWidgetSheet(tile: HostedWidgets.Tile, installed: Boolean, onEditLayout: () -> Unit, onAppInfo: () -> Unit,
-                      onRetry: () -> Unit, onDismiss: () -> Unit) {
+                      onRetry: () -> Unit, onDismiss: () -> Unit, onReconfigure: (() -> Unit)? = null) {
     val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(onDismiss, sheetState = sheet) {
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp).padding(bottom = 24.dp)) {
             Text(tile.label ?: tile.id, style = MaterialTheme.typography.titleMedium)
             Text(stringResource(R.string.widget_sheet_source_file), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            reasonRes(tile.state)?.let { Text(stringResource(it), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 4.dp)) }
+            reasonRes(tile)?.let { Text(stringResource(it), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 4.dp)) }
             if (tile.range != null) Text(stringResource(R.string.hosted_size_cue_sheet), style = MaterialTheme.typography.bodySmall, color = SizeCueAmber, modifier = Modifier.padding(top = 4.dp))
             Spacer(Modifier.height(12.dp))
             if (tile.state == State.FAILED) TextButton(onRetry, Modifier.fillMaxWidth()) { Text(stringResource(R.string.hosted_retry), Modifier.fillMaxWidth()) }
+            onReconfigure?.let { TextButton(it, Modifier.fillMaxWidth()) { Text(stringResource(R.string.hosted_reconfigure), Modifier.fillMaxWidth()) } }
             TextButton(onEditLayout, Modifier.fillMaxWidth()) { Text(stringResource(R.string.action_edit_layout), Modifier.fillMaxWidth()) }
             if (installed) TextButton(onAppInfo, Modifier.fillMaxWidth()) { Text(stringResource(R.string.action_app_info), Modifier.fillMaxWidth()) }
+        }
+    }
+}
+
+/** ux.md §16.3 bind explanation, once per provider package, right before Android's bind dialog. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun BindExplainSheet(app: String, onContinue: () -> Unit, onNotNow: () -> Unit) {
+    val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(onNotNow, sheetState = sheet) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 24.dp)) {
+            Text(stringResource(R.string.bind_explain_title), style = MaterialTheme.typography.titleMedium)
+            Text(stringResource(R.string.bind_explain_body, app), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 8.dp))
+            Spacer(Modifier.height(16.dp))
+            androidx.compose.material3.Button(onContinue, Modifier.fillMaxWidth()) { Text(stringResource(R.string.bind_explain_continue)) }
+            TextButton(onNotNow, Modifier.fillMaxWidth()) { Text(stringResource(R.string.bind_explain_not_now)) }
         }
     }
 }

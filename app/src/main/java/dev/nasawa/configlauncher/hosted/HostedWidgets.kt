@@ -27,6 +27,8 @@ object HostedWidgets {
     data class Tile(
         val id: String, val index: Int, val placement: Elements.Placement, val label: String?, val pkg: String, val cls: String,
         val profile: String, val state: State, val appWidgetId: Int?, val range: Range?,
+        /** #301: `Tap to allow`, or icon and label only while a silent bind is pending. */
+        val hint: BindFlow.Hint? = null,
     )
 
     /** Provider lookup: (package, class, profile) → facts, or null when not installed on this phone. */
@@ -34,7 +36,7 @@ object HostedWidgets {
 
     /** Every shown `appWidget` (file order); [pageId] null = all pages. [failed] = element ids whose host view failed. */
     fun tiles(c: LauncherConfig, bindings: Map<String, WidgetBindings.Binding>, providers: Providers,
-              failed: Set<String> = emptySet(), pageId: String? = null): List<Tile> =
+              failed: Set<String> = emptySet(), pageId: String? = null, hints: (id: String, pkg: String, cls: String) -> BindFlow.Hint? = { _, _, _ -> null }): List<Tile> =
         c.elements.orEmpty().mapIndexedNotNull { i, e ->
             if (Elements.typeOf(e) != AppWidget) return@mapIndexedNotNull null
             if ((e["enabled"] as? JsonPrimitive)?.content == "false") return@mapIndexedNotNull null
@@ -49,16 +51,17 @@ object HostedWidgets {
             val label = (content["label"] as? JsonPrimitive)?.content
             val facts = if (profile == "personal") providers.facts(pkg, cls, profile) else null
             val b = bindings[id]?.takeIf { WidgetBindings.norm(it.provider) == WidgetBindings.norm(WidgetBindings.Provider(pkg, cls)) && it.profile == profile }
+            val hint = if (b == null && profile == "personal" && facts != null) hints(id, pkg, cls) else null
             val state = when {
                 profile != "personal" -> State.UNSUPPORTED   // D3: work widgets come later
                 facts == null -> State.NOT_INSTALLED
-                b == null -> State.NEEDS_SETUP
+                b == null -> if (hint == BindFlow.Hint.FINISH) State.NEEDS_CONFIG else State.NEEDS_SETUP
                 b.state == WidgetBindings.State.NEEDS_CONFIG -> State.NEEDS_CONFIG
                 b.state == WidgetBindings.State.FAILED || id in failed -> State.FAILED
                 else -> State.BOUND
             }
             Tile(id, i, p, label ?: facts?.label, pkg, cls, profile, state, b?.appWidgetId?.takeIf { state == State.BOUND },
-                facts?.let { range(p.w, p.h, it) })
+                facts?.let { range(p.w, p.h, it) }, hint?.takeIf { it != BindFlow.Hint.FINISH })
         }
 
     fun range(w: Int, h: Int, f: Facts): Range? {
