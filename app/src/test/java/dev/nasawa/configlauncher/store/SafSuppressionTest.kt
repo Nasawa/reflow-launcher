@@ -26,7 +26,7 @@ class SafSuppressionTest {
         override val displayName = "Folder: test"
         override fun stamp() = t.list("root")["launcher.json"]?.let { Stamp(it.docId, 1, it.size) }
         override fun read(maxBytes: Int) = file
-        override fun write(bytes: ByteArray) = writes.writeVerified("root", "launcher.json", "application/json", bytes, "layout")
+        override fun write(bytes: ByteArray, expectHash: String?) = writes.writeVerified("root", "launcher.json", "application/json", bytes, "layout", expectHash)
         override fun readRoot(name: String, maxBytes: Int) = t.list("root")[name]?.let { t.read(it.docId) }
         override fun writeRoot(name: String, bytes: ByteArray) = writes.writeVerified("root", name, "application/octet-stream", bytes, name)
         override fun writeSidecar(subdir: String, name: String, bytes: ByteArray) {

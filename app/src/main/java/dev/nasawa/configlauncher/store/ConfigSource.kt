@@ -16,9 +16,16 @@ interface ConfigSource {
     fun stamp(): Stamp?
     /** null when launcher.json does not exist. Must enforce [maxBytes]. */
     fun read(maxBytes: Int): ByteArray?
-    /** Replace launcher.json with [bytes] safely (implementation-specific, see ARCHITECTURE.md §5). Throws on failure. */
+    /**
+     * Replace launcher.json with [bytes] safely (implementation-specific, see ARCHITECTURE.md §5). Throws on failure.
+     *
+     * #317: [expectHash] is the SHA-256 of the launcher.json the caller decided on ([ABSENT]: it had none; null: no
+     * check). Each source re-checks it as late as it can, right before the target is replaced, and throws
+     * [ConcurrentChangeException] (nothing of ours left in the file) when someone else's write landed since. There is no
+     * compare-and-swap on SAF or files, so a write landing after that last check is the window that's left (§5).
+     */
     @Throws(IOException::class)
-    fun write(bytes: ByteArray)
+    fun write(bytes: ByteArray, expectHash: String? = null)
 
     /**
      * Write a sidecar file at `.configlauncher/<subdir>/<name>` ([subdir] may be empty), creating
@@ -54,6 +61,26 @@ interface ConfigSource {
     /** §20.1: write a file next to launcher.json through the same temp + verify path as launcher.json. */
     @Throws(IOException::class)
     fun writeRoot(name: String, bytes: ByteArray): Unit = throw UnsupportedOperationException("no folder")
+}
+
+/**
+ * #317: launcher.json changed under a save (an agent's write landed after the caller's hash check). [current] is what the
+ * file holds now (null: absent or unreadable). The save left the file as the other writer did: the caller merges or
+ * re-checks, never reports ok.
+ */
+class ConcurrentChangeException(val current: ByteArray?, message: String = "launcher.json changed while saving") : IOException(message)
+
+/** #317: [ConfigSource.write]'s `expectHash` for "there was no launcher.json". */
+const val ABSENT = "absent"
+
+/** #317: the hash of [bytes] as [ConfigSource.write]'s `expectHash` compares it ([ABSENT] for none). */
+internal fun expectOf(bytes: ByteArray?): String = bytes?.let { dev.nasawa.configlauncher.config.ConfigCodec.sha256(it) } ?: ABSENT
+
+/** #317: throws [ConcurrentChangeException] unless [now] (the target's bytes read just now) still matches [expectHash]. */
+internal fun requireUnchanged(expectHash: String?, now: ByteArray?) {
+    if (expectHash == null) return
+    val same = if (expectHash == ABSENT) now == null || now.isEmpty() else now != null && expectOf(now) == expectHash
+    if (!same) throw ConcurrentChangeException(now)
 }
 
 internal fun java.io.InputStream.readCapped(maxBytes: Int): ByteArray {

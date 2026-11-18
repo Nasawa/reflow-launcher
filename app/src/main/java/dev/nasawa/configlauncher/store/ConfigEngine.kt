@@ -92,6 +92,10 @@ data class LoadState(
  */
 private val CANCELLED = Msg(dev.nasawa.configlauncher.R.string.undo_cancelled)
 
+/** #317: an agent kept writing launcher.json through every attempt of one save (each attempt merged onto its newer file). */
+private const val RACE_RETRIES = 3
+private const val CHANGING = "launcher.json kept changing while saving; your change is kept here. Retry to merge it into the newest file."
+
 class ConfigEngine(
     @Volatile var source: ConfigSource,
     private val lastGood: LastGoodStore,
@@ -244,7 +248,7 @@ class ConfigEngine(
                 // #103: a fresh receipt for the adopted file, so status.json isn't left from an earlier install.
                 writeStatus("ok", emptyList(), hash, adopted.revision, Elements.warnings(adopted), adopted)
                 saveLastGood(existing)
-            } else writeLocked(oldState.config)
+            } else writeLocked(oldState.config, expectOf(existing))
             true
         } catch (e: Exception) {
             // Roll back: the old source stays in charge and nothing is reported as moved.
@@ -395,6 +399,15 @@ class ConfigEngine(
     suspend fun flush(): Boolean = mutex.withLock { try { flushLocked() } finally { publishSuppression() } }
 
     private fun flushLocked(): Boolean {
+        // #317: an agent's write that lands during the save stops it (ConcurrentChangeException, the file is left as the
+        // agent wrote it); start over from that file, which now differs from the base, so it merges (or B6) like any other.
+        repeat(RACE_RETRIES) {
+            try { return flushOnce() } catch (_: ConcurrentChangeException) { lastStamp = null }
+        }
+        return fail(Issue.SaveFailed(CHANGING))
+    }
+
+    private fun flushOnce(): Boolean {
         if (pending.isEmpty() || _state.value.conflict) return false
         val current = try { source.read(Limits.MAX_BYTES) } catch (e: Exception) { return fail(Issue.SaveFailed.of(e)) }
         val curHash = current?.let { ConfigCodec.sha256(it) }
@@ -416,7 +429,7 @@ class ConfigEngine(
         }
         val cfg = _state.value.config.let { it.copy(revision = (it.revision ?: 0) + 1) }
         keepWaiters(emptyList())
-        try { writeLocked(cfg) } catch (e: Exception) { return fail(Issue.SaveFailed.of(e)) }
+        try { writeLocked(cfg, expectOf(current)) } catch (e: ConcurrentChangeException) { throw e } catch (e: Exception) { return fail(Issue.SaveFailed.of(e)) }
         pending.clear(); invalidHash = null; clearUndo(); finishWaiters(emptyList())
         _state.update { it.copy(pendingEdits = 0, issue = null, notice = when {
             brokenName != null -> Msg(dev.nasawa.configlauncher.R.string.broken_saved_folder)
@@ -440,7 +453,8 @@ class ConfigEngine(
         runCatching { lastGood.snapshot(fileBytes) }
         runCatching { lastGood.snapshot(ConfigCodec.encodeBytes(_state.value.config)) }
         keepWaiters(rep.skipped.map { it.edit })
-        val written = try { writeLocked(out) } catch (e: Exception) { fail(Issue.SaveFailed.of(e)); return true }
+        // #317: changed again under the merge's own write: the caller ([flushLocked]) merges onto the newer file.
+        val written = try { writeLocked(out, expectOf(fileBytes)) } catch (e: ConcurrentChangeException) { throw e } catch (e: Exception) { fail(Issue.SaveFailed.of(e)); return true }
         pending.clear(); finishWaiters(rep.skipped.map { it.edit })
         // §9.1: all-skipped merges have no Undo (nothing of ours was written).
         val undo = rep.kept > 0
@@ -475,7 +489,9 @@ class ConfigEngine(
         runCatching { lastGood.snapshot(ConfigCodec.encodeBytes(_state.value.config)) }
         runCatching { lastGood.snapshot(before) }
         if (ConfigCodec.sha256(now) != mergedHash) runCatching { lastGood.snapshot(now) }
-        try { writeLocked(target); _state.update { it.copy(mergeUndo = false, merge = null) }; true }
+        // #317: an agent's write landing now cancels the Undo (nothing written) rather than reverting over it.
+        try { writeLocked(target, expectOf(now)); _state.update { it.copy(mergeUndo = false, merge = null) }; true }
+        catch (_: ConcurrentChangeException) { cancel(CANCELLED) }
         catch (e: Exception) { fail(Issue.SaveFailed.of(e, dev.nasawa.configlauncher.R.string.b5_undo_failed)) }
     }
 
@@ -495,6 +511,12 @@ class ConfigEngine(
 
     /** B6 "Keep mine": replay local ops by ID onto the file's version (snapshotted first) and write. */
     suspend fun resolveKeepMine(): Boolean = mutex.withLock {
+        // #317: an agent's write landing during the save: replay onto that newer file instead (the user chose "mine").
+        repeat(RACE_RETRIES) { try { return keepMineOnce() } catch (_: ConcurrentChangeException) { lastStamp = null } }
+        fail(Issue.SaveFailed(CHANGING))
+    }
+
+    private fun keepMineOnce(): Boolean {
         val bytes = try { source.read(Limits.MAX_BYTES) } catch (e: Exception) { return fail(Issue.SaveFailed.of(e)) }
         val fileCfg = bytes?.let { (ConfigCodec.decode(it) as? ParseResult.Ok)?.config }
         val ops = pending.toList()
@@ -503,22 +525,23 @@ class ConfigEngine(
         bytes?.let { runCatching { lastGood.snapshot(it) } }
         val out = merged.copy(revision = maxOf(merged.revision ?: 0, _state.value.config.revision ?: 0) + 1)
         keepWaiters(rep.skipped.map { it.edit })
-        try { writeLocked(out) } catch (e: Exception) { return fail(Issue.SaveFailed.of(e)) }
+        try { writeLocked(out, expectOf(bytes)) } catch (e: ConcurrentChangeException) { throw e } catch (e: Exception) { return fail(Issue.SaveFailed.of(e)) }
         pending.clear(); finishWaiters(rep.skipped.map { it.edit })
         _state.update {
             it.copy(conflict = false, pendingEdits = 0, issue = null,
                 // §9.1: Keep mine uses the same copy, without Undo; all kept shows nothing extra.
                 merge = MergeNotice(rep.kept, rep.skipped.size, rep.onlyFolder, undo = false).takeUnless { n -> n.silent })
         }
-        true
+        return true
     }
 
     /** B4 action "Create from current layout": the only way launcher.json is ever created. */
     suspend fun createFromCurrentLayout(): Boolean = mutex.withLock {
         try {
             if (source.stamp() != null) return pollLocked(force = true) // appeared meanwhile: never clobber
-            writeLocked(_state.value.config)
+            writeLocked(_state.value.config, ABSENT)
             true
+        } catch (_: ConcurrentChangeException) { pollLocked(force = true) // #317: created by someone else mid-save
         } catch (e: Exception) { fail(Issue.SaveFailed.of(e, dev.nasawa.configlauncher.R.string.b5_create_failed)) }
     }
 
@@ -526,12 +549,14 @@ class ConfigEngine(
      * Serialize and write [config] canonically, recording its hash as a self-write. Caller holds the mutex.
      * Refuses output over the cap (§17 Q16) so the launcher never writes a file it can't read.
      */
-    internal fun writeLocked(config: LauncherConfig): String {
+    internal fun writeLocked(config: LauncherConfig, expectHash: String? = null): String {
         val bytes = ConfigCodec.encodeBytes(config)
         if (bytes.size > Limits.MAX_BYTES) throw TooLargeException(Limits.MAX_BYTES / 1024 / 1024)
         val hash = ConfigCodec.sha256(bytes)
         selfWrites.addLast(hash); while (selfWrites.size > 4) selfWrites.removeFirst()
-        source.write(bytes)
+        // #317: [expectHash] is the file the caller checked; the source re-checks it right before replacing the target.
+        // Raced: our bytes aren't the file, so they're no self-write (the next look must see the agent's file as new).
+        try { source.write(bytes, expectHash) } catch (e: ConcurrentChangeException) { selfWrites.remove(hash); throw e }
         lastStamp = source.stamp()
         writeStatus("ok", emptyList(), hash, config.revision, Elements.warnings(config), config)
         _state.value = LoadState(config, Origin.FILE, source.displayName, hash, reconnectable = source.reconnectable)
