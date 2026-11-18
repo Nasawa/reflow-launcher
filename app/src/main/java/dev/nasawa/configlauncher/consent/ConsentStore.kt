@@ -1,5 +1,6 @@
 package dev.nasawa.configlauncher.consent
 
+import kotlinx.coroutines.flow.update
 import dev.nasawa.configlauncher.model.LauncherConfig
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -179,7 +180,7 @@ class ConsentStore(private val dir: File?, private val clock: () -> Long = Syste
     }
 
     private fun save() {
-        _version.value++
+        _version.update { it + 1 }
         val f = file ?: return
         val bytes = buildJsonObject {
             put("version", 1)

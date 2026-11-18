@@ -1,5 +1,6 @@
 package dev.nasawa.configlauncher.hosted
 
+import kotlinx.coroutines.flow.update
 import android.appwidget.AppWidgetProviderInfo
 import android.content.Context
 import android.os.Build
@@ -54,7 +55,7 @@ class WidgetRuntime(
         val next = installedProviders()
         val changed = next.map { it.provider } != providers.map { it.provider }
         providers = next
-        if (changed) { _version.value++; debug { "providers: ${next.size}" }; flow.retrySilent() }
+        if (changed) { _version.update { it + 1 }; debug { "providers: ${next.size}" }; flow.retrySilent() }
         return changed
     }
 
@@ -62,12 +63,12 @@ class WidgetRuntime(
     fun setCell(w: Float, h: Float): Boolean {
         val next = w to h
         if (cellDp == next) return false
-        cellDp = next; _version.value++
+        cellDp = next; _version.update { it + 1 }
         return true
     }
 
-    fun markFailed(id: String, appWidgetId: Int) { if (failed.put(id, appWidgetId) != appWidgetId) { _version.value++; debug { "$id: host view failed" } } }
-    fun clearFailed(id: String) { if (failed.remove(id) != null) _version.value++ }
+    fun markFailed(id: String, appWidgetId: Int) { if (failed.put(id, appWidgetId) != appWidgetId) { _version.update { it + 1 }; debug { "$id: host view failed" } } }
+    fun clearFailed(id: String) { if (failed.remove(id) != null) _version.update { it + 1 } }
 
     /**
      * The grid couldn't make a view for [elementId]'s [appWidgetId]. If Android no longer has that widget (deleted ID,

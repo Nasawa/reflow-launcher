@@ -155,7 +155,7 @@ fun ElementMoveDialog(name: String, c: LauncherConfig, id: String, onMove: (Stri
         text = {
             Column {
                 val pageLabel = if (hasRoom) stringResource(R.string.move_to_page, page + 1, pageIds.size)
-                    else stringResource(R.string.move_element_page_no_room, page + 1, pageIds.size)
+                    else stringResource(R.string.move_to_page, page + 1, pageIds.size) + ", " + stringResource(R.string.move_element_no_room)
                 StepperRow(pageLabel, page, 0, pageIds.size - 1) { page = it }
                 StepperRow(stringResource(R.string.move_to_row, y + 1), y, 0, g.rows - p.h, enabled = hasRoom) { y = it }
                 StepperRow(stringResource(R.string.move_to_column, x + 1), x, 0, g.columns - p.w, enabled = hasRoom) { x = it }

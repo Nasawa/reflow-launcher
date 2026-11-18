@@ -219,7 +219,6 @@
     <string name="resize_element_taken">Couldn\'t resize \"%1$s\": that space is taken.</string>
     <string name="move_element_no_room">No room</string>
     <string name="move_element_no_room_any">No room on any page.</string>
-    <string name="move_element_page_no_room">Page %1$d of %2$d, No room</string>
     <string name="a11y_move_to_no_room">Move to…, No room</string>
     <string name="action_resize">Resize…</string>
     <string name="resize_title">Resize %1$s</string>

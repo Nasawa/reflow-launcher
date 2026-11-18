@@ -1,5 +1,6 @@
 package dev.nasawa.configlauncher.hosted
 
+import kotlinx.coroutines.flow.update
 import dev.nasawa.configlauncher.config.AppWidget
 import dev.nasawa.configlauncher.config.Elements
 import dev.nasawa.configlauncher.model.LauncherConfig
@@ -178,7 +179,7 @@ class WidgetBindings(private val dir: File?, private val host: Host) {
     }
 
     private fun save() {
-        _version.value++
+        _version.update { it + 1 }
         val f = file ?: return
         val bytes = buildJsonObject {
             put("version", 1)
