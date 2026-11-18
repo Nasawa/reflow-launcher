@@ -151,8 +151,8 @@ class ConsentReviewTest {
         assertEquals("Live", live.single().title)
         assertEquals(setOf(0 to 0, 1 to 0, 0 to 1, 1 to 1), live.single().placement.cells())
         assertEquals(listOf("w-2"), ConsentUi.tiles(c, s.report(c), "home").map { it.id })  // no overlap with the tiles
-        assertEquals(listOf(ConsentUi.SheetAction.PERMISSIONS, ConsentUi.SheetAction.EDIT_LAYOUT), ConsentUi.sheetActions(live = true))
-        assertEquals(listOf(ConsentUi.SheetAction.REVIEW, ConsentUi.SheetAction.EDIT_LAYOUT), ConsentUi.sheetActions(live = false))
+        assertEquals(listOf(ConsentUi.SheetAction.PERMISSIONS, ConsentUi.SheetAction.EDIT_LAYOUT, ConsentUi.SheetAction.REMOVE), ConsentUi.sheetActions(live = true))
+        assertEquals(listOf(ConsentUi.SheetAction.REVIEW, ConsentUi.SheetAction.EDIT_LAYOUT, ConsentUi.SheetAction.REMOVE), ConsentUi.sheetActions(live = false))
         assertEquals("w-3", dev.nasawa.configlauncher.ui.WidgetSheetFor(null, ConsentUi.live(c, s.report(c), "two").single()).name)
     }
 }

@@ -1,5 +1,6 @@
 package dev.nasawa.configlauncher.hosted
 
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
@@ -143,5 +144,5 @@ class BindFlow(private val platform: Platform, private val bindings: WidgetBindi
         marks -= eid
     }
 
-    private fun bump() { _version.value++ }
+    private fun bump() { _version.update { it + 1 } }
 }

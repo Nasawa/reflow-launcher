@@ -65,6 +65,16 @@ class ShowSourceTest {
         return compose.onAllNodes(hasText(note), useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
     }
 
+    /**
+     * The note after an engine poll. HomeViewModel.ui is derived on Dispatchers.Default (`flowOn`), which
+     * `waitForIdle` doesn't track, so a poll's new state can reach the screen after it returns (#310 CI flake).
+     * Wait (real time, bounded) for [expected], then report what's shown.
+     */
+    private fun noteShownAfterPoll(expected: Boolean): Boolean {
+        runCatching { compose.waitUntil(5_000) { noteShown() == expected } }
+        return noteShown()
+    }
+
     private fun bounds(text: String): Rect {
         compose.waitForIdle()
         return compose.onAllNodes(hasText(text)).fetchSemanticsNodes().first().boundsInRoot
@@ -127,10 +137,10 @@ class ShowSourceTest {
         file.writeText("{ not json")
         kotlinx.coroutines.runBlocking { app.store.engine.poll(force = true) }
         assertTrue("a load error is up", app.store.engine.state.value.issue is Issue.ParseError)
-        assertTrue("the note comes back while the source needs attention", noteShown())
+        assertTrue("the note comes back while the source needs attention", noteShownAfterPoll(true))
         file.writeText(good)
         kotlinx.coroutines.runBlocking { app.store.engine.poll(force = true) }
         assertEquals(null, app.store.engine.state.value.issue)
-        assertFalse("cleared: the toggle applies again", noteShown())
+        assertFalse("cleared: the toggle applies again", noteShownAfterPoll(false))
     }
 }

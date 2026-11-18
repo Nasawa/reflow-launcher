@@ -209,6 +209,23 @@
     <string name="move_to_confirm">Move</string>
     <string name="a11y_decrease">Decrease: %1$s</string>
     <string name="a11y_increase">Increase: %1$s</string>
+    <!-- #303 NW-6: grid-element edits, ux.md §16.4, §16.7.1–§16.7.3 -->
+    <string name="removed_element">Removed \"%1$s\" from home.</string>
+    <string name="removed_element_a11y">\"%1$s\" removed.</string>
+    <string name="undo_element_moved">Put \"%1$s\" back on %2$s.</string>
+    <string name="undo_element_no_room">Couldn\'t put \"%1$s\" back. There\'s no free space.</string>
+    <string name="undo_element_back">\"%1$s\" is already back on home.</string>
+    <string name="move_element_taken">Couldn\'t move \"%1$s\": that space is taken.</string>
+    <string name="resize_element_taken">Couldn\'t resize \"%1$s\": that space is taken.</string>
+    <string name="move_element_no_room">No room</string>
+    <string name="move_element_no_room_any">No room on any page.</string>
+    <string name="a11y_move_to_no_room">Move to…, No room</string>
+    <string name="action_resize">Resize…</string>
+    <string name="resize_title">Resize %1$s</string>
+    <string name="resize_width">Width, %1$d of %2$d</string>
+    <string name="resize_height">Height, %1$d of %2$d</string>
+    <string name="resize_range">Smallest %1$d × %2$d, largest %3$d × %4$d</string>
+    <string name="resize_done">Done</string>
     <!-- #72 apps.json privacy (Pragma) -->
     <string name="menu_include_hidden_apps">Include hidden apps in apps.json</string>
     <string name="menu_include_hidden_apps_desc">apps.json lists your installed apps for agents. Apps hidden from the drawer are left out unless this is on.</string>

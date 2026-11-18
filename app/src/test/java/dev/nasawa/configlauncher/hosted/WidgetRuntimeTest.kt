@@ -108,6 +108,7 @@ class WidgetRuntimeTest {
         val gallery = AppWidgetProviderInfo().apply {
             provider = ComponentName("com.android.gallery3d", "com.android.gallery3d.gadget.PhotoAppWidgetProvider")
             configure = ComponentName("com.android.gallery3d", "com.android.gallery3d.gadget.WidgetConfigure")
+            widgetFeatures = AppWidgetProviderInfo.WIDGET_FEATURE_RECONFIGURABLE
             // `profile` reads providerInfo's uid; Robolectric leaves it unset.
             org.robolectric.util.ReflectionHelpers.setField(this, "providerInfo", android.content.pm.ActivityInfo().apply {
                 packageName = "com.android.gallery3d"; applicationInfo = android.content.pm.ApplicationInfo().apply { uid = android.os.Process.myUid() }
@@ -135,6 +136,14 @@ class WidgetRuntimeTest {
         assertNull("not Tap to finish setup", r.flow.hint("w-g"))
         r.onActivityResult(activity, WidgetRuntime.REQ_CONFIGURE, android.app.Activity.RESULT_OK)
         assertEquals(id, r.bindings!!.binding("w-g")!!.appWidgetId)
+        // #310 review (Grace, surviving mutant): the result activity is only lent for the result. Afterwards nothing
+        // starts from it: with no attached activity, Reconfigure can't launch (no stale reference kept).
+        r.flow.resumed = true
+        assertFalse(r.flow.reconfigure("w-g"))
+        assertEquals(1, configures.size)
+        r.activity = activity
+        assertTrue(r.flow.reconfigure("w-g"))
+        assertEquals(activity to id, configures.last())
     }
 
     // #310 review (e): the debug provider file is written only once the grid has a cell size, so sizes aren't null.

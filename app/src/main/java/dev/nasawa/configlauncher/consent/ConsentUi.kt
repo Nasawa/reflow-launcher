@@ -54,11 +54,14 @@ object ConsentUi {
         }
     }
 
-    /** Long-press sheet for a widget (§17.3): `Review` on a consent tile, `Permissions` on a live card, then `Edit layout`. */
-    enum class SheetAction { REVIEW, PERMISSIONS, EDIT_LAYOUT }
+    /**
+     * Long-press sheet for a widget (§17.3, §16.7.3): `Review` on a consent tile, `Permissions` on a live card, then
+     * `Edit layout` and (#303) `Remove from home`.
+     */
+    enum class SheetAction { REVIEW, PERMISSIONS, EDIT_LAYOUT, REMOVE }
 
     fun sheetActions(live: Boolean): List<SheetAction> =
-        listOf(if (live) SheetAction.PERMISSIONS else SheetAction.REVIEW, SheetAction.EDIT_LAYOUT)
+        listOf(if (live) SheetAction.PERMISSIONS else SheetAction.REVIEW, SheetAction.EDIT_LAYOUT, SheetAction.REMOVE)
 
     /** Widgets the badge counts (§17.4): waiting for OK, not turned off. */
     fun count(report: List<Consent.Status>): Int =

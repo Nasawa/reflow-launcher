@@ -71,6 +71,7 @@ private fun BoxScope.SizeCue() {
 @Composable
 fun HostedWidgetCell(tile: HostedWidgets.Tile, runtime: WidgetRuntime?, hostWDp: Float, hostHDp: Float,
                      onLong: () -> Unit, onTap: (() -> Unit)?, modifier: Modifier = Modifier,
+                     actions: List<CustomAccessibilityAction> = emptyList(),
                      makeView: ((android.content.Context, Int) -> LongPressHostView?)? = runtime?.let { r -> { c, i -> r.host.createView(c, i) } }) {
     val id = tile.appWidgetId
     if (tile.state == State.BOUND && id != null && makeView != null) {
@@ -84,12 +85,16 @@ fun HostedWidgetCell(tile: HostedWidgets.Tile, runtime: WidgetRuntime?, hostWDp:
                             ?: android.widget.FrameLayout(ctx).also { runtime?.viewMissing(tile.id, id) }
                     },
                     modifier = Modifier.matchParentSize(),
-                    update = { v -> (v as? LongPressHostView)?.let { it.sizeCue = cue; reportSize(it, hostWDp, hostHDp) } },
+                    update = { v -> (v as? LongPressHostView)?.let {
+                        it.sizeCue = cue
+                        it.a11yActions = actions.map { a -> a.label to { a.action(); Unit } }
+                        reportSize(it, hostWDp, hostHDp)
+                    } },
                 )
             }
             if (tile.range != null) SizeCue()
         }
-    } else HostedPlaceholder(tile, onLong, onTap, modifier)
+    } else HostedPlaceholder(tile, onLong, onTap, modifier, actions)
 }
 
 private val reported = java.util.WeakHashMap<LongPressHostView, Pair<Float, Float>>()
@@ -111,7 +116,8 @@ internal fun reportSize(v: LongPressHostView, w: Float, h: Float) {
  * action, so TalkBack doesn't offer one.
  */
 @Composable
-fun HostedPlaceholder(tile: HostedWidgets.Tile, onLong: () -> Unit, onTap: (() -> Unit)?, modifier: Modifier = Modifier) {
+fun HostedPlaceholder(tile: HostedWidgets.Tile, onLong: () -> Unit, onTap: (() -> Unit)?, modifier: Modifier = Modifier,
+                      actions: List<CustomAccessibilityAction> = emptyList()) {
     val ctx = LocalContext.current
     val label = tile.label ?: tile.id
     val reason = reasonRes(tile)?.let { stringResource(it) } ?: ""
@@ -135,6 +141,7 @@ fun HostedPlaceholder(tile: HostedWidgets.Tile, onLong: () -> Unit, onTap: (() -
                 contentDescription = said
                 onTap?.let { t -> onClick { t(); true } }
                 onLongClick { long(); true }
+                if (actions.isNotEmpty()) customActions = actions
             },
         contentAlignment = Alignment.Center,
     ) {
@@ -153,13 +160,14 @@ fun HostedPlaceholder(tile: HostedWidgets.Tile, onLong: () -> Unit, onTap: (() -
 
 /**
  * ux.md §16.2 / §16.7.3 long-press sheet for an `appWidget`: label, `Widget · from launcher.json`, the reason, then
- * `Edit layout`, `App info` (when installed) and, for a failed view, `Retry`. `Remove from home`, `Move to…` and
- * `Resize…` come with NW-6 (#303). `Reconfigure` (#301) for a bound widget whose provider is reconfigurable.
+ * `Edit layout`, `App info` (when installed), `Remove from home` (#303, when [onRemove] is given) and, for a failed
+ * view, `Retry`. `Reconfigure` (#301) for a bound widget whose provider is reconfigurable. `Move to…` and `Resize…`
+ * are TalkBack actions on the widget itself (§16.7.3), not sheet rows.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HostedWidgetSheet(tile: HostedWidgets.Tile, installed: Boolean, onEditLayout: () -> Unit, onAppInfo: () -> Unit,
-                      onRetry: () -> Unit, onDismiss: () -> Unit, onReconfigure: (() -> Unit)? = null) {
+                      onRetry: () -> Unit, onDismiss: () -> Unit, onReconfigure: (() -> Unit)? = null, onRemove: (() -> Unit)? = null) {
     val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(onDismiss, sheetState = sheet) {
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp).padding(bottom = 24.dp)) {
@@ -172,6 +180,7 @@ fun HostedWidgetSheet(tile: HostedWidgets.Tile, installed: Boolean, onEditLayout
             onReconfigure?.let { TextButton(it, Modifier.fillMaxWidth()) { Text(stringResource(R.string.hosted_reconfigure), Modifier.fillMaxWidth()) } }
             TextButton(onEditLayout, Modifier.fillMaxWidth()) { Text(stringResource(R.string.action_edit_layout), Modifier.fillMaxWidth()) }
             if (installed) TextButton(onAppInfo, Modifier.fillMaxWidth()) { Text(stringResource(R.string.action_app_info), Modifier.fillMaxWidth()) }
+            onRemove?.let { TextButton(it, Modifier.fillMaxWidth()) { Text(stringResource(R.string.action_remove_home), Modifier.fillMaxWidth()) } }
         }
     }
 }
