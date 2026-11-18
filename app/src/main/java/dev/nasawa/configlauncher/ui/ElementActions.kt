@@ -33,14 +33,18 @@ import kotlinx.serialization.json.JsonPrimitive
  * #303 NW-6 ux.md §16.7.1: `Remove from home` + Undo for a grid element, with the device-local hold.
  *
  * Order matters: every [Hold] is taken **before** the Remove write (the engine settles bindings and consent inside
- * that write, and an unheld record is GC'd at once). A failed Remove gives the holds straight back. A successful Undo
- * puts them back right after its edit applied (before its debounced write). An Undo that writes nothing releases
- * nothing: the window's end ([release]) does.
+ * that write, and an unheld record is GC'd at once). A failed Remove gives the holds straight back. An Undo puts them
+ * back only once its write keeps the restore ([keep]'s `onKept`, inside the write path before the write and its
+ * settle). #314 review: applying in memory isn't enough. A merge onto a file where the agent already re-added the id
+ * skips the restore, and restoring then would hand the old binding to the agent's element. An Undo that writes nothing
+ * releases nothing: the window's end ([release]) does.
  */
 class ElementUndo(
     private val config: () -> LauncherConfig,
     private val edit: suspend (Edit) -> Boolean,
     private val holds: List<Hold>,
+    /** Apply [Edit] and wait for its write: true only when the file kept it; `onKept` runs before that write. */
+    private val keep: suspend (Edit, () -> Unit) -> Boolean = { e, onKept -> edit(e).also { if (it) onKept() } },
 ) {
     /** Device-local state kept per element id ([dev.nasawa.configlauncher.hosted.WidgetBindings], consent). */
     interface Hold { fun hold(id: String): Boolean; fun restore(id: String); fun release(id: String) }
@@ -68,8 +72,9 @@ class ElementUndo(
     suspend fun undo(r: Removed): Undone {
         val plan = ElementEdits.restorePlan(config(), r.element)
         if (!(plan is ElementEdits.Plan.Same || plan is ElementEdits.Plan.Moved)) return outcome(plan)
-        if (!edit(Edit.RestoreElement(r.element, r.index))) return outcome(ElementEdits.restorePlan(config(), r.element))
-        holds.forEach { it.restore(r.id) }
+        val kept = keep(Edit.RestoreElement(r.element, r.index)) { holds.forEach { it.restore(r.id) } }
+        // Skipped (here or by the merge at write time): say why from what the file holds now; the holds stay set aside.
+        if (!kept) return outcome(ElementEdits.restorePlan(config(), r.element))
         return if (plan is ElementEdits.Plan.Moved) Undone.Moved(plan.pageId) else Undone.Same
     }
 
@@ -268,8 +273,16 @@ fun ElementDragTarget(
 
 /** #303 §16.7.1: the `Removed "<name>" from home.` snackbar; [job] ends the Undo window (release unless [restored]). */
 class ElementSnack(val removed: ElementUndo.Removed, val name: String, val text: String) {
-    @Volatile var restored = false
+    @Volatile var restored = false; private set
+    private var undoing = false
+    private var windowOver = false
     var job: kotlinx.coroutines.Job? = null
+
+    /** The window ended (timeout, ✕, gone): true = release now. Not while an Undo waits for its write ([endUndo] does). */
+    @Synchronized fun windowEnded(): Boolean { windowOver = true; return !restored && !undoing }
+    @Synchronized fun beginUndo() { undoing = true }
+    /** The Undo finished ([ok] = restored). True = the window already ended meanwhile, so release now. */
+    @Synchronized fun endUndo(ok: Boolean): Boolean { undoing = false; if (ok) restored = true; return !restored && windowOver }
 
     companion object {
         const val BASE_MS = 10_000L
@@ -291,7 +304,8 @@ fun ElementUndoSnackbar(u: ElementSnack, windowMs: Long, onUndo: () -> Unit, onD
     val undo = stringResource(R.string.merge_undo)
     androidx.compose.material3.Snackbar(
         // §16.7.1: Undo is also a TalkBack custom action on the snackbar.
-        Modifier.padding(8.dp).semantics {
+        // #314 review nit 1: merged, so the message text is on the node TalkBack and uiautomator see (Undo stays its own button).
+        Modifier.padding(8.dp).semantics(mergeDescendants = true) {
             liveRegion = androidx.compose.ui.semantics.LiveRegionMode.Polite
             customActions = listOf(androidx.compose.ui.semantics.CustomAccessibilityAction(undo) { onUndo(); true })
         },

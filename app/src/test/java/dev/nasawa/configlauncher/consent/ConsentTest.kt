@@ -159,6 +159,22 @@ class ConsentTest {
         assertNull(s.entry("w-1"))
     }
 
+    @Test fun heldApprovalNeverAppliesToACardTheAgentReAdds() {
+        // #314 review: consent counterpart of WidgetBindingsTest.heldBindingNeverAppliesToAnElementTheAgentReAdds.
+        val s = store()
+        val c = cfg(doc(card(caps = open, extra = src)))
+        s.allow("w-1", s.report(c)[0].lines, c); s.alwaysAllow("w-1", "https://x.org")
+        s.hold("w-1"); s.settle(cfg(doc()))
+        s.settle(c)                                   // the agent re-adds w-1 during the window
+        assertEquals(State.NeedsApproval, s.state(c))
+        assertTrue(s.entry("w-1")!!.ceiling.isEmpty())
+        assertFalse(s.isAlwaysAllowed("w-1", "https://x.org"))
+        s.settle(c)
+        assertEquals(State.NeedsApproval, s.state(c))
+        s.release("w-1")
+        assertEquals(State.NeedsApproval, s.state(c))
+    }
+
     @Test fun unreadableStoreAsksAgain() {
         val dir = tmp.newFolder()
         File(dir, "consent.json").writeText("{nope")

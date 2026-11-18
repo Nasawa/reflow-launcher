@@ -80,6 +80,52 @@ class ElementUndoTest {
         assertEquals(listOf("release w-a", "release w-a"), h.log)
     }
 
+    @Test fun undoSkippedAtWriteTimeKeepsTheHoldsAsideAndSaysAlreadyBack() = runBlocking {
+        // #314 review: the agent re-added the id in the file, but the phone hasn't loaded it yet. In memory the Restore
+        // applies; the write's merge onto the agent's file skips it. The holds must not come back (the old binding would
+        // go to the agent's element), and the user hears "already back on home".
+        val h = Harness(cfg(doc(aw("w-a"))))
+        val r = h.undo.remove("w-a")!!
+        val agentFile = cfg(doc(aw("w-a", x = 2, y = 2, w = 1, h = 1)))
+        val undo = ElementUndo({ h.c }, { e -> Edits.apply(h.c, e).applied }, listOf(h.hold)) { e, onKept ->
+            check(Edits.apply(h.c, e).applied)          // applies to the shown model…
+            val merged = Edits.replay(agentFile, listOf(e))
+            h.c = merged.config                          // …but the write lands on the agent's file
+            if (merged.kept == 1) onKept()
+            merged.kept == 1
+        }
+        h.log.clear()
+        assertEquals(ElementUndo.Undone.Back, undo.undo(r))
+        assertTrue("no restore of the set-aside holds: ${h.log}", h.log.none { it.startsWith("restore") })
+        // The window's end releases them.
+        undo.release(r)
+        assertEquals(listOf("release w-a"), h.log)
+    }
+
+    @Test fun keptUndoRestoresTheHoldsBeforeItsWriteCompletes() = runBlocking {
+        val h = Harness(cfg(doc(aw("w-a"))))
+        val r = h.undo.remove("w-a")!!
+        val order = mutableListOf<String>()
+        val undo = ElementUndo({ h.c }, { true }, listOf(object : ElementUndo.Hold {
+            override fun hold(id: String) = true; override fun restore(id: String) { order += "restore" }; override fun release(id: String) {}
+        })) { e, onKept -> h.c = Edits.apply(h.c, e).config; onKept(); order += "written"; true }
+        assertEquals(ElementUndo.Undone.Same, undo.undo(r))
+        assertEquals(listOf("restore", "written"), order)
+    }
+
+    @Test fun snackWindowWaitsForAnUndoInFlight() {
+        val s = ElementSnack(ElementUndo.Removed("w-a", kotlinx.serialization.json.JsonObject(emptyMap()), 0), "A", "t")
+        s.beginUndo()
+        assertFalse("not released while the Undo waits for its write", s.windowEnded())
+        assertTrue("skipped → release once it's done", s.endUndo(ok = false))
+        val k = ElementSnack(ElementUndo.Removed("w-a", kotlinx.serialization.json.JsonObject(emptyMap()), 0), "A", "t")
+        k.beginUndo(); k.windowEnded()
+        assertFalse("kept → never released", k.endUndo(ok = true))
+        assertFalse(k.windowEnded())
+        val plain = ElementSnack(ElementUndo.Removed("w-a", kotlinx.serialization.json.JsonObject(emptyMap()), 0), "A", "t")
+        assertTrue(plain.windowEnded())
+    }
+
     @Test fun talkBackActionsFollowTheTable() {
         assertEquals(listOf(ElementAction.RESIZE, ElementAction.MOVE_TO, ElementAction.REMOVE), ElementActionList.of(ElementKind.APP_WIDGET))
         assertEquals(listOf(ElementAction.RESIZE, ElementAction.MOVE_TO, ElementAction.REMOVE), ElementActionList.of(ElementKind.LIVE_CARD))
@@ -90,6 +136,10 @@ class ElementUndoTest {
         assertEquals(1 to 2, ElementActionList.cellDelta(110f, 260f, 100f, 120f, rtl = false))
         assertEquals(-1 to 0, ElementActionList.cellDelta(110f, 40f, 100f, 120f, rtl = true))
         assertEquals(0 to 0, ElementActionList.cellDelta(49f, -59f, 100f, 120f, rtl = false))
+        // #314 review: half a cell or more rounds to the next cell on both axes (not truncated).
+        assertEquals(0 to 1, ElementActionList.cellDelta(0f, 61f, 100f, 120f, rtl = false))
+        assertEquals(0 to -1, ElementActionList.cellDelta(0f, -61f, 100f, 120f, rtl = false))
+        assertEquals(1 to 0, ElementActionList.cellDelta(51f, 0f, 100f, 120f, rtl = false))
     }
 
     @Test fun resizeLimitsUseProviderMinMaxCardMinSpanAndTheGrid() {

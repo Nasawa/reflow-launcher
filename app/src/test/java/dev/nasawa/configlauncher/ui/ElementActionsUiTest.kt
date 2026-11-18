@@ -8,6 +8,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -63,6 +64,15 @@ class ElementActionsUiTest {
         val node = rule.onNode(SemanticsMatcher.keyIsDefined(SemanticsActions.CustomActions)).fetchSemanticsNode()
         val labels = node.config[SemanticsActions.CustomActions].map { it.label }
         assertEquals(listOf("Resize…", "Move to…", "Remove from home"), labels)
+    }
+
+    @Test fun undoSnackbarMessageIsOnTheAccessibleNode() {
+        // #314 review nit 1: the message text sits on the node that carries the live region and the Undo action.
+        val u = ElementSnack(dev.nasawa.configlauncher.ui.ElementUndo.Removed("w-a", kotlinx.serialization.json.JsonObject(emptyMap()), 0), "Clock", "Clock removed")
+        rule.setContent { MaterialTheme { ElementUndoSnackbar(u, 60_000, onUndo = {}, onDismiss = {}) } }
+        rule.onNodeWithText("Clock removed")
+            .assert(SemanticsMatcher.keyIsDefined(androidx.compose.ui.semantics.SemanticsProperties.LiveRegion))
+            .assert(SemanticsMatcher("has Undo action") { n -> n.config.getOrElseNullable(SemanticsActions.CustomActions) { null }.orEmpty().any { it.label == "Undo" } })
     }
 
     @Test fun hostedSheetHasRemoveFromHome() {
