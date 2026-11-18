@@ -1,6 +1,7 @@
 # Native widgets: hosting Android AppWidgets (design delta)
 
-**Status:** proposal, 2026-11-18. Author: Archimedes. **Docs only.** It doesn't create issues or change code.
+**Status:** proposal, 2026-11-18; **decisions D1–D4 settled by Christopher 2026-11-18** (§4); Pragma's #297 review
+folded in. Author: Archimedes. **Docs only.** It doesn't create issues or change code.
 **Baseline:** main `7dba811` (tag `v1.0.0`).
 **Why now:** Christopher's new top priority, ahead of F-Droid and Play. Reflow needs third-party widgets (weather,
 calendar, Home Assistant, KWGT…) to be a daily driver for store users.
@@ -14,7 +15,7 @@ This is a **delta**. The design itself already exists, and this doc doesn't repe
   consent model. Android's bind dialog is their consent, and the review list shows them as `Allowed by Android`.
 
 Below: what main already has (§1), what changes compared with those docs (§2), how much is shared with cards (§3),
-decisions for Christopher (§4), and the issue breakdown in build order (§5).
+Christopher's decisions (§4), and the issue breakdown in build order (§5).
 
 ## 1. Exists vs missing on main `7dba811`
 
@@ -58,7 +59,9 @@ shows widgets it can't bind. No build flag is needed: main isn't released per PR
 `personal`), `label` (optional, max 40; used only on the placeholder before the provider is known).
 **Change from research §5.1:** drop `style` for `appWidget` in the first release. Frame-only styling (padding,
 backdrop) has no foreseeable value worth its validator and phone UI. It can come back later as an optional key at
-the next level. Older phones (v1.0, level 4) skip it with "needs feature level 5… Update the app", and the cells stay
+the next level. Because unknown keys are errors, `style` gets plain copy an agent can act on (Pragma, #297):
+`elements[N]: appWidget "<id>" doesn't support "style" yet. Remove it.` The phone and `validate.py` use the same
+sentence. Older phones (v1.0, level 4) skip it with "needs feature level 5… Update the app", and the cells stay
 reserved. This path is already shipped and tested.
 
 ### 2.3 Load rules (unchanged principles, made explicit)
@@ -68,8 +71,9 @@ reserved. This path is already shipped and tested.
 - Overlap and out-of-grid stay **B2** on main, as for every element today. On a `windowOverrides` layout (when built),
   an element that doesn't fit is **not shown there**, with a warning (layout-overrides.md §6.1). There's nothing
   widget-specific about that.
-- A missing provider, a provider in a paused or absent work profile, or an unbound widget → a placeholder in its
-  cells. The element is kept verbatim. A file load **never** opens a system dialog.
+- A missing provider or an unbound widget → a placeholder in its cells. A `profile: "work"` widget is valid in the
+  file but not hosted in this milestone (D3): its placeholder reason is `Work widgets come later`. Tapping it does
+  nothing, long-press opens the usual sheet, and TalkBack reads `<Label>, widget, Work widgets come later`. The element is kept verbatim. A file load **never** opens a system dialog.
 - **No polling.** `AppWidgetHost.startListening` runs on home `onStart` and `stopListening` on `onStop`. Providers
   push RemoteViews. Provider install, update and removal come from the existing `LauncherApps.Callback`
   (`apps/InstalledApps.kt:96-106`). Binding GC runs on the existing successful-load event, never on a timer.
@@ -80,9 +84,11 @@ reserved. This path is already shipped and tested.
   with sizes **in cells for this phone's current main grid**. This lets an AI place a widget correctly with no picker.
   It's one more array in an existing file, not a new file.
 - **`status.json` gains `appWidgets: {"<elementId>": "<state>"}`.** States: `bound`, `needsSetup`, `needsConfig`,
-  `notInstalled`, `paused`, `failed`. Display only, like the consent map. Never the `appWidgetId`.
+  `notInstalled`, `unsupported` (a work-profile widget, D3; not `paused`), `failed`. `paused` is reserved for NW-9.
+  status.json reports only resolved states, never a bind in progress. Display only, like the consent map. Never the `appWidgetId`.
 - Template `AGENTS.md` and `skills/reflow-launcher/SKILL.md` get a short `appWidget` section. A widget that the file
-  adds shows `Tap to set up` until someone taps it on the phone (or binds silently, decision D1).
+  adds binds silently when Android already allows it and the widget needs no configure screen (D1). Otherwise it
+  shows `Tap to set up` until someone taps it on that phone.
 
 ### 2.5 Device-local state
 `filesDir/widgets/bindings.json`: `elementId → {appWidgetId, provider, profile, state}`, kept like `ConsentStore`
@@ -101,34 +107,30 @@ device unless D2 is chosen.
 
 ## 3. Sharing with dashboard cards (S3, #137, #140–#143)
 **Share exactly one thing: grid-element edits (NW-6).** Remove + Undo with a device-local hold, `Move to…` with a
-span collision check, the `Resize…` sheet, and drag-move of a span. ux.md §16.7 already specs these for every
+span collision check, the `Resize…` sheet, drag-move of a span, and the NW-8 drag-resize handles. ux.md §16.7 already specs these for every
 grid-placed element, none exist yet, and cards need them anyway. Building them once is clearly cheaper. The
 placeholder **frame** composable is reused too (a refactor, not a feature).
 **Don't share** rendering, consent, data files or `CARDS_LIVE`. Hosted widgets are RemoteViews in an
 `AndroidView`. Cards are Compose with a consent store. Coupling their pipelines buys nothing. S3-E/F/G stay on their
 own track and can land before or after this milestone.
 
-## 4. Decisions for Christopher
-Each has a default, so building can start before he answers. Only NW-4 waits on D1, and only for its last step.
+## 4. Decisions (Christopher, 2026-11-18)
+All four are decided. D1–D3 took the recommended default; D4 changed.
 
-- **D1. Widgets your AI adds: automatic, or tap first?** When an AI adds a widget to the layout file, Android may
-  already trust Reflow for that app (you ticked "Always allow" once). Should Reflow then show the widget right away,
-  or always show a "Tap to set up" box until you tap it on each phone? *Recommended: show it automatically when
-  Android already allows it and the widget needs no setup screen. Otherwise use "Tap to set up".* Why: it's the
-  AI-managed goal with zero pop-ups. A file can never trigger a system dialog either way.
-- **D2. New phone: do you move with Smart Switch or Google restore?** If yes, Reflow could try to bring widgets back
-  set up (only when the widget's app also restores its data, and fiddly on Samsung). If not, after a phone move every
-  widget shows "Tap to set up" once, and layout and positions come back from your file. *Recommended: no restore
-  support. One tap per widget.* Why: it's a lot of code and Samsung-specific testing for a once-every-few-years
-  event, and Lawnchair and Nova don't fully manage it either.
-- **D3. Work-profile widgets in the first release?** Only matters if you use an Android work profile (Samsung Secure
-  Folder doesn't count). *Recommended: personal widgets only at first. Work widgets show "Work widgets aren't
-  supported yet" and keep their place.* Why: it needs a work profile on a test phone and adds paused/unpaused states.
-  It's easy to add later.
-- **D4. Resizing on the phone: drag handles, or a size menu first?** Launcher-style corner handles feel native but
-  are the fiddliest part to get right on real screens. A long-press → `Resize…` menu with width/height − / + buttons
-  works today for touch and TalkBack. *Recommended: the `Resize…` menu in the first release, drag handles as a
-  follow-up (NW-8).* Why: your AI sets sizes in the file anyway, and the menu is needed for accessibility regardless.
+- **D1. Widgets an AI adds: Decided: automatic when Android allows it and there's no configure screen; otherwise
+  `Tap to set up`.** A file load never opens a dialog. **No flash (Pragma, #297):** while a load is trying to bind
+  silently, show the frame with only the icon and label, no reason line. Show `Tap to set up` only once the silent bind
+  has failed or isn't allowed. (NW-4)
+- **D2. Phone move / system restore: Decided: no restore support.** After a phone move or reinstall, each widget shows
+  `Tap to set up` once; layout and positions come from the file. `widgets/` stays out of backup and device transfer.
+  Restore remap stays follow-up NW-10.
+- **D3. Work-profile widgets: Decided: personal widgets only for now.** Work widgets keep their cells and show
+  `Work widgets come later` (Pragma's copy, matching #265's "arrive in a later version"); status.json state
+  `unsupported`. Work-profile hosting stays follow-up NW-9.
+- **D4. Phone resizing: Decided (changed from the recommendation): drag corner handles ship in the first release.**
+  Architect's split: NW-6 keeps the long-press `Resize…` sheet with − / + steppers (the accessible path, also exposed
+  as TalkBack custom actions), so NW-6 stays reviewable. **NW-8 "Drag-resize handles"** is built right after NW-6,
+  inside the milestone and before the NW-7 QA pass, and needs real-device testing.
 
 ## 5. Issue breakdown (build order)
 Prefix `NW-` (native widgets). **Device:** **E** means an emulator or JVM covers it. **R** means it must also run on
@@ -138,7 +140,8 @@ the existing emulator matrix (and the hinge check stays waived).
 **NW-1. `appWidget` schema at feature level 5 (no host yet).** *Schema change: yes. New element type, level 5,
 `schemaVersion` 1.*
 Scope: `$defs/appWidget`; `config/AppWidget.kt` `ElementType` (strict keys per §2.2); `validate.py` mirror and level 5;
-fixtures (valid, provider missing class, `style` rejected, `requires: 4` rejected); renumber level mentions (§2.1);
+fixtures (valid, `profile: "work"` valid, provider missing class, `style` rejected with
+`elements[N]: appWidget "<id>" doesn't support "style" yet. Remove it.`, `requires: 4` rejected); renumber level mentions (§2.1);
 template `AGENTS.md`/skill section.
 Acceptance: phone and `validate.py` agree on every fixture. A v1.0.0 APK loading a level-5 widget file skips it with
 the "Update the app" warning and keeps the cells (no B2). Write-back round-trips the element verbatim.
@@ -158,25 +161,27 @@ no orphan IDs after a remove and reload. **E**, plus one **R** listing check on 
 
 **NW-3. Render hosted widgets and placeholders.**
 Scope: `AppWidgetHostView` via `AndroidView` in `PageGrid` cells, using `widgetHostSizeDp` and reporting sizes; ux
-§16.2 placeholder states on the shared frame; long-press on a live widget opens the widget sheet (intercept like
+§16.2 placeholder states on the shared frame, plus D3's `Work widgets come later` (tap does nothing; status
+`unsupported`); long-press on a live widget opens the widget sheet (intercept like
 Launcher3's long-press helper); the pager swipe must not fight scrollable widgets; `status.json` `appWidgets` map;
 §16.5 out-of-range cue and warning; `Not installed` from `LauncherApps.Callback`.
 Acceptance: a bound widget draws at the right size on phone and tablet grids and updates without polling.
 Uninstalling or reinstalling the provider flips the state live. Long-press always opens the sheet, never the widget's
 own click. A horizontal swipe on a non-scrolling widget changes page. Placeholders announce
-`<Label>, widget, <reason>` in TalkBack.
+`<Label>, widget, <reason>` in TalkBack (`<Label>, widget, Work widgets come later` for a work widget).
 Grace: emulator with AOSP Clock/Calendar widgets plus the screen matrix (phone, t7, t10, land). **R** on the A53 and
 onn: Google Calendar (scrolling list), Samsung Weather or Google weather, a KWGT widget, HA companion if installed.
 Check long-press vs tap vs swipe, and rotation.
 
-**NW-4. Tap to set up: bind and configure.** *Waits on D1 for the silent-bind step only.*
+**NW-4. Tap to set up: bind and configure (incl. D1 silent bind).**
 Scope: placeholder tap → `bindAppWidgetIdIfAllowed` → explanation sheet once per package (ux §16.3) →
 `ACTION_APPWIDGET_BIND` → required configure activity → bound. Cancel paths (`Tap to allow`, `Tap to finish setup`,
-`deleteAppWidgetId`). `Reconfigure` in the sheet. Binds only while home is resumed. D1 default: silent bind on load
-when allowed and no required configure, never any dialog from a load.
+`deleteAppWidgetId`). `Reconfigure` in the sheet. Binds only while home is resumed. D1: silent bind on load when
+allowed and no required configure, never any dialog from a load; during the attempt the frame shows only icon and
+label, no reason line, and `Tap to set up` appears only once the silent bind has failed or isn't allowed.
 Acceptance: every §16.2 transition is reachable and reversible. Cancelling never leaks an ID (checked with
 `dumpsys appwidget`). An agent adding six widgets causes zero dialogs. The first widget from a package shows the
-explanation once.
+explanation once. No `Tap to set up` flash on a silent bind.
 Grace: emulator for the state machine (AOSP providers with and without configure). **R** on the A53 (Samsung's bind
 dialog, "Always allow", Samsung or Google configure screens, e.g. Calendar account pick) and the onn.
 
@@ -192,8 +197,9 @@ the picker on the A53 with ~50 providers (scroll performance, preview images) an
 
 **NW-6. Grid-element edits (shared with cards).**
 Scope: ux §16.7.1 `Remove from home` + Undo with the device-local hold (bindings *and* consent), §16.7.2 `Move to…`
-for spans, §16.4 `Resize…` sheet (steppers bounded by provider min/max for widgets, by `minSpan`/layouts for cards,
-and by free cells), and edit-mode drag-move of a span. Sheet actions per §16.7.3. New `Edit` ops replay by ID at
+for spans, §16.4 `Resize…` sheet with − / + steppers (bounded by provider min/max for widgets, by `minSpan`/layouts
+for cards, and by free cells; also TalkBack custom actions), and edit-mode drag-move of a span. No drag handles
+(NW-8). Sheet actions per §16.7.3. New `Edit` ops replay by ID at
 write time.
 Acceptance: each action is one write that changes only that element's keys. Undo restores a widget with no rebind and
 a card with no re-prompt. A collision at write time → `move_element_taken`, no write. TalkBack custom actions match
@@ -201,17 +207,26 @@ a card with no re-prompt. A collision at write time → `move_element_taken`, no
 Grace: JVM `Edits`/replay tests; emulator for sheets and TalkBack. **R** drag-move of a 4×2 widget on the A51/A53
 (the same hands-on check style as #253).
 
+**NW-8. Drag-resize handles (D4).**
+Scope: ux §16.4 edit-mode frame: select a widget or card → white 24 % frame with edge handles (corners when both axes
+resize); size snaps to whole cells with a soft haptic per step; stops at occupied cells (red edge; outline only with
+reduced motion) and at provider min/max; release → one `w`/`h` write through the NW-6 resize op. No reflow.
+Acceptance: one write per release; never crosses min/max or an occupied cell; the handle hit target is ≥ 48 dp; a
+cancel (rotate, window resize) writes nothing; the `Resize…` sheet still works.
+Grace: JVM for the snapping math; emulator for the flow. **R** on the A51/A53 and onn (fingers, small cells, edge
+handles near screen edges and the dock).
+
 **NW-7. Release QA pass for native widgets.**
 Scope: Grace's matrix on a signed release APK. Reboot; launcher update over v1.0.0 (cells were reserved, now live);
 reinstall (everything → `Tap to set up`, positions intact); provider update and uninstall; tablet vs phone sizes from
 one file; battery sanity (no wakeups while home is hidden).
 Acceptance: no lost or orphaned IDs after each scenario (`dumpsys appwidget`); no file write from any bind,
-configure or load; the release notes list known gaps (D2/D3/D4 per answers).
+configure or load; the release notes list known gaps (no restore remap, work widgets come later).
 Grace: **R** on the A51, A53 and onn; emulator for the API spread (29, 31, 35).
 
-**Follow-ups, not in the milestone unless the decisions say so:** NW-8 drag-resize handles (D4); NW-9 work-profile
-widgets (D3); NW-10 system-restore remap via `ACTION_APPWIDGET_HOST_RESTORED` (D2); optional frame `style` for
+**Build order:** NW-1 → NW-2 → NW-3 → NW-4 → NW-5 → NW-6 → NW-8 → NW-7 (QA last).
+
+**Follow-ups, outside the milestone:** NW-9 work-profile widgets (D3); NW-10 system-restore remap via `ACTION_APPWIDGET_HOST_RESTORED` (D2); optional frame `style` for
 `appWidget` (next level).
 
-**Critical path for "daily driver":** NW-1 → NW-2 → NW-3 → NW-4 → NW-5 → NW-7. NW-6 can run in parallel after NW-2,
-and it also unblocks cards.
+NW-6 can start in parallel after NW-2 and also unblocks cards; NW-8 needs NW-6. NW-7 needs all of NW-1–NW-6 and NW-8.
