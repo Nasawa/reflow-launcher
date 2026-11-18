@@ -101,6 +101,8 @@ class ConfigEngine(
     private val clock: () -> Long = System::currentTimeMillis,
     /** #138: device-local widget approvals; null in tests that don't need them (no `consent` map then). */
     val consent: dev.nasawa.configlauncher.consent.ConsentStore? = null,
+    /** #299: device-local appWidget bindings, settled after every successful load (never after a B2). */
+    val bindings: dev.nasawa.configlauncher.hosted.WidgetBindings? = null,
     /**
      * #257: debug (default) keeps consent and live-card behaviour. Release builds pass false so cards
      * get a placeholder tile and a "not shown in this version" warning. Approvals in [consent] are
@@ -509,7 +511,7 @@ class ConfigEngine(
     /** §16/§17: `.configlauncher/status.json` so an agent can see why an edit was rejected. Best effort. */
     private fun writeStatus(result: String, errors: List<String>, hash: String, revision: Long? = null, warnings: List<String> = emptyList(), config: LauncherConfig? = null) {
         statusResult = Triple(result, errors, hash); statusRevision = revision; statusWarnings = warnings; statusConfig = config
-        if (config != null) consent?.settle(config)
+        if (config != null) { consent?.settle(config); bindings?.settle(config) }
         emitStatus()
     }
 

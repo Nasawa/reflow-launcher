@@ -1,11 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- #158 review: widget approvals are per phone (ux.md §17, Q-D6). allowBackup=false covers Android 11 and older;
-     on Android 12+ these rules keep consent/ out of cloud backup and device-to-device transfer. -->
+     on Android 12+ these rules keep consent/ out of cloud backup and device-to-device transfer.
+     #299: widgets/bindings.json too: an appWidgetId means nothing on another device (D2, no restore). -->
 <data-extraction-rules>
     <cloud-backup>
         <exclude domain="file" path="consent/" />
+        <exclude domain="file" path="widgets/" />
     </cloud-backup>
     <device-transfer>
         <exclude domain="file" path="consent/" />
+        <exclude domain="file" path="widgets/" />
     </device-transfer>
 </data-extraction-rules>

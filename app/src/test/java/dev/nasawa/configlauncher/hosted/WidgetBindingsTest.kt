@@ -1,0 +1,135 @@
+package dev.nasawa.configlauncher.hosted
+
+import dev.nasawa.configlauncher.config.ConfigCodec
+import dev.nasawa.configlauncher.config.ParseResult
+import dev.nasawa.configlauncher.hosted.WidgetBindings.Binding
+import dev.nasawa.configlauncher.hosted.WidgetBindings.Provider
+import dev.nasawa.configlauncher.hosted.WidgetBindings.State
+import dev.nasawa.configlauncher.store.ConfigEngine
+import dev.nasawa.configlauncher.store.LastGoodStore
+import dev.nasawa.configlauncher.store.LocalFileSource
+import kotlinx.coroutines.runBlocking
+import org.junit.Assert.*
+import org.junit.Rule
+import org.junit.Test
+import org.junit.rules.TemporaryFolder
+import java.io.File
+
+/** #299 NW-2: device-local appWidget bindings (native-widgets.md §2.5). */
+class WidgetBindingsTest {
+    @get:Rule val tmp = TemporaryFolder()
+
+    /** Our host's allocated IDs; [deleted] records frees in order. */
+    private class FakeHost(vararg ids: Int) : WidgetBindings.Host {
+        val alive = ids.toMutableSet()
+        val deleted = mutableListOf<Int>()
+        override fun ids() = alive.toIntArray()
+        override fun delete(appWidgetId: Int) { alive -= appWidgetId; deleted += appWidgetId }
+    }
+
+    private val weather = Provider("com.example.weather", ".WeatherWidget")
+    private fun bound(id: Int, p: Provider = weather, profile: String = "personal") = Binding(id, p, profile, State.BOUND)
+
+    private fun aw(id: String, cls: String = ".WeatherWidget", x: Int = 0, extra: String = "") =
+        """{"id":"$id","type":"appWidget","requires":5$extra,"page":"home","x":$x,"y":1,"w":1,"h":1,"content":{"provider":{"package":"com.example.weather","class":"$cls"}}}"""
+    private fun doc(vararg els: String) =
+        """{"schemaVersion":1,"pages":[{"id":"home","items":[]}],"elements":[${els.joinToString(",")}]}"""
+    private fun cfg(s: String) = (ConfigCodec.decode(s) as ParseResult.Ok).config
+
+    @Test fun saveAndLoadSurviveANewInstance() {
+        val dir = tmp.newFolder()
+        val host = FakeHost(7)
+        WidgetBindings(dir, host).put("w-1", bound(7))
+        assertTrue(File(dir, WidgetBindings.FILE).isFile)
+        assertFalse(File(dir, "${WidgetBindings.FILE}.tmp").exists())
+        // Process death: a new store reads the same binding back.
+        assertEquals(bound(7), WidgetBindings(dir, host).binding("w-1"))
+    }
+
+    @Test fun corruptFileStartsEmptyAndFreesOrphansOnTheNextSettle() {
+        val dir = tmp.newFolder()
+        File(dir, WidgetBindings.FILE).writeText("{not json")
+        val host = FakeHost(7, 8)
+        val b = WidgetBindings(dir, host)
+        assertTrue(b.all().isEmpty())
+        b.settle(cfg(doc(aw("w-1"))))
+        assertEquals(listOf(7, 8), host.deleted.sorted())
+    }
+
+    @Test fun elementThatLeftTheFileIsFreedOnSettle() {
+        val host = FakeHost(7, 8)
+        val b = WidgetBindings(tmp.newFolder(), host).apply { put("w-1", bound(7)); put("w-2", bound(8)) }
+        b.settle(cfg(doc(aw("w-1"))))
+        assertEquals(listOf(8), host.deleted)
+        assertEquals(setOf("w-1"), b.all().keys)
+    }
+
+    @Test fun providerOrProfileChangeFreesTheIdForSetup() {
+        val host = FakeHost(7, 8, 9)
+        val b = WidgetBindings(tmp.newFolder(), host)
+        b.put("w-1", bound(7)); b.put("w-2", bound(8)); b.put("w-3", bound(9, Provider("com.example.weather", "com.example.weather.WeatherWidget")))
+        b.settle(cfg(doc(aw("w-1", cls = ".Other"), aw("w-2", x = 1).replace("\"}}}", "\"},\"profile\":\"work\"}}"), aw("w-3", x = 2))))
+        assertEquals(listOf(7, 8), host.deleted)   // w-3: the same class written in full is not a change
+        assertEquals(setOf("w-3"), b.all().keys)
+    }
+
+    @Test fun skippedElementKeepsItsBinding() {
+        val host = FakeHost(7)
+        val b = WidgetBindings(tmp.newFolder(), host).apply { put("w-1", bound(7)) }
+        b.settle(cfg(doc(aw("w-1", cls = ".Other").replace("\"requires\":5", "\"requires\":9"))))
+        assertTrue(host.deleted.isEmpty())
+        assertEquals(bound(7), b.binding("w-1"))
+    }
+
+    @Test fun holdRestoreRelease() {
+        val host = FakeHost(7, 8)
+        val b = WidgetBindings(tmp.newFolder(), host).apply { put("w-1", bound(7)); put("w-2", bound(8)) }
+        assertTrue(b.hold("w-1")); assertTrue(b.hold("w-2"))
+        assertFalse(b.hold("w-none"))
+        // Removed from the file while held: kept.
+        b.settle(cfg(doc()))
+        assertTrue(host.deleted.isEmpty())
+        // Undo puts w-1 back; the window for w-2 ends.
+        b.settle(cfg(doc(aw("w-1"))))
+        b.restore("w-1")
+        b.release("w-2")
+        assertEquals(listOf(8), host.deleted)
+        assertEquals(setOf("w-1"), b.all().keys)
+        assertFalse(b.isHeld("w-1"))
+        // Released while the element is back in the file: nothing freed.
+        b.hold("w-1"); b.release("w-1")
+        assertEquals(listOf(8), host.deleted)
+    }
+
+    @Test fun bindInProgressIsNotAnOrphanAndPutReplacesOldId() {
+        val host = FakeHost(7, 9)
+        val b = WidgetBindings(tmp.newFolder(), host).apply { put("w-1", bound(7)) }
+        b.beginBind(9)
+        b.settle(cfg(doc(aw("w-1"))))
+        assertTrue(host.deleted.isEmpty())
+        b.put("w-1", bound(9))
+        assertEquals(listOf(7), host.deleted)
+        b.beginBind(10); b.abandonBind(10)
+        assertEquals(listOf(7, 10), host.deleted)
+    }
+
+    @Test fun engineSettlesOnGoodLoadsOnlyNeverOnB2() = runBlocking {
+        val dir = tmp.newFolder()
+        val src = LocalFileSource(dir); src.file.writeText(doc(aw("w-1")))
+        val host = FakeHost(7)
+        val b = WidgetBindings(tmp.newFolder(), host).apply { put("w-1", bound(7)) }
+        val e = ConfigEngine(src, LastGoodStore(tmp.newFolder()), 0, bindings = b)
+        e.poll(force = true)
+        assertEquals(bound(7), b.binding("w-1"))
+        // A B2 file without the widget (overlap) deletes nothing.
+        src.file.writeText(doc(aw("w-2"), aw("w-3")))
+        e.poll(force = true)
+        assertNotNull(e.state.value.issue)
+        assertTrue(host.deleted.isEmpty())
+        // The next good load without it frees the ID.
+        src.file.writeText(doc())
+        e.poll(force = true)
+        assertEquals(listOf(7), host.deleted)
+        assertNull(b.binding("w-1"))
+    }
+}
