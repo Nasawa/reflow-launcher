@@ -16,14 +16,15 @@ import java.io.File
  * polls every 2 s while the home screen is visible and immediately on start, uses FileObserver
  * for app storage and a ContentObserver hint for SAF (ARCHITECTURE.md §4).
  */
-class ConfigStore(private val context: Context, private val scope: CoroutineScope) {
+class ConfigStore(private val context: Context, private val scope: CoroutineScope, widgetHost: dev.nasawa.configlauncher.hosted.WidgetBindings.Host? = null) {
     val prefs = Prefs(context)
     /** §18.5 AF-1 app-only source: app-private, separate from last-good.json and history/. */
     val localDir: File = File(context.filesDir, "config/source")
     /** #251: root save temps that may still exist on a SAF tree, swept on start ([SafWrites]). */
     private val tempJournal = FileTempJournal(File(context.filesDir, "config/saf-temps.txt"))
     val engine = ConfigEngine(currentSource(), LastGoodStore(File(context.filesDir, "config")), scope = scope,
-        consent = dev.nasawa.configlauncher.consent.ConsentStore(File(context.filesDir, "consent")))
+        consent = dev.nasawa.configlauncher.consent.ConsentStore(File(context.filesDir, "consent")),
+        bindings = widgetHost?.let { dev.nasawa.configlauncher.hosted.WidgetBindings(File(context.filesDir, "widgets"), it) })
         .also { it.askBeforeMerge = prefs.askBeforeMerging }
     val state get() = engine.state
 

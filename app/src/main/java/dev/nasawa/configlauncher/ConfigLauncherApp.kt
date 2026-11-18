@@ -10,5 +10,7 @@ import kotlinx.coroutines.SupervisorJob
 class ConfigLauncherApp : Application() {
     val scope = CoroutineScope(SupervisorJob())
     val apps by lazy { InstalledApps(this) }
-    val store by lazy { ConfigStore(this, scope) }
+    /** #299: app-scoped, so a rotate or resize rebuilds widget views, not bindings. */
+    val widgetHost by lazy { dev.nasawa.configlauncher.hosted.WidgetHost(this) }
+    val store by lazy { ConfigStore(this, scope, widgetHost) }
 }

@@ -1,0 +1,158 @@
+package dev.nasawa.configlauncher.hosted
+
+import dev.nasawa.configlauncher.config.AppWidget
+import dev.nasawa.configlauncher.config.Elements
+import dev.nasawa.configlauncher.model.LauncherConfig
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.put
+import java.io.File
+import java.io.FileOutputStream
+
+/**
+ * #299 NW-2: device-local `appWidget` bindings (docs/design/native-widgets.md §2.5), in app-private storage
+ * (`filesDir/widgets/bindings.json`, temp + rename, like [dev.nasawa.configlauncher.consent.ConsentStore]).
+ * Never synced, never in status.json; excluded from backup and device transfer (D2: no restore).
+ *
+ * `elementId → {appWidgetId, provider, profile, state}`. The store never binds anything itself (NW-4 does, through
+ * [put]); it frees AppWidget IDs through [host]:
+ * - [settle] runs after every successful load (same hook as consent). A rejected file (B2) never reaches it, so it
+ *   never deletes a binding. IDs whose element left the file, or whose element now names another provider or profile
+ *   (→ `needsSetup`), are deleted; so are host IDs nobody owns (orphans, e.g. after a corrupt store).
+ * - Undo hold for NW-6 (#303): a [hold]-ed binding survives [settle] while its element is gone; [restore] ends the
+ *   hold (Undo), [release] ends it and frees the ID unless the element is back in the file.
+ */
+class WidgetBindings(private val dir: File?, private val host: Host) {
+    /** The parts of `AppWidgetHost` the store needs (fake in tests). */
+    interface Host {
+        /** IDs currently allocated to our host. */
+        fun ids(): IntArray
+        fun delete(appWidgetId: Int)
+    }
+
+    data class Provider(val pkg: String, val cls: String)
+
+    enum class State(val key: String) {
+        BOUND("bound"), NEEDS_CONFIG("needsConfig"), FAILED("failed");
+        companion object { fun of(k: String?) = entries.firstOrNull { it.key == k } }
+    }
+
+    data class Binding(val appWidgetId: Int, val provider: Provider, val profile: String, val state: State)
+
+    private val file = dir?.let { File(it, FILE) }
+    private var entries: MutableMap<String, Binding> = load()
+    private val held = mutableSetOf<String>()
+    /** IDs allocated by a bind in progress (NW-4), not yet [put]: never treated as orphans. */
+    private val inFlight = mutableSetOf<Int>()
+    /** Element IDs of `appWidget`s in the last settled file. */
+    private var lastIds: Set<String> = emptySet()
+
+    @Synchronized fun all(): Map<String, Binding> = entries.toMap()
+    @Synchronized fun binding(elementId: String): Binding? = entries[elementId]
+    @Synchronized fun isHeld(elementId: String) = elementId in held
+
+    /** NW-4: an ID was allocated and the bind flow is running. */
+    @Synchronized fun beginBind(appWidgetId: Int) { inFlight += appWidgetId }
+
+    /** NW-4: the bind flow gave up; the ID is freed. */
+    @Synchronized fun abandonBind(appWidgetId: Int) { if (inFlight.remove(appWidgetId)) host.delete(appWidgetId) }
+
+    /** Record (or replace) a binding. A replaced binding's old ID is freed. */
+    @Synchronized fun put(elementId: String, b: Binding) {
+        inFlight -= b.appWidgetId
+        val old = entries[elementId]
+        if (old == b) return
+        if (old != null && old.appWidgetId != b.appWidgetId) host.delete(old.appWidgetId)
+        entries[elementId] = b
+        save()
+    }
+
+    /** After a successful load of [c]: GC, provider changes and orphans. Writes only when something changed. */
+    @Synchronized fun settle(c: LauncherConfig) {
+        val els = c.elements.orEmpty().filter { (it["type"] as? JsonPrimitive)?.content == AppWidget.name }
+            .mapNotNull { e -> (e["id"] as? JsonPrimitive)?.content?.let { it to e } }.toMap()
+        lastIds = els.keys
+        val next = LinkedHashMap<String, Binding>()
+        for ((id, b) in entries) {
+            val e = els[id]
+            when {
+                e == null -> if (id in held) next[id] = b else host.delete(b.appWidgetId)
+                // A skipped element (e.g. `requires` above this app's level) keeps its binding untouched.
+                Elements.typeOf(e) != AppWidget -> next[id] = b
+                target(e) != (norm(b.provider) to b.profile) -> host.delete(b.appWidgetId)   // → needsSetup
+                else -> next[id] = b
+            }
+        }
+        val owned = next.values.map { it.appWidgetId }.toSet() + inFlight
+        runCatching { host.ids() }.getOrNull()?.forEach { if (it !in owned) host.delete(it) }
+        if (next != entries) { entries = next; save() }
+    }
+
+    /** NW-6: keep [elementId]'s binding through the next [settle]s while its Remove can still be undone. */
+    @Synchronized fun hold(elementId: String): Boolean = (elementId in entries).also { if (it) held += elementId }
+
+    /** NW-6 Undo: the element is back; the binding is kept as it was. */
+    @Synchronized fun restore(elementId: String) { held -= elementId }
+
+    /** NW-6: the Undo window ended. Frees the ID unless the element is back in the last settled file. */
+    @Synchronized fun release(elementId: String) {
+        if (!held.remove(elementId) || elementId in lastIds) return
+        entries.remove(elementId)?.let { host.delete(it.appWidgetId); save() }
+    }
+
+    private fun target(e: JsonObject): Pair<Provider, String>? {
+        val content = e["content"] as? JsonObject ?: return null
+        val p = content["provider"] as? JsonObject ?: return null
+        val pkg = (p["package"] as? JsonPrimitive)?.content ?: return null
+        val cls = (p["class"] as? JsonPrimitive)?.content ?: return null
+        return norm(Provider(pkg, cls)) to ((content["profile"] as? JsonPrimitive)?.content ?: "personal")
+    }
+
+    private fun load(): MutableMap<String, Binding> = try {
+        val root = file?.takeIf { it.isFile }?.let { Json.parseToJsonElement(it.readText()).jsonObject }
+        root?.get("bindings")?.jsonObject?.mapNotNull { (k, v) ->
+            val o = v as? JsonObject ?: return@mapNotNull null
+            fun s(key: String) = (o[key] as? JsonPrimitive)?.takeIf { it.isString }?.content
+            val id = (o["appWidgetId"] as? JsonPrimitive)?.content?.toIntOrNull() ?: return@mapNotNull null
+            val p = o["provider"] as? JsonObject ?: return@mapNotNull null
+            val pkg = (p["package"] as? JsonPrimitive)?.content ?: return@mapNotNull null
+            val cls = (p["class"] as? JsonPrimitive)?.content ?: return@mapNotNull null
+            k to Binding(id, Provider(pkg, cls), s("profile") ?: "personal", State.of(s("state")) ?: State.FAILED)
+        }?.toMap()?.toMutableMap() ?: mutableMapOf()
+    } catch (_: Exception) {
+        // Unreadable: start empty. Every widget shows `Tap to set up`; the host's IDs become orphans and the next
+        // settle frees them, so nothing leaks.
+        mutableMapOf()
+    }
+
+    private fun save() {
+        val f = file ?: return
+        val bytes = buildJsonObject {
+            put("version", 1)
+            put("bindings", JsonObject(entries.toSortedMap().mapValues { (_, b) ->
+                buildJsonObject {
+                    put("appWidgetId", b.appWidgetId)
+                    put("provider", buildJsonObject { put("package", b.provider.pkg); put("class", b.provider.cls) })
+                    put("profile", b.profile)
+                    put("state", b.state.key)
+                }
+            }))
+        }.toString().toByteArray(Charsets.UTF_8)
+        try {
+            dir!!.mkdirs()
+            val tmp = File(dir, "$FILE.tmp")
+            FileOutputStream(tmp).use { it.write(bytes); it.fd.sync() }
+            if (!tmp.renameTo(f)) { f.delete(); tmp.renameTo(f) }
+        } catch (_: Exception) { /* kept in memory; the next change retries */ }
+    }
+
+    companion object {
+        const val FILE = "bindings.json"
+        /** A class starting with "." is relative to the package. */
+        fun resolve(pkg: String, cls: String) = if (cls.startsWith(".")) pkg + cls else cls
+        fun norm(p: Provider) = Provider(p.pkg, resolve(p.pkg, p.cls))
+    }
+}

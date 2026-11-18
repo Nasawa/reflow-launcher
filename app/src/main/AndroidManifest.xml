@@ -8,6 +8,10 @@
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
         </intent>
+        <!-- #299: makes AppWidget providers visible to getInstalledProvidersForProfile on Android 11+. -->
+        <intent>
+            <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+        </intent>
     </queries>
     <application
         android:name=".ConfigLauncherApp"
