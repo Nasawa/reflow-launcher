@@ -127,12 +127,17 @@ object ElementInfo {
         val b = sizeBounds(c, id, facts) ?: return null
         val g = c.effectiveGrid
         val colsLeft = g.columns - p.x; val rowsLeft = g.rows - p.y
-        return Limits(b.minW, b.maxW.coerceAtMost(maxOf(colsLeft, b.minW)), b.minH, b.maxH.coerceAtMost(maxOf(rowsLeft, b.minH)))
+        // The steppers start at the current size, so it stays reachable even when it's outside the provider's range.
+        val minW = minOf(b.minW, p.w); val minH = minOf(b.minH, p.h)
+        val maxW = maxOf(b.maxW, p.w); val maxH = maxOf(b.maxH, p.h)
+        return Limits(minW, maxW.coerceAtMost(maxOf(colsLeft, minW, p.w)), minH, maxH.coerceAtMost(maxOf(rowsLeft, minH, p.h)))
     }
 
     /**
      * #304: the same bounds before the element's position is taken into account (the grid size caps the max, not
      * the cells left of its anchor), for handles that can also grow toward the start or top.
+     * dev1 fix: from the provider (`resizeMode`, min/max span) and the grid only, never the current size, so a widget
+     * shrunk to 1 row keeps its vertical handles. Only an axis the provider can't resize is pinned to its size.
      */
     fun sizeBounds(c: LauncherConfig, id: String, facts: dev.nasawa.configlauncher.hosted.HostedWidgets.Facts? = null): Limits? {
         val e = ElementEdits.element(c, id) ?: return null
@@ -154,9 +159,9 @@ object ElementInfo {
             minW = int(span, "w") ?: keys.minOfOrNull { it.first } ?: 1
             minH = int(span, "h") ?: keys.minOfOrNull { it.second } ?: 1
         }
-        minW = minOf(minW, p.w).coerceAtLeast(1); minH = minOf(minH, p.h).coerceAtLeast(1)
-        maxW = maxOf(maxW, p.w).coerceAtMost(colsLeft).coerceAtLeast(minW)
-        maxH = maxOf(maxH, p.h).coerceAtMost(rowsLeft).coerceAtLeast(minH)
+        minW = minW.coerceIn(1, maxOf(1, colsLeft)); minH = minH.coerceIn(1, maxOf(1, rowsLeft))
+        maxW = maxW.coerceAtMost(colsLeft).coerceAtLeast(minW)
+        maxH = maxH.coerceAtMost(rowsLeft).coerceAtLeast(minH)
         return Limits(minW, maxW, minH, maxH)
     }
 
@@ -260,7 +265,8 @@ object ElementActionList {
 /**
  * #303 §16.7.2 edit-mode drag of a span: long-press then drag; the outline follows in whole cells (white where the
  * rectangle is free, red where it isn't); release on a free spot → [onDrop] (one write); anywhere else → no write.
- * A long-press released without moving opens the sheet ([onLong]). No semantics: TalkBack uses `Move to…`.
+ * A long-press released without moving opens the sheet ([onLong]); a drag back to its own cell does nothing (dev1).
+ * One buzz per new cell. No semantics: TalkBack uses `Move to…`.
  * [selected] draws the §16.4 white 24 % frame (the picked widget; handles are NW-8, #304).
  */
 @Composable
@@ -268,8 +274,14 @@ fun ElementDragTarget(
     p: Elements.Placement, cellW: androidx.compose.ui.unit.Dp, cellH: androidx.compose.ui.unit.Dp,
     baseX: androidx.compose.ui.unit.Dp, baseY: androidx.compose.ui.unit.Dp, rtl: Boolean, selected: Boolean,
     canDrop: (Int, Int) -> Boolean, onDrop: (Int, Int) -> Unit, onLong: () -> Unit, onTap: () -> Unit = {},
+    /** dev1 fix: one buzz per new cell ([Haptics.cellTick]); tests pass a counter. */
+    onTick: (() -> Unit)? = null,
 ) {
     var drag by remember { mutableStateOf<Pair<Float, Float>?>(null) }
+    val view = androidx.compose.ui.platform.LocalView.current
+    val tick by rememberUpdatedState(onTick ?: { Haptics.cellTick(view) })
+    // #281's drag-start buzz, as for app tiles (LONG_PRESS, default flags: the system setting decides).
+    val slop = androidx.compose.ui.platform.LocalViewConfiguration.current.touchSlop
     val density = androidx.compose.ui.platform.LocalDensity.current
     val cwPx = with(density) { cellW.toPx() }; val chPx = with(density) { cellH.toPx() }
     val drop by rememberUpdatedState(onDrop); val long by rememberUpdatedState(onLong); val can by rememberUpdatedState(canDrop)
@@ -280,15 +292,26 @@ fun ElementDragTarget(
         // #304: a tap selects (the frame and handles are drawn by ResizeFrame).
         .pointerInput(Unit) { detectTapGestures(onTap = { tap() }) }
         .pointerInput(p) {
+            // dev1 fix (c): only a long-press that never really moved opens the sheet; a drag that comes back to
+            // its own cell is a cancelled move (no menu, no write).
+            var moved = false
+            var cell = 0 to 0
             detectDragGesturesAfterLongPress(
-                onDragStart = { drag = 0f to 0f },
-                onDrag = { ch, d -> ch.consume(); drag = drag?.let { (x, y) -> (x + d.x) to (y + d.y) } },
+                onDragStart = { drag = 0f to 0f; moved = false; cell = 0 to 0; view.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS) },
+                onDrag = { ch, d ->
+                    ch.consume()
+                    val n = drag?.let { (x, y) -> (x + d.x) to (y + d.y) } ?: return@detectDragGesturesAfterLongPress
+                    drag = n
+                    if (kotlin.math.hypot(n.first, n.second) > slop) moved = true
+                    val c = ElementActionList.cellDelta(n.first, n.second, cwPx, chPx, rtl)
+                    if (c != cell) { cell = c; tick() }
+                },
                 onDragEnd = {
                     val t = drag?.let { (dx, dy) -> ElementActionList.cellDelta(dx, dy, cwPx, chPx, rtl) }
                     drag = null
                     when {
                         t == null -> {}
-                        t == (0 to 0) -> long()
+                        t == (0 to 0) -> if (!moved) long()
                         can(p.x + t.first, p.y + t.second) -> drop(p.x + t.first, p.y + t.second)
                     }
                 },

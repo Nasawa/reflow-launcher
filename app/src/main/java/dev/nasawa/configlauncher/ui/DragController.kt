@@ -1,6 +1,5 @@
 package dev.nasawa.configlauncher.ui
 
-import android.view.HapticFeedbackConstants
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -615,8 +614,9 @@ fun WireDragHaptics(drag: DragController) {
     val feedback = LocalHapticFeedback.current
     val view = LocalView.current
     drag.haptic = { feedback.performHapticFeedback(HapticFeedbackType.LongPress) }
-    // #282: a light tick per new target, also with the default flags (the system setting decides).
-    drag.tick = { view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK) }
+    // #282: a light tick per new target; dev1 fix: through [Haptics.cellTick], since One UI drops View CLOCK_TICK.
+    // The system touch-feedback setting still decides.
+    drag.tick = { Haptics.cellTick(view) }
 }
 
 /** Test tag of the [DragOverlay]'s lifted-tile node (no semantics besides the tag). */

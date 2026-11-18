@@ -568,7 +568,9 @@ page dim. An accepted drop settles into its cell in 150 ms. With reduced motion,
   drop, so they can't disagree. A target the edit would refuse (a full dock, the item's own cell, a reserved cell) gets
   no highlight and springs back.
 - The plate is a 12 dp rounded `surfaceContainerHigh` rect with an 8 dp shadow; the lifted item draws at 0.92 alpha.
-- The tick is `CLOCK_TICK` with the default flags (the system touch-feedback setting decides); none when leaving to no target.
+- The tick is the device's light tick (`ui/Haptics.kt`: the predefined `EFFECT_TICK` as a touch vibration, else
+  `SEGMENT_TICK`/`CLOCK_TICK`; One UI drops View `CLOCK_TICK`), only while the system touch-feedback setting is on; none
+  when leaving to no target. Widget moves and resizes use the same tick, one per new cell.
 - The accepted drop animates first and writes after. The lifted item then stays drawn at the target until the frame
   with the committed layout has drawn (at most 1 s), so it never shows back in its old cell. The §4.1 cell outlines are
   the grid: no second grid is drawn.
@@ -1459,8 +1461,12 @@ or the user has dismissed this explanation for that package.
 - **Occupied cells:** the drag **stops** at the last free rectangle (red outline on the blocked edge; with reduced
   motion, the outline only). No reflow, no auto-move of other items (matches §4.2 "no automatic reflow", and
   Christopher's keep-it-simple). Dropping onto an occupied cell is refused.
-- **Min/max:** handles won't cross the provider's min/max cells (derived at runtime). The file can still hold an
-  out-of-range size from an agent (§16.5).
+- **Min/max:** handles won't cross the provider's min/max cells (derived at runtime). Which handles show depends only
+  on the provider's `resizeMode` and that range, never on the current size, so a widget shrunk to 1 row can grow
+  again. The provider's own default size is always inside the range (like Launcher3), even when its `maxResize*`
+  rounds down to fewer of this phone's cells. The file can still hold an out-of-range size from an agent (§16.5).
+- **Corners:** on Android 12+ the hosted view is clipped to `system_app_widget_background_radius` around the widget's
+  background (Launcher3's rule); a widget that rounds its own `@android:id/background` keeps its shape.
 - **TalkBack:** custom action `Resize…` opens a sheet with Width and Height steppers (current, min, max shown as
   `Width, 2 of 4`), `Done` writes once. Also `Move to…` (existing) and `Remove from home`.
 

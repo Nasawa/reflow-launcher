@@ -14,10 +14,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.testTag
 import androidx.compose.ui.unit.Dp
@@ -117,7 +115,7 @@ object EditIdle {
 
 /**
  * #304: the selected element's frame (white 24 %) and handles. Dragging a handle shows the new size live as a whole-cell
- * outline (a soft haptic per cell step; a red edge where a taken cell stops it); release → [onResize] once, with the
+ * outline (one buzz per cell step, [Haptics.cellTick]; a red edge where a taken cell stops it); release → [onResize] once, with the
  * new rectangle, only when it changed. A cancel (gesture cancelled, rotation or window resize re-keying the gesture)
  * writes nothing. With reduced motion the outline jumps instead of animating. Handles have no semantics: TalkBack uses
  * `Resize…` (NW-6).
@@ -127,12 +125,15 @@ fun BoxScope.ResizeFrame(
     p: Elements.Placement, bounds: ElementInfo.Limits, columns: Int, rows: Int,
     cellW: Dp, cellH: Dp, baseX: Dp, baseY: Dp, areaW: Dp, areaH: Dp, rtl: Boolean, reducedMotion: Boolean,
     free: (Int, Int, Int, Int) -> Boolean, onActive: (Boolean) -> Unit, onResize: (ResizeMath.Rect) -> Unit,
+    /** One buzz per cell step (dev1 fix: [Haptics.cellTick], which fires on One UI). Tests pass a counter. */
+    onTick: (() -> Unit)? = null,
 ) {
     val start = ResizeMath.Rect(p.x, p.y, p.w, p.h)
     var live by remember(p) { mutableStateOf<ResizeMath.Result?>(null) }
     var liveHandle by remember(p) { mutableStateOf<ResizeMath.Handle?>(null) }
     val shown = live?.rect ?: start
-    val haptics = LocalHapticFeedback.current
+    val view = androidx.compose.ui.platform.LocalView.current
+    val tick by rememberUpdatedState(onTick ?: { Haptics.cellTick(view) })
     val density = LocalDensity.current
     val cwPx = with(density) { cellW.toPx() }; val chPx = with(density) { cellH.toPx() }
     val spec: androidx.compose.animation.core.AnimationSpec<Dp> = if (reducedMotion) androidx.compose.animation.core.snap() else androidx.compose.animation.core.spring()
@@ -169,7 +170,7 @@ fun BoxScope.ResizeFrame(
                                 drag = (drag.first + d.x) to (drag.second + d.y)
                                 val (dc, dr) = ResizeMath.cells(drag.first, drag.second, cwPx, chPx, rtl)
                                 val next = ResizeMath.resize(start, h, dc, dr, bounds, columns, rows, fits)
-                                if (next.rect != live?.rect) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                if (next.rect != live?.rect) tick()
                                 live = next
                             },
                             onDragEnd = {

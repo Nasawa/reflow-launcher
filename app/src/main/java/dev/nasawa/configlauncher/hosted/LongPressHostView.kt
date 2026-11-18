@@ -72,6 +72,12 @@ open class LongPressHostView(context: Context) : AppWidgetHostView(context) {
         return true
     }
 
+    /** dev1 fix (b): rounded corners like Launcher3 on API 31+ ([WidgetCorners]); re-checked after every layout. */
+    override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
+        super.onLayout(changed, left, top, right, bottom)
+        WidgetCorners.enforce(this)
+    }
+
     override fun cancelLongPress() { super.cancelLongPress(); handler.removeCallbacks(check) }
 
     override fun onDetachedFromWindow() { super.onDetachedFromWindow(); reset() }
