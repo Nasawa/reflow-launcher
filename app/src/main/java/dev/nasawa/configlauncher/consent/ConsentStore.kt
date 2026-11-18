@@ -83,7 +83,7 @@ class ConsentStore(private val dir: File?, private val clock: () -> Long = Syste
      */
     @Synchronized fun hold(id: String): Boolean = (id in entries).also { if (it) held += id }
 
-    /** Undo succeeded (call right after the Undo edit applied, before its write): the record is back, no re-prompt. */
+    /** Undo succeeded (call once the Undo write keeps the restore, before that write; #314 review): the record is back, no re-prompt. */
     @Synchronized fun restore(id: String) {
         val e = aside.remove(id) ?: run { if (id !in entries) held -= id; return }
         entries[id] = e

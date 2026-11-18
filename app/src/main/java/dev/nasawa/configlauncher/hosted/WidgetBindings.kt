@@ -132,7 +132,7 @@ class WidgetBindings(private val dir: File?, private val host: Host) {
     @Synchronized fun hold(elementId: String): Boolean = (elementId in entries).also { if (it) held += elementId }
 
     /**
-     * NW-6 Undo succeeded (call it right after the Undo edit applied, before its write): the set-aside binding is
+     * NW-6 Undo succeeded (call it once the Undo write keeps the restore, before that write; #314 review): the set-aside binding is
      * back, kept as it was (no rebind). It stays held until a [settle] sees the element, so a load in between
      * can't free it. A binding the agent's re-added element got meanwhile is replaced (its ID freed).
      */

@@ -303,7 +303,7 @@ fun HomeScreen(vm: HomeViewModel) {
             consent?.let { cs -> object : ElementUndo.Hold {
                 override fun hold(id: String) = cs.hold(id); override fun restore(id: String) = cs.restore(id); override fun release(id: String) = cs.release(id) } },
         )
-        ElementUndo({ vm.store.engine.state.value.config }, { e -> vm.store.tryEdit(e) }, holds)
+        ElementUndo({ vm.store.engine.state.value.config }, { e -> vm.store.tryEdit(e) }, holds) { e, onKept -> vm.store.editKept(e, onKept) }
     }
     var elementSnack by remember { mutableStateOf<ElementSnack?>(null) }
     var elementNote by remember { mutableStateOf<ElementNote?>(null) }
@@ -326,19 +326,23 @@ fun HomeScreen(vm: HomeViewModel) {
                 view.announceForAccessibility(res.getString(R.string.removed_element_a11y, name))
                 // The window (10 s or the user's accessibility timeout) ends → release, unless Undo succeeded.
                 snack.job = vm.store.launch {
-                    try { kotlinx.coroutines.delay(undoWindowMs) } finally { if (!snack.restored) elementUndo.release(removed) }
+                    try { kotlinx.coroutines.delay(undoWindowMs) } finally { if (snack.windowEnded()) elementUndo.release(removed) }
                 }
             }
         }
     }
     fun undoElement(snack: ElementSnack) {
         elementSnack = null
+        snack.beginUndo()
         vm.store.launch {
             val out = elementUndo.undo(snack.removed)
+            val restored = out is ElementUndo.Undone.Same || out is ElementUndo.Undone.Moved
+            // The window may have ended while the Undo waited for its write: release now unless it was kept.
+            if (snack.endUndo(restored)) elementUndo.release(snack.removed)
             kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
                 when (out) {
-                    ElementUndo.Undone.Same -> { snack.restored = true; snack.job?.cancel() }
-                    is ElementUndo.Undone.Moved -> { snack.restored = true; snack.job?.cancel(); note(res.getString(R.string.undo_element_moved, snack.name, pageName(out.pageId))) }
+                    ElementUndo.Undone.Same -> snack.job?.cancel()
+                    is ElementUndo.Undone.Moved -> { snack.job?.cancel(); note(res.getString(R.string.undo_element_moved, snack.name, pageName(out.pageId))) }
                     ElementUndo.Undone.Back -> note(res.getString(R.string.undo_element_back, snack.name))
                     ElementUndo.Undone.NoRoom -> note(res.getString(R.string.undo_element_no_room, snack.name))
                 }

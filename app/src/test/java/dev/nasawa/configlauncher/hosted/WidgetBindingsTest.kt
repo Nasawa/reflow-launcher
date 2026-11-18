@@ -118,6 +118,34 @@ class WidgetBindingsTest {
         assertNull(b.binding("w-1"))
     }
 
+    @Test fun restoreFreesTheIdARelatedReAddGotMeanwhile() {
+        val host = FakeHost(7)
+        val b = WidgetBindings(tmp.newFolder(), host).apply { put("w-1", bound(7)) }
+        b.hold("w-1"); b.settle(cfg(doc()))
+        // The agent's re-add was bound (ID 9), then left again; Undo puts the set-aside binding back and frees 9.
+        host.alive += 9; b.put("w-1", bound(9))
+        b.restore("w-1")
+        assertEquals(bound(7), b.binding("w-1"))
+        assertEquals(listOf(9), host.deleted)
+    }
+
+    @Test fun releaseBeforeAnySettleSawTheRemoval() {
+        val host = FakeHost(7)
+        val b = WidgetBindings(tmp.newFolder(), host).apply { put("w-1", bound(7)) }
+        b.settle(cfg(doc(aw("w-1"))))
+        // Window ended before the Remove write settled: the element is still in the last settled file → kept for now…
+        b.hold("w-1"); b.release("w-1")
+        assertEquals(bound(7), b.binding("w-1")); assertTrue(host.deleted.isEmpty())
+        // …and the write's settle then frees it as an ordinary GC (no longer held).
+        b.settle(cfg(doc()))
+        assertEquals(listOf(7), host.deleted)
+        // Never settled at all (fresh store): release frees it at once.
+        val host2 = FakeHost(8)
+        val b2 = WidgetBindings(tmp.newFolder(), host2).apply { put("w-2", bound(8)) }
+        b2.hold("w-2"); b2.release("w-2")
+        assertEquals(listOf(8), host2.deleted); assertNull(b2.binding("w-2"))
+    }
+
     @Test fun anUnreleasedHoldIsGoneAfterTheAppCloses() {
         val dir = tmp.newFolder(); val host = FakeHost(7)
         WidgetBindings(dir, host).apply { put("w-1", bound(7)); hold("w-1"); settle(cfg(doc())) }

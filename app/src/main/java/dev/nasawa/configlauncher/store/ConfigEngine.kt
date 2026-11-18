@@ -111,6 +111,25 @@ class ConfigEngine(
     private val cardsLive: Boolean = dev.nasawa.configlauncher.BuildConfig.CARDS_LIVE,
 ) {
     private val pending = mutableListOf<Edit>()
+
+    /**
+     * #314 review: callers that must know whether their edit reached the file ([editKept]). [onKept] runs once, inside
+     * the write path, after the replay decided the edit is kept and **before** the write (so before the settle in it);
+     * [done] completes true once that write succeeded, false when the edit was skipped or dropped (B6 Use file).
+     */
+    private class Waiter(val edit: Edit, val onKept: () -> Unit, val done: kotlinx.coroutines.CompletableDeferred<Boolean>) { var kept = false }
+    private val waiters = mutableListOf<Waiter>()
+
+    /** Before a write of [ops]' outcome: run onKept for the kept ones ([skipped] by identity). */
+    private fun keepWaiters(skipped: List<Edit>) {
+        for (w in waiters) if (!w.kept && skipped.none { it === w.edit }) { w.kept = true; runCatching { w.onKept() } }
+    }
+
+    /** After the write succeeded (or the pending ops were dropped: [dropped]). */
+    private fun finishWaiters(skipped: List<Edit>, dropped: Boolean = false) {
+        for (w in waiters) w.done.complete(!dropped && w.kept && skipped.none { it === w.edit })
+        waiters.clear()
+    }
     private var flushJob: Job? = null
     /** Hash of the file bytes that last failed to parse/validate (for the OQ-15 broken-copy path). */
     private var invalidHash: String? = null
@@ -330,6 +349,24 @@ class ConfigEngine(
      * Outbound binding (§5): apply [edit] to the shown model now; write after [debounceMs] of quiet.
      * Edits made while B6 is up join the queue (§17 Q8). Returns false for a no-op edit.
      */
+    /**
+     * #314 review: like [edit], but suspends until the write that carries it: true only when the file kept it (a merge
+     * onto a newer file can skip it, e.g. an Undo whose element the agent already re-added). [onKept] runs in the write
+     * path before the write; see [Waiter].
+     */
+    suspend fun editKept(edit: Edit, onKept: () -> Unit): Boolean {
+        val done = kotlinx.coroutines.CompletableDeferred<Boolean>()
+        mutex.withLock {
+            val r = Edits.apply(_state.value.config, edit)
+            if (!r.applied) return false
+            pending += edit
+            waiters += Waiter(edit, onKept, done)
+            _state.update { it.copy(config = r.config, pendingEdits = pending.size) }
+        }
+        if (scope == null) flush() else scheduleFlush()
+        return done.await()
+    }
+
     suspend fun edit(edit: Edit): Boolean {
         mutex.withLock {
             val r = Edits.apply(_state.value.config, edit)
@@ -378,8 +415,9 @@ class ConfigEngine(
             if (runCatching { source.writeSidecar("broken", name, b) }.isSuccess) brokenName = name
         }
         val cfg = _state.value.config.let { it.copy(revision = (it.revision ?: 0) + 1) }
+        keepWaiters(emptyList())
         try { writeLocked(cfg) } catch (e: Exception) { return fail(Issue.SaveFailed.of(e)) }
-        pending.clear(); invalidHash = null; clearUndo()
+        pending.clear(); invalidHash = null; clearUndo(); finishWaiters(emptyList())
         _state.update { it.copy(pendingEdits = 0, issue = null, notice = when {
             brokenName != null -> Msg(dev.nasawa.configlauncher.R.string.broken_saved_folder)
             stillBroken -> Msg(dev.nasawa.configlauncher.R.string.broken_saved_history)
@@ -401,8 +439,9 @@ class ConfigEngine(
         if (ConfigCodec.decode(ConfigCodec.encodeBytes(out)) !is ParseResult.Ok) return false
         runCatching { lastGood.snapshot(fileBytes) }
         runCatching { lastGood.snapshot(ConfigCodec.encodeBytes(_state.value.config)) }
+        keepWaiters(rep.skipped.map { it.edit })
         val written = try { writeLocked(out) } catch (e: Exception) { fail(Issue.SaveFailed.of(e)); return true }
-        pending.clear()
+        pending.clear(); finishWaiters(rep.skipped.map { it.edit })
         // §9.1: all-skipped merges have no Undo (nothing of ours was written).
         val undo = rep.kept > 0
         if (undo) { undoBytes = fileBytes; mergedHash = written; undoTouched = dev.nasawa.configlauncher.model.UndoMerge.record(fileCfg, out) }
@@ -448,7 +487,7 @@ class ConfigEngine(
     suspend fun resolveUseFile() {
         mutex.withLock {
             runCatching { lastGood.snapshot(ConfigCodec.encodeBytes(_state.value.config)) }
-            pending.clear(); lastStamp = null
+            pending.clear(); lastStamp = null; finishWaiters(emptyList(), dropped = true)
             _state.update { it.copy(conflict = false, pendingEdits = 0, baseHash = null) }
             pollLocked(force = true)
         }
@@ -463,8 +502,9 @@ class ConfigEngine(
         val merged = rep.config
         bytes?.let { runCatching { lastGood.snapshot(it) } }
         val out = merged.copy(revision = maxOf(merged.revision ?: 0, _state.value.config.revision ?: 0) + 1)
+        keepWaiters(rep.skipped.map { it.edit })
         try { writeLocked(out) } catch (e: Exception) { return fail(Issue.SaveFailed.of(e)) }
-        pending.clear()
+        pending.clear(); finishWaiters(rep.skipped.map { it.edit })
         _state.update {
             it.copy(conflict = false, pendingEdits = 0, issue = null,
                 // §9.1: Keep mine uses the same copy, without Undo; all kept shows nothing extra.
