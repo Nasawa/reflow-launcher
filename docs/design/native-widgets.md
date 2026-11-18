@@ -201,8 +201,8 @@ Grok Bot): open the picker on a phone (A51, A53 or S25 Ultra) with ~50 providers
 **NW-6 (#303). Grid-element edits (shared with cards).**
 Scope: ux §16.7.1 `Remove from home` + Undo with the device-local hold (bindings *and* consent), §16.7.2 `Move to…`
 for spans, §16.4 `Resize…` sheet with − / + steppers (bounded by provider min/max for widgets, by `minSpan`/layouts
-for cards, and by free cells; also TalkBack custom actions), and edit-mode drag-move of a span. No drag handles
-That's NW-8 (#304). Sheet actions per §16.7.3. New `Edit` ops replay by ID at
+for cards, and by free cells; also TalkBack custom actions), and edit-mode drag-move of a span. No drag handles;
+those are NW-8 (#304). Sheet actions per §16.7.3. New `Edit` ops replay by ID at
 write time.
 Acceptance: each action is one write that changes only that element's keys. Undo restores a widget with no rebind and
 a card with no re-prompt. A collision at write time → `move_element_taken`, no write. TalkBack custom actions match
