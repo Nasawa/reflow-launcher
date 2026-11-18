@@ -70,8 +70,8 @@ class ConfigStore(private val context: Context, private val scope: CoroutineScop
     /** #303: like [edit], but says whether it applied (false = skipped against the current file: nothing is written). */
     suspend fun tryEdit(e: dev.nasawa.configlauncher.model.Edit): Boolean = kotlinx.coroutines.withContext(Dispatchers.IO) { engine.edit(e) }
     /** #314 review: [edit] that waits for its write; true only when the file kept it ([ConfigEngine.editKept]). */
-    suspend fun editKept(e: dev.nasawa.configlauncher.model.Edit, onKept: () -> Unit): Boolean =
-        kotlinx.coroutines.withContext(Dispatchers.IO) { engine.editKept(e, onKept) }
+    suspend fun editKept(e: dev.nasawa.configlauncher.model.Edit, onKept: () -> Unit, onUnkept: () -> Unit = {}): Boolean =
+        kotlinx.coroutines.withContext(Dispatchers.IO) { engine.editKept(e, onUnkept, onKept) }
     /** #303: run [block] on the store's scope, which outlives the home composition (an Undo window's release). */
     fun launch(block: suspend CoroutineScope.() -> Unit) = scope.launch(block = block)
     /** Snackbar Undo after an automatic merge (§18.2). */

@@ -108,6 +108,11 @@ object ResizeMath {
 object EditIdle {
     const val MS = 30_000L
     fun paused(vararg open: Boolean) = open.any { it }
+    /**
+     * #315 GO follow-up: a bind flow step is up: Android's bind dialog, the widget's setup screen (configure or
+     * reconfigure) or the §16.3 explanation sheet. The idle exit must not leave edit mode behind it.
+     */
+    fun bindUp(p: dev.nasawa.configlauncher.hosted.BindFlow.Pending?) = p != null
 }
 
 /**

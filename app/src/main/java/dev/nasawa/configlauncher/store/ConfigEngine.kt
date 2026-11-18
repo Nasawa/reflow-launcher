@@ -117,8 +117,17 @@ class ConfigEngine(
      * the write path, after the replay decided the edit is kept and **before** the write (so before the settle in it);
      * [done] completes true once that write succeeded, false when the edit was skipped or dropped (B6 Use file).
      */
-    private class Waiter(val edit: Edit, val onKept: () -> Unit, val done: kotlinx.coroutines.CompletableDeferred<Boolean>) { var kept = false }
+    private class Waiter(val edit: Edit, val onKept: () -> Unit, val onUnkept: () -> Unit, val done: kotlinx.coroutines.CompletableDeferred<Boolean>) { var kept = false }
     private val waiters = mutableListOf<Waiter>()
+
+    /**
+     * #314 GO follow-up: the write that [keepWaiters] ran onKept for failed, so nothing of it reached the file. Undo
+     * that ([Waiter.onUnkept], e.g. set the holds aside again) and wait for the next write: its replay decides afresh,
+     * so a Retry after the agent re-added the element skips the edit with the holds still aside.
+     */
+    private fun unkeepWaiters() {
+        for (w in waiters) if (w.kept) { w.kept = false; runCatching { w.onUnkept() } }
+    }
 
     /** Before a write of [ops]' outcome: run onKept for the kept ones ([skipped] by identity). */
     private fun keepWaiters(skipped: List<Edit>) {
@@ -354,13 +363,13 @@ class ConfigEngine(
      * onto a newer file can skip it, e.g. an Undo whose element the agent already re-added). [onKept] runs in the write
      * path before the write; see [Waiter].
      */
-    suspend fun editKept(edit: Edit, onKept: () -> Unit): Boolean {
+    suspend fun editKept(edit: Edit, onUnkept: () -> Unit = {}, onKept: () -> Unit): Boolean {
         val done = kotlinx.coroutines.CompletableDeferred<Boolean>()
         mutex.withLock {
             val r = Edits.apply(_state.value.config, edit)
             if (!r.applied) return false
             pending += edit
-            waiters += Waiter(edit, onKept, done)
+            waiters += Waiter(edit, onKept, onUnkept, done)
             _state.update { it.copy(config = r.config, pendingEdits = pending.size) }
         }
         if (scope == null) flush() else scheduleFlush()
@@ -526,7 +535,10 @@ class ConfigEngine(
      * Serialize and write [config] canonically, recording its hash as a self-write. Caller holds the mutex.
      * Refuses output over the cap (§17 Q16) so the launcher never writes a file it can't read.
      */
-    internal fun writeLocked(config: LauncherConfig): String {
+    internal fun writeLocked(config: LauncherConfig): String =
+        try { writeOrThrow(config) } catch (e: Exception) { unkeepWaiters(); throw e }
+
+    private fun writeOrThrow(config: LauncherConfig): String {
         val bytes = ConfigCodec.encodeBytes(config)
         if (bytes.size > Limits.MAX_BYTES) throw TooLargeException(Limits.MAX_BYTES / 1024 / 1024)
         val hash = ConfigCodec.sha256(bytes)
