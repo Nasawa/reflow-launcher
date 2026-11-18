@@ -555,6 +555,21 @@ size, with no special case. Font 2.0 on the open fold ellipsizes labels to about
 | `App info` target | Opens system app info, and the item doesn't move |
 | Anywhere else: a §1.5 margin outside the placed block, the notice row, page label or title bar, the dots, the gap above the dock | Refused. Nothing is written, and the item springs back to its cell (about 200 ms, no overshoot; an instant return with reduced motion). There's no snackbar and no string. A point is never clamped to the nearest cell, in LTR or RTL |
 
+**While dragging (#282).** The lifted item scales to 1.15× (120 ms) on a backing plate with a shadow. It sits centred
+above the finger with its bottom edge 16 dp above the touch point, or 16 dp beside it toward the screen centre when
+there's no room above. It's never under the finger. Its cell keeps a 30 % ghost. The cell or dock slot under the finger,
+where the drop would land, gets a highlight: 20 % accent fill and a 2 dp white stroke with a 1 dp dark outer ring, 3:1
+on any wallpaper. Each new target gives a light tick. No highlight means the drop is refused (springs back). There's no
+page dim. An accepted drop settles into its cell in 150 ms. With reduced motion, everything is instant.
+- The target is the point **under the finger**, not under the lifted tile; one hit test drives both the highlight and the
+  drop, so they can't disagree. A target the edit would refuse (a full dock, the item's own cell, a reserved cell) gets
+  no highlight and springs back.
+- The plate is a 12 dp rounded `surfaceContainerHigh` rect with an 8 dp shadow; the lifted item draws at 0.92 alpha.
+- The tick is `CLOCK_TICK` with the default flags (the system touch-feedback setting decides); none when leaving to no target.
+- The accepted drop animates first and writes after. The lifted item then stays drawn at the target until the frame
+  with the committed layout has drawn (at most 1 s), so it never shows back in its old cell. The §4.1 cell outlines are
+  the grid: no second grid is drawn.
+
 There's no automatic reflow: other items never move to make room (keeps the file diff minimal and predictable). An
 empty page is deleted when you leave edit mode.
 

@@ -122,6 +122,10 @@ class DragOverlayHomeTest {
     private fun overlayNode() = compose.onAllNodes(hasTestTag(DRAG_OVERLAY_TAG), useUnmergedTree = true)
         .fetchSemanticsNodes().singleOrNull()
 
+    /** #282: the target highlight's rect (null: no target). */
+    private fun target(): Rect? = compose.onAllNodes(hasTestTag(DRAG_TARGET_TAG), useUnmergedTree = true)
+        .fetchSemanticsNodes().singleOrNull()?.boundsInRoot
+
     /** Where the overlay is drawn, clipped by every ancestor (and the window). */
     private fun overlay(): Rect? = overlayNode()?.boundsInRoot
 
@@ -195,8 +199,13 @@ class DragOverlayHomeTest {
         val rest = source()
         val dock = dockSlot()
         liftAndMoveTo(dock.center, rest)
+        frames(DragController.RAISE_MS / 16 + 2)
         val o = overlay()!!
-        assertTrue("mid-drag: the tile is drawn over the dock slot $dock: $o", o.overlaps(dock) && o.contains(dock.center))
+        // #282: the finger is over the dock slot; the slot is highlighted and the lifted tile is beside it, not under the finger.
+        val t = target()
+        assertNotNull("mid-drag: the dock slot under the finger is highlighted", t)
+        assertTrue("the highlight is in the dock $dock: $t", t!!.inflate(1f).contains(dock.center))
+        assertFalse("the lifted tile is never under the finger: $o", o.contains(dock.center))
         assertWhole(rest, "over the dock")
         assertEquals(1, tileNodes())
         if (case == Case.BOOK) hinge!!.let { h ->
@@ -208,13 +217,37 @@ class DragOverlayHomeTest {
     /** Lands on the dock: MoveToDock is written, and the overlay is gone once nothing is lifted. */
     private fun landing(case: Case) {
         overDock(case)
+        val rest = source()
         val before = store.engine.state.value.config
         compose.onRoot().performTouchInput { up() }
         frames(2)
-        assertFalse(store.engine.dragging)
-        assertNull("landed: the overlay goes", overlay())
+        assertNull("#282: the highlight clears at the drop", target())
+        assertTrue("#282: an accepted drop settles before it writes", overlay() != null && store.engine.dragging)
+        // Pragma (#288): no frame may show the tile back in its old cell: until the overlay goes, it covers the target.
+        val oldCellShown = {
+            overlay() == null && compose.onAllNodes(hasText("Second tile") or hasContentDescription("Second tile", substring = true))
+                .fetchSemanticsNodes().any { SemanticsActions.OnClick in it.config && it.boundsInRoot == rest }
+        }
+        val committed = { store.engine.state.value.config.dock.orEmpty().any { it.id == "a-second" } }
+        repeat(DragController.SETTLE_MS / 16 + 3) {
+            compose.mainClock.advanceTimeByFrame(); compose.waitForIdle()
+            assertFalse("settle frame $it: the tile is never back in its old cell", oldCellShown())
+            if (overlay() == null) assertTrue("the overlay only goes once the edit is committed", committed())
+        }
+        assertFalse("written after the settle", store.engine.dragging)
+        // The write lands off the main thread; with the frame clock stopped, a held overlay stays held meanwhile.
+        compose.waitUntil(5_000) { committed() }
+        // ...and until the screen's state has it (the ViewModel combines on another thread), so the frames below are
+        // what the device would draw next, not a race against that thread.
+        val vm = androidx.lifecycle.ViewModelProvider(compose.activity)[HomeViewModel::class.java]
+        compose.waitUntil(5_000) { vm.ui.value.layout.dock.any { it.item.id == "a-second" } }
+        for (i in 0 until 20) {
+            if (overlay() == null) break
+            compose.mainClock.advanceTimeByFrame(); compose.waitForIdle()
+            assertFalse("landing frame $i: the tile is never back in its old cell", oldCellShown())
+        }
+        assertNull("the overlay goes once the new layout has drawn, well before the timeout", overlay())
         compose.mainClock.autoAdvance = true
-        compose.waitUntil(5_000) { store.engine.state.value.config.dock.orEmpty().any { it.id == "a-second" } }
         val after = store.engine.state.value.config
         assertEquals("MoveToDock written", listOf("d-settings", "a-second").toSet(), after.dock.orEmpty().map { it.id }.toSet())
         assertTrue("before: on its page", before.pages.first { it.id == "second" }.items.any { it.id == "a-second" })
@@ -230,8 +263,10 @@ class DragOverlayHomeTest {
         val rest = source()
         val dock = dockSlot()
         liftAndMoveTo(dock.center, rest)
-        assertTrue(overlay()!!.contains(dock.center))
+        // inflate: the dock item's centre can sit exactly on a slot boundary (Rect.contains excludes the right edge).
+        assertTrue("the dock slot under the finger is highlighted: ${target()} vs $dock", target()?.inflate(1f)?.contains(dock.center) == true)
         step(dock.center, refusedPoint(case), rest, "from over the dock to a refused spot")
+        assertNull("#282: no highlight where the drop is refused", target())
         compose.onRoot().performTouchInput { up() }
         if (reduced) {
             frames(2)
@@ -333,7 +368,13 @@ class DragOverlayHomeTest {
         val w = r0.width.toInt(); val h = r0.height.toInt()
         val ref = capture()
         val tile = pixels(ref, r0, w, h)
-        step(empty, bar.center, rest, "up to the title bar")
+        // #282: up there the tile has no room above the finger, so it sits 16 dp beside it, toward the centre.
+        // Put the finger where that places the tile's centre on the bar's centre.
+        val density = compose.activity.resources.displayMetrics.density
+        val sw = overlayFull().width
+        val side = if (bar.center.x - 16f * density - sw / 2f <= window.center.x) -1f else 1f
+        val finger = Offset(bar.center.x + side * (16f * density + sw / 2f), bar.center.y)
+        step(empty, finger, rest, "up to the title bar")
         frames(30)
         val o = overlay()!!
         assertTrue("mid-drag: the tile is over the title bar $bar: $o", o.overlaps(bar) && o.contains(bar.center))
