@@ -52,10 +52,12 @@ sealed interface Issue {
  * #75: the RELOAD broadcast's reply. [code] is the broadcast result code, [word] its result data.
  * REJECTED: the current file isn't valid (details in status.json). UNAVAILABLE: the folder or file can't be read.
  * BUSY: a phone edit, drag or conflict is pending, so the file wasn't read. TIMEOUT: no answer within 8 s.
+ * SAVE_FAILED (#334): the phone's own save had failed (B5); RELOAD read the file and tried that save again (merging onto
+ * the file), and it failed again. status.json `warnings` says why; retry later.
  */
 enum class ReloadOutcome(val code: Int, val word: String) {
     UNCHANGED(0, "unchanged"), RELOADED(1, "reloaded"), REJECTED(2, "rejected"),
-    UNAVAILABLE(3, "unavailable"), BUSY(4, "busy"), TIMEOUT(5, "timeout"),
+    UNAVAILABLE(3, "unavailable"), BUSY(4, "busy"), TIMEOUT(5, "timeout"), SAVE_FAILED(6, "save_failed"),
 }
 
 /** Thrown by sources when the grant/tree is gone (B3) rather than the file (B4). */
@@ -194,6 +196,13 @@ class ConfigEngine(
     private var backupError: String? = null
     /** OQ-21: sync/merge leftovers next to launcher.json. */
     private var conflictFiles: List<String> = emptyList()
+    /**
+     * #334 / #321: why the phone's last save failed while its edit is still pending (B5), for status.json `warnings`;
+     * null once a write succeeds or the edits are dropped. Without it status.json kept the last `ok` receipt.
+     */
+    private var unsaved: String? = null
+    /** #334: launcher.json's stamp right after that failed save; a poll retries the save only once the file changed. */
+    private var failedStamp: Stamp? = null
 
     private val _state = MutableStateFlow(initial().copy(reconnectable = source.reconnectable))
     val state: StateFlow<LoadState> = _state.asStateFlow()
@@ -305,11 +314,18 @@ class ConfigEngine(
 
     private suspend fun reloadLocked(): ReloadOutcome {
         // pollLocked skips the read while an edit, drag or conflict is pending: say so instead of "unchanged".
-        val busy = dragging || pending.isNotEmpty() || _state.value.conflict
-        val changed = pollLocked(force = true)
+        // #334: with B5 up (the save failed) the poll below retries that save, merging onto the file: not busy.
+        val retried = !dragging && !_state.value.conflict && pending.isNotEmpty() && _state.value.issue is Issue.SaveFailed
+        val busy = dragging || _state.value.conflict || (pending.isNotEmpty() && !retried)
+        val changed = pollLocked(force = true, retrySave = true)
         lastStatusKey = null; emitStatus() // also reports a suppression that recurred (noteSuppression)
         return when {
             busy -> ReloadOutcome.BUSY
+            retried -> when {
+                changed -> ReloadOutcome.RELOADED
+                _state.value.conflict -> ReloadOutcome.BUSY // B6: the user decides (Ask before merging, or a torn file)
+                else -> ReloadOutcome.SAVE_FAILED
+            }
             changed -> ReloadOutcome.RELOADED
             else -> when (_state.value.issue) {
                 is Issue.ParseError, is Issue.Invalid, is Issue.TooNew -> ReloadOutcome.REJECTED
@@ -319,8 +335,18 @@ class ConfigEngine(
         }
     }
 
-    private suspend fun pollLocked(force: Boolean): Boolean {
-        if (dragging || pending.isNotEmpty() || _state.value.conflict) return false
+    private suspend fun pollLocked(force: Boolean, retrySave: Boolean = false): Boolean {
+        if (dragging || _state.value.conflict) return false
+        if (pending.isNotEmpty()) {
+            // A save is coming (debounced) or B6 waits on the user: the file is read then. But with B5 up the save already
+            // failed and nothing would run it again (#334: polls and RELOAD skipped the file for good, agents' writes
+            // were ignored). So RELOAD ([retrySave]) and any poll that sees the file changed since that failure (an
+            // agent's write) retry it: the flush re-reads the file and merges the pending edits onto the newer one.
+            // Not on every forced poll: an observer that fires for our own attempt's temp files would loop.
+            if (_state.value.issue !is Issue.SaveFailed) return false
+            if (!retrySave && runCatching { source.stamp() }.getOrNull() == failedStamp) return false
+            return flushLocked()
+        }
         val src = source
         val hashAnyway = force || (++pollCount % 5 == 0)
         val stamp = try { src.stamp() } catch (e: Exception) { return fail(classify(e, src)) }
@@ -405,7 +431,15 @@ class ConfigEngine(
     }
 
     /** B5 `Retry`: write the edits kept in memory again (same path as a debounced flush, incl. the B6 hash check). */
-    suspend fun retrySave(): Boolean { flushJob?.cancel(); return flush() }
+    suspend fun retrySave(): Boolean {
+        flushJob?.cancel()
+        // #334: never a silent no-op. Under B6 there's nothing to retry until the user picks Use file / Keep mine, so
+        // a B5 still showing next to it goes and B6 is the one banner left.
+        mutex.withLock {
+            if (_state.value.conflict && _state.value.issue is Issue.SaveFailed) { _state.update { it.copy(issue = null) }; unsaved = null; emitStatus() }
+        }
+        return flush()
+    }
 
     /**
      * Write pending edits. The B6 hash check runs first (§17 Q7): if the file changed since we
@@ -433,7 +467,9 @@ class ConfigEngine(
             // §18.2: the file wins except the items targeted by pending ops; prompt only if asked to.
             // A merge whose write failed still returns true from autoMergeLocked (no B6), but reports B5.
             if (!askBeforeMerge && autoMergeLocked(current)) return _state.value.issue !is Issue.SaveFailed
-            _state.update { it.copy(conflict = true) }
+            // #334: B6 takes over from a B5 left by an earlier failed save: one banner, with actions that work.
+            _state.update { it.copy(conflict = true, issue = it.issue.takeUnless { i -> i is Issue.SaveFailed }) }
+            unsaved = null; emitStatus()
             return false
         }
         var brokenName: String? = null
@@ -521,7 +557,7 @@ class ConfigEngine(
     suspend fun resolveUseFile() {
         mutex.withLock {
             runCatching { lastGood.snapshot(ConfigCodec.encodeBytes(_state.value.config)) }
-            pending.clear(); lastStamp = null; finishWaiters(emptyList(), dropped = true)
+            pending.clear(); lastStamp = null; finishWaiters(emptyList(), dropped = true); unsaved = null
             _state.update { it.copy(conflict = false, pendingEdits = 0, baseHash = null) }
             pollLocked(force = true)
         }
@@ -582,7 +618,9 @@ class ConfigEngine(
         selfWrites.addLast(hash); while (selfWrites.size > 4) selfWrites.removeFirst()
         // #317: [expectHash] is the file the caller checked; the source re-checks it right before replacing the target.
         // Raced: our bytes aren't the file, so they're no self-write (the next look must see the agent's file as new).
-        try { source.write(bytes, expectHash) } catch (e: ConcurrentChangeException) { selfWrites.remove(hash); throw e }
+        // #334: any failure, not only a race: bytes that never became the file aren't an echo of ours.
+        try { source.write(bytes, expectHash) } catch (e: Exception) { selfWrites.remove(hash); throw e }
+        unsaved = null // written: whatever failed before is saved now
         lastStamp = source.stamp()
         writeStatus("ok", emptyList(), hash, config.revision, Elements.warnings(config), config)
         _state.value = LoadState(config, Origin.FILE, source.displayName, hash, reconnectable = source.reconnectable)
@@ -737,14 +775,16 @@ class ConfigEngine(
         val appWidgetWarnings = if (aw != null && awConfig != null) runCatching { aw.warnings(awConfig) }.getOrDefault(emptyList()) else emptyList()
         val warnings = (if (result == "ok") statusWarnings + phoneWarnings() + cardWarnings + widgetWarnings + appWidgetWarnings else statusWarnings) +
             source.suppressedNames().map(::suppressedWarning) + source.tempWarnings()
-        _warnings.value = warnings
+        _warnings.value = warnings // the phone's ▲ line; B5 already says the save failed there
+        // #334 / #321: agents see the pending phone change that didn't save (hash/result still describe the file).
+        val listed = warnings + listOfNotNull(unsaved?.let(::unsavedWarning))
         // Release builds still record each card's stored state, but drop the "waiting for approval" sentence
         // so it doesn't contradict the "isn't shown in this version" warning.
         val consentMap = if (consent == null) null else report.associate { it.id to (it.state.key to if (cardsLive) it.warning else null) }
-        val key = "$result|$hash|$statusRevision|${errors.hashCode()}|${warnings.hashCode()}|$backupError|$conflictFiles|$consentMap|$appWidgetMap"
+        val key = "$result|$hash|$statusRevision|${errors.hashCode()}|${listed.hashCode()}|$backupError|$conflictFiles|$consentMap|$appWidgetMap"
         if (key == lastStatusKey) return
         try {
-            source.writeSidecar("", StatusJson.FILE, StatusJson.encode(result, errors, hash, clock(), backupError, conflictFiles, source.location, revision = statusRevision, warnings = warnings, consent = consentMap, appWidgets = appWidgetMap?.takeIf { it.isNotEmpty() }))
+            source.writeSidecar("", StatusJson.FILE, StatusJson.encode(result, errors, hash, clock(), backupError, conflictFiles, source.location, revision = statusRevision, warnings = listed, consent = consentMap, appWidgets = appWidgetMap?.takeIf { it.isNotEmpty() }))
             lastStatusKey = key
         } catch (_: Exception) { /* folder may be read-only or gone; the banner already says so */ }
         noteSuppression()
@@ -788,6 +828,10 @@ class ConfigEngine(
     }
 
     /** #251 Warnings / status.json line for a suppressed [name] (English like the other status lines; Pragma copy). */
+    /** #334 / #321: the status.json line while a phone change is pending after a failed save. */
+    internal fun unsavedWarning(reason: String) =
+        "The phone has a change that isn't saved yet ($reason). It stays on the phone and is merged onto launcher.json on the next save (RELOAD retries it); until then hash and revision describe the file as last loaded or saved."
+
     internal fun suppressedWarning(name: String) =
         if (name in SafWrites.ROOT_FILES) "Can't save $name: the storage app hides the one already in this folder, so no copy was made. To fix it, choose the folder again from internal storage."
         // `.configlauncher` (or something in it): launcher.json still saves through a root temp ([SafWrites]).
@@ -810,5 +854,12 @@ class ConfigEngine(
         else -> Issue.Invalid(errors)
     }
 
-    private fun fail(issue: Issue): Boolean { _state.update { it.copy(issue = issue) }; return false }
+    private fun fail(issue: Issue): Boolean {
+        _state.update { it.copy(issue = issue) }
+        // #334 / #321: a failed save with edits still pending is reported in status.json, not hidden behind the last `ok`.
+        if (issue is Issue.SaveFailed && pending.isNotEmpty()) {
+            unsaved = issue.message; failedStamp = runCatching { source.stamp() }.getOrNull(); emitStatus()
+        }
+        return false
+    }
 }

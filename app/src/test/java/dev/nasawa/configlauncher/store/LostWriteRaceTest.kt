@@ -123,7 +123,12 @@ class LostWriteRaceTest {
         assertEquals("the agent's last write is the file", agent(n - 1), src.file)
         assertTrue(e.state.value.issue is Issue.SaveFailed)
         assertEquals("the phone's edit is still pending for Retry", 1, e.state.value.pendingEdits)
-        assertEquals("no ok receipt for bytes that aren't the file", okBefore, src.status())
+        // No ok receipt for bytes that aren't the file: still the last loaded file's hash; #334/#321: plus a line saying
+        // the phone's change isn't saved yet.
+        val noTime = { st: String -> st.replace(Regex("\"time\"[^,}]*"), "").replace(Regex("\"warnings\":\\[[^\\]]*\\]"), "") }
+        assertEquals("no ok receipt for bytes that aren't the file", noTime(okBefore), noTime(src.status()))
+        assertTrue(src.status(), src.status().contains("isn't saved yet"))
+        assertFalse(src.status().contains(ConfigCodec.sha256(src.file!!.toByteArray())))
         assertEquals(0, src.r.targetWrites)
         // Retry once the agent stops: merged onto its last file.
         assertTrue(e.retrySave())

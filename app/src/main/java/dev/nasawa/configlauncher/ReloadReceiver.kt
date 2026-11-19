@@ -11,7 +11,8 @@ import kotlinx.coroutines.withTimeoutOrNull
  * #55: deterministic reload for scripted agent loops. Runs the ⋮ → Reload pipeline and writes
  * status.json before the broadcast finishes. Guarded by android.permission.DUMP in the manifest
  * (adb shell holds it; third-party apps can't), so other apps can't trigger or spam it.
- * Result code / data (#75): 0 unchanged, 1 reloaded, 2 rejected, 3 unavailable, 4 busy, 5 timeout ([ReloadOutcome]).
+ * Result code / data (#75): 0 unchanged, 1 reloaded, 2 rejected, 3 unavailable, 4 busy, 5 timeout, 6 save_failed (#334)
+ * ([ReloadOutcome]).
  */
 class ReloadReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
