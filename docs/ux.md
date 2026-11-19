@@ -551,7 +551,7 @@ size, with no special case. Font 2.0 on the open fold ellipsizes labels to about
 | Empty cell | Move there |
 | Occupied cell (app) | Create a folder (§3) |
 | Folder | Add to that folder |
-| Screen edge (hold 600 ms; the window edge, not the grid's edge, §1.5) | Start edge → previous page, end edge → next page (left/right in LTR, right/left in RTL). Past the last page → creates a new empty page |
+| Screen edge (hold 600 ms; the window edge, not the grid's edge, §1.5. The zone runs from the physical edge inward 24 dp past the system Back-gesture strip, 24 dp with button navigation; a finger pinned at the edge counts, since a drag already under way keeps its touch. With the end-edge rail, the end zone is 24 dp on the rail's inner side) | Start edge → previous page, end edge → next page (left/right in LTR, right/left in RTL). Past the last page → creates a new empty page |
 | Dock slot | Move into the dock (if 7 are full, the drop is refused with a short shake, or a red outline with reduced motion) |
 | Any target, dragging a work app with **Include work apps in config** off | Refused, with snackbar `Turn on "Include work apps in config" in Settings to place work apps.` |
 | `Remove` target (top bar, appears while dragging; with a dock rail, at the top of the page area, §1.5) | Remove from home. The app stays installed and in the drawer |
