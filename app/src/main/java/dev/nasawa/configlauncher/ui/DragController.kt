@@ -145,6 +145,17 @@ class DragController(private val engine: () -> ConfigEngine, private val onCance
     var hysteresisPx = 0f
     var liftGapPx = 0f
 
+    /**
+     * #328 ux.md §4.2: holding the finger in the window's start or end edge zone ([edgeZonePx]) for [EDGE_HOLD_MS] calls
+     * this with -1 (previous page) or +1 (next page, or a new empty page past the last). It returns whether to keep
+     * turning while the finger stays there (one more call every [EDGE_HOLD_MS]); false waits until the finger leaves
+     * the zone and comes back.
+     */
+    var onEdgeHold: (Int) -> Boolean = { false }
+    var edgeZonePx = 0f
+    private var edgeDir = 0
+    private var edgeJob: Job? = null
+
     /** #282: the drop target under the finger right now (null: none, or refused). The overlay highlights it. */
     var target by mutableStateOf<DropTarget?>(null); private set
 
@@ -209,9 +220,30 @@ class DragController(private val engine: () -> ConfigEngine, private val onCance
         // A new cell or slot, re-entering from no target included (#306: intended); leaving to "no target" is silent.
         if (t != null && t.edit != target?.edit) tick()
         target = t
+        edgeHold()
     }
 
+    /** #328: starts or stops the edge hold when the finger enters or leaves an edge zone (or switches edges). */
+    private fun edgeHold() {
+        val d = EdgeTurn.direction(fingerInRoot, overlayBounds, dockRect, dockVertical, edgeZonePx, rtl)
+        if (d == edgeDir) return
+        stopEdgeHold(); edgeDir = d
+        val s = scope ?: return
+        if (d != 0) edgeJob = s.launch {
+            while (true) {
+                delay(EDGE_HOLD_MS)
+                if (dragged == null || returning || settling || landing || !onEdgeHold(d)) break
+            }
+        }
+    }
+
+    private fun stopEdgeHold() { edgeJob?.cancel(); edgeJob = null; edgeDir = 0 }
+
+    /** #328: after a page turn the cells under a resting finger changed; re-run the hit test (no tick: it didn't move). */
+    fun refreshTarget() { if (dragged != null && !returning && !settling && !landing) target = hit(fingerInRoot) }
+
     private fun end() {
+        stopEdgeHold()
         returnJob?.cancel(); returnJob = null; raiseJob?.cancel(); raiseJob = null; settleJob?.cancel(); settleJob = null
         landingJob?.cancel(); landingJob = null
         returning = false; settling = false; settleT = 0f; settleEdit = null
@@ -269,6 +301,7 @@ class DragController(private val engine: () -> ConfigEngine, private val onCance
      */
     private fun springBack() {
         if (dragged == null || returning || settling || landing) return
+        stopEdgeHold()
         engine().dragging = false
         onCancel()
         target = null
@@ -368,6 +401,7 @@ class DragController(private val engine: () -> ConfigEngine, private val onCance
     fun drop() {
         dragged ?: return
         if (returning || settling || landing) return
+        stopEdgeHold()
         val t = hit(fingerInRoot)
         target = null
         if (t == null) { springBack(); return }
@@ -401,6 +435,8 @@ class DragController(private val engine: () -> ConfigEngine, private val onCance
         const val SETTLE_MS = 150
         /** #282: the longest the landing overlay waits for the committed layout (a refused write never moves the tile). */
         const val LANDING_TIMEOUT_MS = 1_000L
+        /** #328 ux.md §4.2: how long the finger rests in an edge zone before the page turns. */
+        const val EDGE_HOLD_MS = 600L
         /** #282: the source cell's ghost, and the lifted tile's alpha. */
         const val GHOST_ALPHA = 0.3f
         const val LIFTED_ALPHA = 0.92f
@@ -496,6 +532,7 @@ fun DragOverlay(drag: DragController, modifier: Modifier = Modifier) {
     drag.topInsetPx = WindowInsets.safeDrawing.getTop(density).toFloat()
     drag.liftGapPx = with(density) { LIFT_GAP_DP.dp.toPx() }
     drag.hysteresisPx = with(density) { BORDER_HYSTERESIS_DP.dp.toPx() }
+    drag.edgeZonePx = with(density) { EDGE_ZONE_DP.dp.toPx() }
     val plate = MaterialTheme.colorScheme.surfaceContainerHigh
     val accent = MaterialTheme.colorScheme.primary
     Layout(
@@ -623,6 +660,30 @@ const val PLATE_CORNER_DP = 12
 const val PLATE_ELEVATION_DP = 8
 /** #306 (Pragma): about 4 dp of hysteresis on cell borders, so the target (and its tick) doesn't chatter. */
 const val BORDER_HYSTERESIS_DP = 4
+/** #328: the width of the start and end edge zones that turn the page while dragging (ux.md §4.2 gives no size). */
+const val EDGE_ZONE_DP = 24
+
+/**
+ * #328 ux.md §4.2 / §1.5: which page-turn zone a dragging finger is in. The zones are the window's start and end edges
+ * ([window] is the root, i.e. the window), not the grid's: -1 = previous page (left in LTR, right in RTL), +1 = next
+ * page (right in LTR, left in RTL), 0 = neither. The dock stays a drop target: a finger over [dock] never turns, and
+ * with the end-edge rail ([vertical]) the end zone sits on the rail's inner side, where the page area ends.
+ */
+object EdgeTurn {
+    fun direction(finger: Offset, window: Rect, dock: Rect, vertical: Boolean, zonePx: Float, rtl: Boolean): Int {
+        if (window.isEmpty || zonePx <= 0f) return 0
+        if (finger.y < window.top || finger.y >= window.bottom) return 0
+        if (!dock.isEmpty && dock.contains(finger)) return 0
+        var left = window.left; var right = window.right
+        if (vertical && !dock.isEmpty) { if (rtl) left = maxOf(left, dock.right) else right = minOf(right, dock.left) }
+        val side = when {
+            finger.x < left + zonePx -> -1   // physical left
+            finger.x >= right - zonePx -> 1  // physical right
+            else -> return 0
+        }
+        return if (rtl) -side else side
+    }
+}
 
 /**
  * #281: the drag-start tick goes through Compose's [LocalHapticFeedback] as [HapticFeedbackType.LongPress]. On
