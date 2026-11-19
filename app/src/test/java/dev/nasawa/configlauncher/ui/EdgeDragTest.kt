@@ -30,6 +30,8 @@ import java.io.File
 @RunWith(AndroidJUnit4::class)
 @Config(sdk = [35], qualifiers = "w411dp-h891dp-port-xhdpi")
 class EdgeDragTest {
+    private companion object { const val SETTLE_FRAMES = 120 } // 2 s of frames: a bound, not a wait
+
     private val compose = createAndroidComposeRule<MainActivity>()
     @get:Rule val chain: RuleChain = RuleChain.outerRule(Seed()).around(compose)
     private val app get() = ApplicationProvider.getApplicationContext<ConfigLauncherApp>()
@@ -70,6 +72,25 @@ class EdgeDragTest {
     private fun pageShown(n: Int, of: Int) = compose.onAllNodes(androidx.compose.ui.test.hasContentDescription(app.getString(R.string.page_of, n, of)))
         .fetchSemanticsNodes().isNotEmpty()
     private fun frames(ms: Long) { compose.mainClock.advanceTimeBy(ms); compose.waitForIdle() }
+
+    /**
+     * #333 review (a): the new page reaches the pager through HomeViewModel.ui, which combines on Dispatchers.Default
+     * (a real thread, not the test clock), and only then does the `+ Page` effect start its scroll. So: wait (real time,
+     * clock stopped) until the ui state carries the page, then drive the scroll frame by frame on the virtual clock
+     * until the pager has settled on it. Racing a fixed amount of virtual time against that thread was the 1-in-11 flake.
+     */
+    private fun awaitPagerSettledOn(n: Int, of: Int) {
+        val vm = androidx.lifecycle.ViewModelProvider(compose.activity)[HomeViewModel::class.java]
+        compose.waitUntil("ui state has $of pages", 10_000) {
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle() // stateIn collects on Main
+            vm.ui.value.load.config.pages.size == of
+        }
+        repeat(SETTLE_FRAMES) {
+            if (pageShown(n, of)) return
+            compose.mainClock.advanceTimeByFrame(); compose.waitForIdle()
+        }
+        assertTrue("pager settled on page $n of $of", pageShown(n, of))
+    }
     private fun saved(): dev.nasawa.configlauncher.model.LauncherConfig {
         kotlinx.coroutines.runBlocking { app.store.engine.retrySave() }
         return (dev.nasawa.configlauncher.config.ConfigCodec.decode(file.readText()) as dev.nasawa.configlauncher.config.ParseResult.Ok).config
@@ -118,9 +139,9 @@ class EdgeDragTest {
         liftToEdge(right = true)
         frames(DragController.EDGE_HOLD_MS * 2 + 200) // t = 1600: turns at 600 (second) and 1200 (third)
         assertTrue(pageShown(3, 3))
-        frames(DragController.EDGE_HOLD_MS * 2)  // t = 2800: past the last at 1800, a new page, then the scroll there
+        frames(DragController.EDGE_HOLD_MS)  // t = 2200: past the last at 1800, a new (draft) page
         assertEquals(listOf("home", "second", "third", "page-1"), app.store.shownConfig().pages.map { it.id })
-        assertTrue("on the new page after third", pageShown(4, 4))
+        awaitPagerSettledOn(4, 4)
         frames(DragController.EDGE_HOLD_MS * 3)     // held on the new empty page: no more pages
         assertEquals(4, app.store.shownConfig().pages.size)
         val tile = bounds("Row two")                // out of the zone and back: still no second new page

@@ -5,6 +5,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.systemGestures
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.draw.drawBehind
@@ -153,6 +154,9 @@ class DragController(private val engine: () -> ConfigEngine, private val onCance
      */
     var onEdgeHold: (Int) -> Boolean = { false }
     var edgeZonePx = 0f
+    /** #333 review (d): the system Back-gesture strips (`WindowInsets.systemGestures`), physical left/right px. */
+    var gestureLeftPx = 0f
+    var gestureRightPx = 0f
     private var edgeDir = 0
     private var edgeJob: Job? = null
 
@@ -225,7 +229,7 @@ class DragController(private val engine: () -> ConfigEngine, private val onCance
 
     /** #328: starts or stops the edge hold when the finger enters or leaves an edge zone (or switches edges). */
     private fun edgeHold() {
-        val d = EdgeTurn.direction(fingerInRoot, overlayBounds, dockRect, dockVertical, edgeZonePx, rtl)
+        val d = EdgeTurn.direction(fingerInRoot, overlayBounds, dockRect, dockVertical, edgeZonePx, rtl, gestureLeftPx, gestureRightPx)
         if (d == edgeDir) return
         stopEdgeHold(); edgeDir = d
         val s = scope ?: return
@@ -533,6 +537,9 @@ fun DragOverlay(drag: DragController, modifier: Modifier = Modifier) {
     drag.liftGapPx = with(density) { LIFT_GAP_DP.dp.toPx() }
     drag.hysteresisPx = with(density) { BORDER_HYSTERESIS_DP.dp.toPx() }
     drag.edgeZonePx = with(density) { EDGE_ZONE_DP.dp.toPx() }
+    // #333 review (d): keep the zones out of the system Back-gesture strips (gesture navigation; 0 with buttons).
+    drag.gestureLeftPx = WindowInsets.systemGestures.getLeft(density, androidx.compose.ui.unit.LayoutDirection.Ltr).toFloat()
+    drag.gestureRightPx = WindowInsets.systemGestures.getRight(density, androidx.compose.ui.unit.LayoutDirection.Ltr).toFloat()
     val plate = MaterialTheme.colorScheme.surfaceContainerHigh
     val accent = MaterialTheme.colorScheme.primary
     Layout(
@@ -668,13 +675,18 @@ const val EDGE_ZONE_DP = 24
  * ([window] is the root, i.e. the window), not the grid's: -1 = previous page (left in LTR, right in RTL), +1 = next
  * page (right in LTR, left in RTL), 0 = neither. The dock stays a drop target: a finger over [dock] never turns, and
  * with the end-edge rail ([vertical]) the end zone sits on the rail's inner side, where the page area ends.
+ * #333 review (d): the zones never sit in the system Back-gesture strips ([gestureLeft]/[gestureRight] px, physical,
+ * from `WindowInsets.systemGestures`): each zone starts at the strip's inner edge, and a finger inside a strip is in
+ * no zone.
  */
 object EdgeTurn {
-    fun direction(finger: Offset, window: Rect, dock: Rect, vertical: Boolean, zonePx: Float, rtl: Boolean): Int {
+    fun direction(finger: Offset, window: Rect, dock: Rect, vertical: Boolean, zonePx: Float, rtl: Boolean,
+                  gestureLeft: Float = 0f, gestureRight: Float = 0f): Int {
         if (window.isEmpty || zonePx <= 0f) return 0
         if (finger.y < window.top || finger.y >= window.bottom) return 0
         if (!dock.isEmpty && dock.contains(finger)) return 0
-        var left = window.left; var right = window.right
+        var left = window.left + gestureLeft; var right = window.right - gestureRight
+        if (finger.x < left || finger.x >= right) return 0 // in a Back-gesture strip
         if (vertical && !dock.isEmpty) { if (rtl) left = maxOf(left, dock.right) else right = minOf(right, dock.left) }
         val side = when {
             finger.x < left + zonePx -> -1   // physical left

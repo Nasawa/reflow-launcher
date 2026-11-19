@@ -51,4 +51,20 @@ class EdgeTurnTest {
         assertEquals(0, EdgeTurn.direction(Offset(1f, 1f), window, Rect.Zero, false, 0f, false))
         assertEquals(0, dir(5f, y = 2100f))
     }
+
+    @Test fun theZonesStayOutOfTheBackGestureStrips() {
+        // #333 review (d): 60 px Back-gesture strips on both sides (gesture navigation).
+        fun g(x: Float, rtl: Boolean = false) = EdgeTurn.direction(Offset(x, 1000f), window, Rect.Zero, false, 48f, rtl, 60f, 60f)
+        assertEquals("inside the left strip: the system's", 0, g(10f)); assertEquals(0, g(59f))
+        assertEquals("the zone starts at the strip's inner edge", -1, g(60f)); assertEquals(-1, g(107f))
+        assertEquals(0, g(108f))
+        assertEquals(1, g(892f)); assertEquals(1, g(939f))
+        assertEquals("inside the right strip", 0, g(940f)); assertEquals(0, g(999f))
+        assertEquals("RTL flips the zones, not the strips", 1, g(70f, rtl = true))
+        assertEquals(-1, g(900f, rtl = true))
+        // With the end rail, the strip and the rail both stay out of the zone.
+        val rail = Rect(900f, 100f, 940f, 1900f)
+        assertEquals(1, EdgeTurn.direction(Offset(870f, 1000f), window, rail, true, 48f, false, 60f, 60f))
+        assertEquals(0, EdgeTurn.direction(Offset(950f, 1000f), window, rail, true, 48f, false, 60f, 60f))
+    }
 }
