@@ -52,19 +52,25 @@ class EdgeTurnTest {
         assertEquals(0, dir(5f, y = 2100f))
     }
 
-    @Test fun theZonesStayOutOfTheBackGestureStrips() {
-        // #333 review (d): 60 px Back-gesture strips on both sides (gesture navigation).
+    @Test fun theZonesReachThroughTheBackGestureStripsToTheEdge() {
+        // #336 follow-up: 60 px Back-gesture strips on both sides; each zone is edge → strip + 48 px. A drag already
+        // under way that moves into the strip stays ours (gesture nav only claims touches that start there).
         fun g(x: Float, rtl: Boolean = false) = EdgeTurn.direction(Offset(x, 1000f), window, Rect.Zero, false, 48f, rtl, 60f, 60f)
-        assertEquals("inside the left strip: the system's", 0, g(10f)); assertEquals(0, g(59f))
-        assertEquals("the zone starts at the strip's inner edge", -1, g(60f)); assertEquals(-1, g(107f))
-        assertEquals(0, g(108f))
-        assertEquals(1, g(892f)); assertEquals(1, g(939f))
-        assertEquals("inside the right strip", 0, g(940f)); assertEquals(0, g(999f))
-        assertEquals("RTL flips the zones, not the strips", 1, g(70f, rtl = true))
-        assertEquals(-1, g(900f, rtl = true))
-        // With the end rail, the strip and the rail both stay out of the zone.
+        assertEquals("pinned at the very left edge", -1, g(0f)); assertEquals("inside the strip", -1, g(30f))
+        assertEquals(-1, g(107f)); assertEquals(0, g(108f))
+        assertEquals(0, g(891f)); assertEquals(1, g(892f))
+        assertEquals("inside the right strip", 1, g(970f)); assertEquals("pinned at the very right edge", 1, g(999.5f))
+        assertEquals("a pixel past the edge still turns", 1, g(1000f)); assertEquals(-1, g(-1f))
+        assertEquals("RTL: the left strip is the end", 1, g(5f, rtl = true))
+        assertEquals(-1, g(995f, rtl = true))
+        // No strip (button navigation): 48 px from the edge, as before.
+        assertEquals(-1, dir(0f)); assertEquals(0, dir(48f))
+        // The end rail keeps its own zone on its inner side; the strip under it doesn't widen that.
         val rail = Rect(900f, 100f, 940f, 1900f)
         assertEquals(1, EdgeTurn.direction(Offset(870f, 1000f), window, rail, true, 48f, false, 60f, 60f))
-        assertEquals(0, EdgeTurn.direction(Offset(950f, 1000f), window, rail, true, 48f, false, 60f, 60f))
+        assertEquals(0, EdgeTurn.direction(Offset(840f, 1000f), window, rail, true, 48f, false, 60f, 60f))
+        assertEquals("over the rail: a dock slot", 0, EdgeTurn.direction(Offset(920f, 1000f), window, rail, true, 48f, false, 60f, 60f))
+        assertEquals("beside the rail, at the edge", 1, EdgeTurn.direction(Offset(990f, 1000f), window, rail, true, 48f, false, 60f, 60f))
+        assertEquals("start side keeps the strip-wide zone", -1, EdgeTurn.direction(Offset(100f, 1000f), window, rail, true, 48f, false, 60f, 60f))
     }
 }

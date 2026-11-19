@@ -154,7 +154,7 @@ class DragController(private val engine: () -> ConfigEngine, private val onCance
      */
     var onEdgeHold: (Int) -> Boolean = { false }
     var edgeZonePx = 0f
-    /** #333 review (d): the system Back-gesture strips (`WindowInsets.systemGestures`), physical left/right px. */
+    /** The system Back-gesture strips (`WindowInsets.systemGestures`), physical left/right px: each zone reaches past them. */
     var gestureLeftPx = 0f
     var gestureRightPx = 0f
     private var edgeDir = 0
@@ -537,7 +537,7 @@ fun DragOverlay(drag: DragController, modifier: Modifier = Modifier) {
     drag.liftGapPx = with(density) { LIFT_GAP_DP.dp.toPx() }
     drag.hysteresisPx = with(density) { BORDER_HYSTERESIS_DP.dp.toPx() }
     drag.edgeZonePx = with(density) { EDGE_ZONE_DP.dp.toPx() }
-    // #333 review (d): keep the zones out of the system Back-gesture strips (gesture navigation; 0 with buttons).
+    // #336 follow-up: each zone runs from the screen edge to 24 dp past the Back-gesture strip (0 with buttons).
     drag.gestureLeftPx = WindowInsets.systemGestures.getLeft(density, androidx.compose.ui.unit.LayoutDirection.Ltr).toFloat()
     drag.gestureRightPx = WindowInsets.systemGestures.getRight(density, androidx.compose.ui.unit.LayoutDirection.Ltr).toFloat()
     val plate = MaterialTheme.colorScheme.surfaceContainerHigh
@@ -675,9 +675,11 @@ const val EDGE_ZONE_DP = 24
  * ([window] is the root, i.e. the window), not the grid's: -1 = previous page (left in LTR, right in RTL), +1 = next
  * page (right in LTR, left in RTL), 0 = neither. The dock stays a drop target: a finger over [dock] never turns, and
  * with the end-edge rail ([vertical]) the end zone sits on the rail's inner side, where the page area ends.
- * #333 review (d): the zones never sit in the system Back-gesture strips ([gestureLeft]/[gestureRight] px, physical,
- * from `WindowInsets.systemGestures`): each zone starts at the strip's inner edge, and a finger inside a strip is in
- * no zone.
+ * Width (#336 follow-up, Grok Bot's call, replacing #335's inset): each zone runs from the physical screen edge inward
+ * to max([zonePx], strip + [zonePx]), where the strip is the system Back-gesture inset on that side ([gestureLeft] /
+ * [gestureRight] px, physical, from `WindowInsets.systemGestures`). Nothing is excluded: gesture navigation only claims
+ * touches that start in the strip, so a drag already under way that moves into it stays ours, and a finger pinned at
+ * the very edge (or a pixel past it) turns the page. The end-edge rail keeps its own zone, [zonePx] on its inner side.
  */
 object EdgeTurn {
     fun direction(finger: Offset, window: Rect, dock: Rect, vertical: Boolean, zonePx: Float, rtl: Boolean,
@@ -685,12 +687,14 @@ object EdgeTurn {
         if (window.isEmpty || zonePx <= 0f) return 0
         if (finger.y < window.top || finger.y >= window.bottom) return 0
         if (!dock.isEmpty && dock.contains(finger)) return 0
-        var left = window.left + gestureLeft; var right = window.right - gestureRight
-        if (finger.x < left || finger.x >= right) return 0 // in a Back-gesture strip
-        if (vertical && !dock.isEmpty) { if (rtl) left = maxOf(left, dock.right) else right = minOf(right, dock.left) }
+        var left = window.left; var right = window.right
+        var leftW = maxOf(zonePx, gestureLeft + zonePx); var rightW = maxOf(zonePx, gestureRight + zonePx)
+        if (vertical && !dock.isEmpty) {
+            if (rtl) { left = maxOf(left, dock.right); leftW = zonePx } else { right = minOf(right, dock.left); rightW = zonePx }
+        }
         val side = when {
-            finger.x < left + zonePx -> -1   // physical left
-            finger.x >= right - zonePx -> 1  // physical right
+            finger.x < left + leftW -> -1    // physical left (a finger past the edge included)
+            finger.x >= right - rightW -> 1  // physical right
             else -> return 0
         }
         return if (rtl) -side else side

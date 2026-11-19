@@ -51,7 +51,8 @@ sealed interface Issue {
 /**
  * #75: the RELOAD broadcast's reply. [code] is the broadcast result code, [word] its result data.
  * REJECTED: the current file isn't valid (details in status.json). UNAVAILABLE: the folder or file can't be read.
- * BUSY: a phone edit, drag or conflict is pending, so the file wasn't read. TIMEOUT: no answer within 8 s.
+ * BUSY: a drag, B6 (conflict), or a phone edit still waiting for its debounced save, so the file wasn't read; a failed
+ * save (B5) is SAVE_FAILED or RELOADED instead (#334). TIMEOUT: no answer within 8 s.
  * SAVE_FAILED (#334): the phone's own save had failed (B5); RELOAD read the file and tried that save again (merging onto
  * the file), and it failed again. status.json `warnings` says why; retry later.
  */
