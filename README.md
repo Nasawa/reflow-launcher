@@ -273,8 +273,8 @@ versioning.
   `…ReloadReceiver`. Do not use the slash-dot shorthand after the applicationId.)
   It runs the same load as ⋮ → Reload and rewrites `status.json` before returning Result codes: `0` unchanged,
   `1` reloaded, `2` rejected (details in `status.json`), `3` unavailable, `4` busy (phone edit, drag, or conflict
-  pending), `5` timeout (8 s). On `2`, read `status.json` and fix the listed paths; on `4`, back off and retry; on
-  `3` or `5`, retry later. Only adb shell can send it (it requires `android.permission.DUMP`).
+  pending), `5` timeout (8 s), `6` save_failed (the phone's own save failed again; `status.json` `warnings` says why).
+  On `2`, read `status.json` and fix the listed paths; on `4`, back off and retry; on `3`, `5` or `6`, retry later. Only adb shell can send it (it requires `android.permission.DUMP`).
 
 **Don't**
 - Add comments, trailing commas, or keys without an `x-` prefix.

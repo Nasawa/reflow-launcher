@@ -10,11 +10,12 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 /**
- * #334 (Claw, dev1 A51): an agent's non-atomic `cp` (truncate, then write) racing the phone's save. The read-back
- * lands between the agent's truncate and its write, sees an empty file, calls it "write verification failed" and
- * restores the pre-save bytes over the agent's finished write. The engine then sits on the failed edit: polls and
- * RELOAD skip the file while it's pending, and status.json keeps the old `ok`. Real [SafWrites] on a fake tree, the
- * agent's steps landed at fixed points of the save; no clock, no timing.
+ * #334 (Claw, dev1 A51): an agent's non-atomic `cp` (truncate, then write) racing the phone's save. Before the fix the
+ * read-back landed between the agent's truncate and its write, saw an empty file, called it "write verification
+ * failed" and restored the pre-save bytes over the agent's finished write; the engine then sat on the failed edit
+ * (polls and RELOAD skipped the file, RELOAD said busy, status.json kept the old `ok`, Retry could be a silent no-op
+ * under B6). These pin the fixed behaviour. Real [SafWrites] on a fake tree, the agent's steps landed at fixed points
+ * of the save; no clock, no timing.
  */
 class Issue334WedgeTest {
     @get:Rule val tmp = TemporaryFolder()
@@ -33,6 +34,8 @@ class Issue334WedgeTest {
         /** Once, right after our bytes reach launcher.json and before the read-back: the agent's write lands mid-save. */
         var afterTargetWrite: (() -> Unit)? = null
         var targetWrites = 0
+        /** While true the provider drops our writes to launcher.json (the read-back is the old file): a save that fails. */
+        var dropWrites = false
         /** Once, right after a read of launcher.json returns: the agent's write completing after our read-back. */
         var afterTargetRead: (() -> Unit)? = null
         override fun read(docId: String): ByteArray? {
@@ -42,6 +45,7 @@ class Issue334WedgeTest {
         }
         override fun write(docId: String, bytes: ByteArray) {
             val name = t.docs[docId]?.name
+            if (dropWrites && name == "launcher.json") { targetWrites++; return }
             t.write(docId, bytes)
             if (name != null && name.endsWith(".tmp")) onTempWrite?.let { onTempWrite = null; it() }
             if (name == "launcher.json") { targetWrites++; afterTargetWrite?.let { afterTargetWrite = null; it() } }
@@ -70,67 +74,146 @@ class Issue334WedgeTest {
     private fun rev(json: String?) = (ConfigCodec.decode(json!!.toByteArray()) as ParseResult.Ok).config.revision
     private fun TreeSource.status() = sidecars["/status.json"]!!
 
-    /** The race: our bytes land; the agent's `cp` truncates; our read-back sees ""; the agent's bytes land; we "restore". */
+    /** The race: our bytes land; the agent's `cp` truncates; our read-back sees ""; the agent's bytes land. */
     private fun TreeSource.agentCpRacesTheReadBack(json: String) {
         r.afterTargetWrite = { agentWrites("") ; r.afterTargetRead = { agentWrites(json) } }
     }
+    private fun TreeSource.warned() = status().contains("isn't saved yet")
 
-    @Test fun theAgentsWriteIsLostAndTheEngineWedges() = runBlocking {
-        val src = TreeSource(SafDirsTest.FakeTree()); val e = engine(src)
-        assertTrue(e.poll(force = true))
-        val statusBefore = src.status()
-        assertTrue(e.edit(Edit.Remove("w-clock")))
-        src.agentCpRacesTheReadBack(agent(37))
-        assertFalse(e.flush())
-
-        // 1. Lost write: launcher.json is back to the pre-round bytes (rev 36); the agent's rev 37 is gone.
-        assertEquals("the agent's write was restored over", base, src.file)
-        val issue = e.state.value.issue as Issue.SaveFailed
-        assertTrue(issue.message, issue.message.contains("write verification failed"))
-        assertEquals(1, e.state.value.pendingEdits)
-
-        // 2. Wedge: the agent writes again (next round); nothing sees it while the edit is pending.
-        src.agentWrites(agent(38, "a-agent-two"))
-        assertFalse("poll skips the file while an edit is pending", e.poll(force = true))
-        assertFalse(ids(String(ConfigCodec.encodeBytes(e.state.value.config))).contains("a-agent-two"))
-        assertEquals("RELOAD says busy for as long as the failed edit is pending", ReloadOutcome.BUSY, e.reloadForAgent())
-        assertEquals(ReloadOutcome.BUSY, e.reloadForAgent())
-        // 3. status.json: still the old ok receipt for rev 36 (re-emitted by RELOAD), no word of the failed save.
-        assertTrue(src.status(), src.status().contains(ConfigCodec.sha256(base.toByteArray())))
-        assertTrue(src.status(), src.status().contains("\"ok\""))
-        assertFalse(src.status(), src.status().contains("verification"))
-        assertEquals(statusBefore.replace(Regex("\"time\"[^,}]*"), ""), src.status().replace(Regex("\"time\"[^,}]*"), ""))
-        // Nothing retries on its own: only Retry (or a new edit) runs another save.
-    }
-
-    @Test fun retryAfterTheLostWriteWorksWhenTheWriteCanSucceed() = runBlocking {
-        // Control: with the provider behaving, Retry does save (merging onto the agent's next write).
+    @Test fun theAgentsWriteIsMergedNotRestoredOver() = runBlocking {
         val src = TreeSource(SafDirsTest.FakeTree()); val e = engine(src)
         assertTrue(e.poll(force = true))
         assertTrue(e.edit(Edit.Remove("w-clock")))
         src.agentCpRacesTheReadBack(agent(37))
-        assertFalse(e.flush())
-        src.agentWrites(agent(38, "a-agent-two"))
-        assertTrue(e.retrySave())
-        assertEquals(listOf("a-keep", "a-agent-two"), ids(src.file))
+        assertTrue(e.flush())
+        // Before: the file was back at rev 36 (the agent's rev 37 restored over) and B5 "write verification failed".
+        assertEquals("the agent's item kept, our Remove merged onto it", listOf("a-keep", "a-agent-gal"), ids(src.file))
+        assertEquals(38L, rev(src.file))
         assertNull(e.state.value.issue)
+        assertEquals(0, e.state.value.pendingEdits)
+        assertTrue(src.status().contains(ConfigCodec.sha256(src.file!!.toByteArray())))
+        assertFalse(src.warned())
         assertEquals(ReloadOutcome.UNCHANGED, e.reloadForAgent())
     }
 
-    @Test fun retryIsASilentNoOpOnceConflictIsSetUnderTheSaveFailedBanner() = runBlocking {
-        // A flush that meets a torn (invalid) file sets conflict, and the B5 issue from the earlier failure stays.
+    @Test fun ourOwnFailedWriteIsStillRestoredWhenNobodyElseWrote() = runBlocking {
+        // #321 restore-path cases: the read-back is the original, empty, or a torn prefix of ours, and stays so.
+        for (case in listOf("original", "empty", "torn")) {
+            val src = TreeSource(SafDirsTest.FakeTree()); val e = engine(src)
+            assertTrue(e.poll(force = true))
+            assertTrue(e.edit(Edit.Remove("w-clock")))
+            when (case) {
+                "original" -> src.r.dropWrites = true
+                "empty" -> src.r.afterTargetWrite = { src.agentWrites("") }
+                else -> src.r.afterTargetWrite = { src.agentWrites(String(ConfigCodec.encodeBytes(e.state.value.config.copy(revision = 37))).take(30)) }
+            }
+            assertFalse(case, e.flush())
+            assertEquals("$case: the old file is put back", base, src.file)
+            assertTrue(case, (e.state.value.issue as Issue.SaveFailed).message.contains("write verification failed"))
+            assertEquals(case, 1, e.state.value.pendingEdits)
+        }
+    }
+
+    @Test fun afterAFailedSaveTheEngineDoesNotWedge() = runBlocking {
         val src = TreeSource(SafDirsTest.FakeTree()); val e = engine(src)
         assertTrue(e.poll(force = true))
         assertTrue(e.edit(Edit.Remove("w-clock")))
-        src.agentCpRacesTheReadBack(agent(37))
+        src.r.dropWrites = true                       // the provider fails our writes for a while
         assertFalse(e.flush())
-        src.agentWrites(agent(38).take(40))         // the next agent cp caught mid-write by a save
+        assertTrue(e.state.value.issue is Issue.SaveFailed)
+        // status.json says so (#321's stale ok): still the file's hash, plus the pending-change warning.
+        assertTrue(src.status(), src.warned())
+        assertTrue(src.status().contains(ConfigCodec.sha256(base.toByteArray())))
+
+        // An observer firing (a forced poll) with the file unchanged doesn't hammer the folder with retries.
+        val writes = src.r.targetWrites
+        assertFalse(e.poll(force = true)); assertEquals(writes, src.r.targetWrites)
+
+        // The agent writes: a poll sees the change and retries (it still fails here); RELOAD retries and says so.
+        src.agentWrites(agent(38, "a-agent-two"))
+        assertFalse(e.poll())
+        assertTrue("retried", src.r.targetWrites > writes)
+        assertEquals("a real answer, not busy", ReloadOutcome.SAVE_FAILED, e.reloadForAgent())
+        assertTrue(src.warned())
+
+        // The provider recovers; the agent writes again; the next poll merges our Remove onto the agent's file.
+        src.r.dropWrites = false
+        src.agentWrites(agent(39, "a-agent-three"))  // (a new size: the fake tree's stamp is the size)
+        assertTrue(e.poll())
+        assertEquals(listOf("a-keep", "a-agent-three"), ids(src.file))
+        assertNull(e.state.value.issue)
+        assertEquals(0, e.state.value.pendingEdits)
+        assertFalse(src.warned())
+        assertTrue(src.status().contains(ConfigCodec.sha256(src.file!!.toByteArray())))
+        assertEquals(ReloadOutcome.UNCHANGED, e.reloadForAgent())
+    }
+
+    @Test fun reloadAloneRecoversOnceTheProviderWorks() = runBlocking {
+        val src = TreeSource(SafDirsTest.FakeTree()); val e = engine(src)
+        assertTrue(e.poll(force = true))
+        assertTrue(e.edit(Edit.Remove("w-clock")))
+        src.r.dropWrites = true
+        assertFalse(e.flush())
+        src.r.dropWrites = false
+        assertEquals("RELOAD retries the save even with the file unchanged", ReloadOutcome.RELOADED, e.reloadForAgent())
+        assertEquals(listOf("a-keep"), ids(src.file))
+        assertNull(e.state.value.issue)
+        assertFalse(src.warned())
+    }
+
+    @Test fun retryAfterAConflictShowsB6NeverASilentNoOp() = runBlocking {
+        val src = TreeSource(SafDirsTest.FakeTree()); val e = engine(src)
+        assertTrue(e.poll(force = true))
+        assertTrue(e.edit(Edit.Remove("w-clock")))
+        src.r.dropWrites = true
+        assertFalse(e.flush())                       // B5
+        src.r.dropWrites = false
+        src.agentWrites(agent(38).take(40))         // the agent's next cp, caught mid-write
         assertFalse(e.retrySave())
+        // B6 takes over: conflict, and no B5 left beside it (its Retry would do nothing under B6).
         assertTrue(e.state.value.conflict)
-        assertTrue(e.state.value.issue is Issue.SaveFailed)
-        src.agentWrites(agent(39))                  // the agent's file is whole again
-        assertFalse("Retry: flushOnce returns at once while conflict is set", e.retrySave())
-        assertTrue(e.state.value.issue is Issue.SaveFailed)
-        assertEquals(ReloadOutcome.BUSY, e.reloadForAgent())
+        assertNull(e.state.value.issue)
+        assertFalse(src.warned())
+        assertEquals(ReloadOutcome.BUSY, e.reloadForAgent()) // B6 waits on the user
+        // Retry again while B6 is up: still B6, never a lone B5 that does nothing.
+        assertFalse(e.retrySave())
+        assertTrue(e.state.value.conflict); assertNull(e.state.value.issue)
+        // The user picks Keep mine once the agent's file is whole: recovered.
+        src.agentWrites(agent(39))
+        assertTrue(e.resolveKeepMine())
+        assertFalse(e.state.value.conflict)
+        assertEquals(listOf("a-keep", "a-agent-gal"), ids(src.file))
+        assertNull(e.state.value.issue)
+    }
+
+    @Test fun aB5BesideB6IsClearedByRetry() = runBlocking {
+        val src = TreeSource(SafDirsTest.FakeTree()); val e = engine(src)
+        assertTrue(e.poll(force = true))
+        e.askBeforeMerge = true
+        assertTrue(e.edit(Edit.Remove("w-clock")))
+        src.agentWrites(agent(37))
+        assertFalse(e.flush()); assertTrue(e.state.value.conflict) // B6 (Ask before merging)
+        src.r.dropWrites = true
+        assertFalse(e.resolveKeepMine())             // Keep mine's write fails: B5 beside B6
+        assertTrue(e.state.value.issue is Issue.SaveFailed); assertTrue(e.state.value.conflict)
+        assertFalse(e.retrySave())
+        assertTrue("B6 stays, with its actions", e.state.value.conflict)
+        assertNull("B5's Retry did something: it handed over to B6", e.state.value.issue)
+    }
+
+    @Test fun aFailedWritesBytesAreNoEchoLater() = runBlocking {
+        // The failed save's bytes never became the file, so when an agent writes exactly those bytes they're its file:
+        // loaded and receipted, not swallowed as our own echo.
+        val src = TreeSource(SafDirsTest.FakeTree()); val e = engine(src)
+        assertTrue(e.poll(force = true))
+        assertTrue(e.edit(Edit.Remove("w-clock")))
+        val ours = String(ConfigCodec.encodeBytes(e.state.value.config.copy(revision = 37)))
+        src.r.dropWrites = true
+        assertFalse(e.flush())
+        src.r.dropWrites = false
+        src.agentWrites(ours)
+        e.resolveUseFile()                           // drop the phone's edit; take the file
+        assertEquals(ConfigCodec.sha256(ours.toByteArray()), e.state.value.baseHash)
+        assertTrue(src.status().contains(ConfigCodec.sha256(ours.toByteArray())))
     }
 }

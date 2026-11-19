@@ -138,9 +138,11 @@ internal class SafWrites(
             val original = tree.read(target)
             // #317: the last look before the target changes (an agent's write since the caller's check stops the save).
             requireUnchanged(expectHash, original)
+            var back: ByteArray? = null
+            var readBack = false
             try {
                 tree.write(target, bytes)
-                val back = tree.read(target)
+                back = tree.read(target); readBack = true
                 if (back?.let { ConfigCodec.sha256(it) } != want) {
                     // #317: not ours, not a torn copy of ours, not the original: another writer's bytes landed mid-save.
                     if (expectHash != null && back != null && back.isNotEmpty() && !bytes.startsWith(back) && original?.contentEquals(back) != true)
@@ -148,6 +150,18 @@ internal class SafWrites(
                     throw IOException("write verification failed")
                 }
             } catch (e: ConcurrentChangeException) { throw e } catch (e: Exception) {
+                // #334: look once more before restoring. An empty read-back (or a prefix of ours) can be another writer
+                // mid-`cp` (truncate, then write); if its bytes landed since, restoring would put the old file over
+                // them. So with [expectHash], restore only a target that's still what the read-back saw (or, when the
+                // write itself threw, still empty, a prefix of ours or the original); anything else is kept as theirs.
+                if (expectHash != null) {
+                    val now = runCatching { tree.read(target) }.getOrNull()
+                    val unchanged = if (readBack) java.util.Arrays.equals(now, back)
+                        else now == null || now.isEmpty() || bytes.startsWith(now) || original?.contentEquals(now) == true
+                    if (!unchanged && now != null && now.isNotEmpty() && ConfigCodec.sha256(now) != want)
+                        throw ConcurrentChangeException(now, "launcher.json changed while saving (someone else wrote it)")
+                    if (!unchanged && now != null && ConfigCodec.sha256(now) == want) return@synchronized // ours after all
+                }
                 val restored = original != null &&
                     runCatching { tree.write(target, original); tree.read(target)?.contentEquals(original) == true }.getOrDefault(false)
                 // Keep or delete the root temp:
