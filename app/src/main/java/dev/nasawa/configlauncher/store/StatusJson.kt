@@ -12,6 +12,8 @@ import java.util.TimeZone
 /** `.configlauncher/status.json`: last load result, errors, file hash, time (ARCHITECTURE.md §16/§17). */
 object StatusJson {
     const val FILE = "status.json"
+    /** #339: B6 is up over a launcher.json that loads: the phone's unsaved change waits for Use file / Keep mine. */
+    const val CONFLICT = "conflict"
 
     fun resultOf(issue: Issue): String = when (issue) {
         is Issue.ParseError -> "parse_error"

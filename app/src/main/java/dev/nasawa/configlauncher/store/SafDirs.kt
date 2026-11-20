@@ -28,8 +28,13 @@ internal interface DocTree {
     fun delete(docId: String): Boolean
     /** The document's bytes (verification reads; capped by the caller's source). */
     fun read(docId: String): ByteArray?
-    /** Truncate-writes [bytes] to the document. */
+    /** Truncate-writes [bytes] to the document (#339: the result is exactly [bytes], never a longer old tail). */
     fun write(docId: String, bytes: ByteArray)
+    /**
+     * #339: replaces the document's bytes in one open: reads them, hands them to [check] (which throws to stop with
+     * nothing written), truncates and writes [bytes]. false (nothing done) when the provider can't; then use [write].
+     */
+    fun replace(docId: String, bytes: ByteArray, check: (ByteArray) -> Unit): Boolean = false
     /** #251: the document's own type and size (document URI query), or null when it's gone. */
     fun info(docId: String): DocInfo?
     /** #251: how many children the folder [docId] has, from its own children URI. */

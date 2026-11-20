@@ -50,7 +50,8 @@ sealed interface Issue {
 
 /**
  * #75: the RELOAD broadcast's reply. [code] is the broadcast result code, [word] its result data.
- * REJECTED: the current file isn't valid (details in status.json). UNAVAILABLE: the folder or file can't be read.
+ * REJECTED: the current file isn't valid (details in status.json); #339: also while B6 waits for a file that doesn't load
+ * to become valid (the pending edits merge onto it then). UNAVAILABLE: the folder or file can't be read.
  * BUSY: a drag, B6 (conflict), or a phone edit still waiting for its debounced save, so the file wasn't read; a failed
  * save (B5) is SAVE_FAILED or RELOADED instead (#334). TIMEOUT: no answer within 8 s.
  * SAVE_FAILED (#334): the phone's own save had failed (B5); RELOAD read the file and tried that save again (merging onto
@@ -204,6 +205,15 @@ class ConfigEngine(
     private var unsaved: String? = null
     /** #334: launcher.json's stamp right after that failed save; a poll retries the save only once the file changed. */
     private var failedStamp: Stamp? = null
+    /**
+     * #339: B6 is up only because launcher.json didn't load when the save looked (a torn or half-written file), so
+     * nothing could be merged onto it; not with Ask before merging. Polls keep reading the file, and once it loads the
+     * pending edits merge onto it and B6 goes. [conflictHash]: the file B6 was last about.
+     */
+    private var conflictBroken = false
+    private var conflictHash: String? = null
+    /** #339: status.json line after a save that wrote over the start of another writer's file (null once a file loads). */
+    private var overlap: String? = null
 
     private val _state = MutableStateFlow(initial().copy(reconnectable = source.reconnectable))
     val state: StateFlow<LoadState> = _state.asStateFlow()
@@ -317,11 +327,19 @@ class ConfigEngine(
         // pollLocked skips the read while an edit, drag or conflict is pending: say so instead of "unchanged".
         // #334: with B5 up (the save failed) the poll below retries that save, merging onto the file: not busy.
         val retried = !dragging && !_state.value.conflict && pending.isNotEmpty() && _state.value.issue is Issue.SaveFailed
-        val busy = dragging || _state.value.conflict || (pending.isNotEmpty() && !retried)
+        // #339: B6 over a file that doesn't load isn't the user's call yet: the poll reads the file, and merges once it loads.
+        val brokenB6 = _state.value.conflict && conflictBroken
+        val busy = dragging || (_state.value.conflict && !brokenB6) || (pending.isNotEmpty() && !retried && !brokenB6)
         val changed = pollLocked(force = true, retrySave = true)
         lastStatusKey = null; emitStatus() // also reports a suppression that recurred (noteSuppression)
         return when {
             busy -> ReloadOutcome.BUSY
+            brokenB6 -> when {
+                changed -> ReloadOutcome.RELOADED
+                _state.value.conflict -> if (conflictBroken) ReloadOutcome.REJECTED else ReloadOutcome.BUSY
+                _state.value.issue is Issue.SaveFailed -> ReloadOutcome.SAVE_FAILED
+                else -> ReloadOutcome.UNCHANGED
+            }
             retried -> when {
                 changed -> ReloadOutcome.RELOADED
                 _state.value.conflict -> ReloadOutcome.BUSY // B6: the user decides (Ask before merging, or a torn file)
@@ -337,7 +355,8 @@ class ConfigEngine(
     }
 
     private suspend fun pollLocked(force: Boolean, retrySave: Boolean = false): Boolean {
-        if (dragging || _state.value.conflict) return false
+        if (dragging) return false
+        if (_state.value.conflict) return if (conflictBroken) pollBrokenConflict(force) else false
         if (pending.isNotEmpty()) {
             // A save is coming (debounced) or B6 waits on the user: the file is read then. But with B5 up the save already
             // failed and nothing would run it again (#334: polls and RELOAD skipped the file for good, agents' writes
@@ -373,6 +392,7 @@ class ConfigEngine(
             if (again != stamp) return false // still being written; next poll retries
         }
         lastStamp = stamp
+        overlap = null // someone wrote launcher.json since: the overlap report is answered
         return when (val r = ConfigCodec.decode(bytes)) {
             is ParseResult.Invalid -> {
                 invalidHash = hash; invalidBytes = bytes
@@ -389,6 +409,37 @@ class ConfigEngine(
                 saveLastGood(bytes)
                 true
             }
+        }
+    }
+
+    /**
+     * #339: B6 over a launcher.json that didn't load (Claw: a torn file kept B6 up, RELOAD busy and status.json on the
+     * old `ok` for 5 minutes while the agent kept writing). Read the file when it changed: still broken, status.json
+     * reports its errors; loading, B6 goes and the pending edits merge onto it like any other change.
+     */
+    private fun pollBrokenConflict(force: Boolean): Boolean {
+        val stamp = runCatching { source.stamp() }.getOrNull() ?: return false
+        if (!force && stamp == lastStamp) return false
+        val bytes = runCatching { source.read(Limits.MAX_BYTES) }.getOrNull() ?: return false
+        lastStamp = stamp
+        val hash = ConfigCodec.sha256(bytes)
+        if (hash == conflictHash) return false
+        return when (val r = ConfigCodec.decode(bytes)) {
+            is ParseResult.Invalid -> { reportConflict(bytes, hash, r); false }
+            is ParseResult.Ok -> {
+                conflictBroken = false; conflictHash = null; lastStamp = null
+                _state.update { it.copy(conflict = false) }
+                flushLocked()
+            }
+        }
+    }
+
+    /** #339 / #321: status.json while B6 is up describes the file B6 is about, never the last `ok` before it. */
+    private fun reportConflict(bytes: ByteArray, hash: String, parsed: ParseResult = ConfigCodec.decode(bytes)) {
+        conflictHash = hash
+        when (parsed) {
+            is ParseResult.Invalid -> { invalidBytes = bytes; writeStatus(StatusJson.resultOf(classifyParse(parsed.errors)), parsed.errors, hash) }
+            is ParseResult.Ok -> writeStatus(StatusJson.CONFLICT, emptyList(), hash, parsed.config.revision)
         }
     }
 
@@ -470,7 +521,10 @@ class ConfigEngine(
             if (!askBeforeMerge && autoMergeLocked(current)) return _state.value.issue !is Issue.SaveFailed
             // #334: B6 takes over from a B5 left by an earlier failed save: one banner, with actions that work.
             _state.update { it.copy(conflict = true, issue = it.issue.takeUnless { i -> i is Issue.SaveFailed }) }
-            unsaved = null; emitStatus()
+            unsaved = null
+            val parsed = ConfigCodec.decode(current)
+            conflictBroken = !askBeforeMerge && parsed is ParseResult.Invalid
+            reportConflict(current, curHash!!, parsed)
             return false
         }
         var brokenName: String? = null
@@ -559,6 +613,7 @@ class ConfigEngine(
         mutex.withLock {
             runCatching { lastGood.snapshot(ConfigCodec.encodeBytes(_state.value.config)) }
             pending.clear(); lastStamp = null; finishWaiters(emptyList(), dropped = true); unsaved = null
+            conflictBroken = false; conflictHash = null
             _state.update { it.copy(conflict = false, pendingEdits = 0, baseHash = null) }
             pollLocked(force = true)
         }
@@ -583,6 +638,7 @@ class ConfigEngine(
         try { writeLocked(out, expectOf(bytes)) } catch (e: ConcurrentChangeException) { throw e } catch (e: Exception) { return fail(Issue.SaveFailed.of(e)) }
         val shown = unreportedSkips(rep.skipped)
         pending.clear(); finishWaiters(rep.skipped.map { it.edit })
+        conflictBroken = false; conflictHash = null
         _state.update {
             it.copy(conflict = false, pendingEdits = 0, issue = null,
                 // §9.1: Keep mine uses the same copy, without Undo; all kept shows nothing extra.
@@ -622,6 +678,8 @@ class ConfigEngine(
         // #334: any failure, not only a race: bytes that never became the file aren't an echo of ours.
         try { source.write(bytes, expectHash) } catch (e: Exception) { selfWrites.remove(hash); throw e }
         unsaved = null // written: whatever failed before is saved now
+        // #339: saved, but over the start of another writer's file: theirs is lost, so status.json says so.
+        overlap = if (source.lastWriteOverlapped()) overlapWarning(StatusJson.iso(clock())) else null
         lastStamp = source.stamp()
         writeStatus("ok", emptyList(), hash, config.revision, Elements.warnings(config), config)
         _state.value = LoadState(config, Origin.FILE, source.displayName, hash, reconnectable = source.reconnectable)
@@ -778,7 +836,7 @@ class ConfigEngine(
             source.suppressedNames().map(::suppressedWarning) + source.tempWarnings()
         _warnings.value = warnings // the phone's ▲ line; B5 already says the save failed there
         // #334 / #321: agents see the pending phone change that didn't save (hash/result still describe the file).
-        val listed = warnings + listOfNotNull(unsaved?.let(::unsavedWarning))
+        val listed = warnings + listOfNotNull(unsaved?.let(::unsavedWarning), conflictWarning().takeIf { _state.value.conflict }, overlap)
         // Release builds still record each card's stored state, but drop the "waiting for approval" sentence
         // so it doesn't contradict the "isn't shown in this version" warning.
         val consentMap = if (consent == null) null else report.associate { it.id to (it.state.key to if (cardsLive) it.warning else null) }
@@ -832,6 +890,15 @@ class ConfigEngine(
     /** #334 / #321: the status.json line while a phone change is pending after a failed save. */
     internal fun unsavedWarning(reason: String) =
         "The phone has a change that isn't saved yet ($reason). It stays on the phone and is merged onto launcher.json on the next save (RELOAD retries it); until then hash and revision describe the file as last loaded or saved."
+
+    /** #339: the status.json line while B6 is up (hash, revision and errors describe the file B6 is about). */
+    internal fun conflictWarning() = if (conflictBroken)
+        "The phone has a change that isn't saved yet: launcher.json changed while the phone was saving and doesn't load (see errors), so nothing could be merged onto it. Write a valid launcher.json and the phone merges its change onto it."
+    else "The phone has a change that isn't saved yet: launcher.json changed while the phone was saving, and the phone is asking the user to pick Use file or Keep mine. RELOAD answers 4 (busy) until then."
+
+    /** #339: the status.json line after a save that found another writer's bytes after its own. */
+    internal fun overlapWarning(time: String) =
+        "Another write to launcher.json overlapped the phone's save at $time and was cut off (it would have left a broken file), so the phone's save was kept. If you wrote launcher.json then, write it again."
 
     internal fun suppressedWarning(name: String) =
         if (name in SafWrites.ROOT_FILES) "Can't save $name: the storage app hides the one already in this folder, so no copy was made. To fix it, choose the folder again from internal storage."

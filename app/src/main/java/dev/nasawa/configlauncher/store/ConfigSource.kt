@@ -22,10 +22,17 @@ interface ConfigSource {
      * #317: [expectHash] is the SHA-256 of the launcher.json the caller decided on ([ABSENT]: it had none; null: no
      * check). Each source re-checks it as late as it can, right before the target is replaced, and throws
      * [ConcurrentChangeException] (nothing of ours left in the file) when someone else's write landed since. There is no
-     * compare-and-swap on SAF or files, so a write landing after that last check is the window that's left (§5).
+     * compare-and-swap on SAF or files, so a write landing after that last check is the window that's left (§5; #339:
+     * on SAF the last check shares the target's own open where the provider allows).
      */
     @Throws(IOException::class)
     fun write(bytes: ByteArray, expectHash: String? = null)
+
+    /**
+     * #339: true when the last [write] succeeded but found another writer's bytes after ours (their file landed after
+     * our truncate and we wrote over its start), so it put ours back cut to length and their write is lost.
+     */
+    fun lastWriteOverlapped(): Boolean = false
 
     /**
      * Write a sidecar file at `.configlauncher/<subdir>/<name>` ([subdir] may be empty), creating

@@ -111,10 +111,14 @@ internal class SafWrites(
      * #317: with [expectHash] (see [ConfigSource.write]) the target is re-read right before its truncate-write and the
      * save stops with [ConcurrentChangeException] when it no longer matches, leaving the other writer's file alone.
      * After the write, a read-back that is neither our bytes, a torn copy of them nor the original means someone else
-     * wrote mid-save: that file is kept (no restore over it) and the same exception is thrown. What's left: a write that
-     * lands between the re-read and the truncate (one provider call), or one we then overwrite in full, isn't seen.
+     * wrote mid-save: that file is kept (no restore over it) and the same exception is thrown. #339: the re-read is
+     * repeated inside the target's own "rw" open ([DocTree.replace]) where the provider allows, and the read-back is
+     * compared exactly: ours with trailing bytes is repaired ([overlapped]), never kept as theirs. What's left: a write
+     * that starts and ends between the in-open re-read and the truncate (or, without "rw", between the re-read and the
+     * "wt" open: one provider call), or one we then overwrite in full, isn't seen.
      */
     fun writeVerified(rootDocId: String, name: String, mime: String, bytes: ByteArray, what: String, expectHash: String? = null) = synchronized(lock) {
+        overlapped = false
         val want = ConfigCodec.sha256(bytes)
         val tmpName = ".$name.${token()}.tmp"
         // #274: a random-name sidecar temp in `.configlauncher/`, else a root temp; both journaled and deleted by id.
@@ -135,17 +139,33 @@ internal class SafWrites(
             if (tree.read(tmp)?.let { ConfigCodec.sha256(it) } != want) throw IOException("temp copy verification failed")
             val target = dirs.ensure(rootDocId, name, mime)
             // The target's current bytes, kept in memory: the restore puts these back (not the temp's new bytes).
-            val original = tree.read(target)
-            // #317: the last look before the target changes (an agent's write since the caller's check stops the save).
+            var original = tree.read(target)
+            // #317: a look before the target changes (an agent's write since the caller's check stops the save).
             requireUnchanged(expectHash, original)
             var back: ByteArray? = null
             var readBack = false
             try {
-                tree.write(target, bytes)
+                // #339: the last look and the write in one open, so an agent's `cp` landing after the look above is
+                // caught too (it was overwritten in full, and the read-back saw only our bytes: a silent loss).
+                // Providers without a seekable descriptor take the old two-call path ([DocTree.write]).
+                val replaced = tree.replace(target, bytes) { now -> requireUnchanged(expectHash, now); original = now }
+                if (!replaced) tree.write(target, bytes)
                 back = tree.read(target); readBack = true
+                // #339: exact bytes. Ours with trailing bytes after them: another writer's file landed after our
+                // truncate and we wrote over its start, so neither file is left (Claw's torn launcher.json). Theirs
+                // can't be put back, so ours is written again (cut to length) and the overlap is reported.
+                if (back != null && back.size > bytes.size && back.startsWith(bytes)) {
+                    val repaired = runCatching { tree.write(target, bytes); tree.read(target)?.contentEquals(bytes) == true }.getOrDefault(false)
+                    if (repaired) {
+                        // A tail that is simply the old file's (a provider that didn't truncate) is no overlap.
+                        val oldTail = original?.let { o -> o.size == back.size && (bytes.size until o.size).all { o[it] == back[it] } } == true
+                        if (!oldTail) overlapped = true
+                        back = bytes
+                    }
+                }
                 if (back?.let { ConfigCodec.sha256(it) } != want) {
                     // #317: not ours, not a torn copy of ours, not the original: another writer's bytes landed mid-save.
-                    if (expectHash != null && back != null && back.isNotEmpty() && !bytes.startsWith(back) && original?.contentEquals(back) != true)
+                    if (expectHash != null && back != null && back.isNotEmpty() && !bytes.startsWith(back) && !back.startsWith(bytes) && original?.contentEquals(back) != true)
                         throw ConcurrentChangeException(back, "launcher.json changed while saving (someone else wrote it)")
                     throw IOException("write verification failed")
                 }
@@ -231,6 +251,13 @@ internal class SafWrites(
         kept[treeKey] = warnings.toList()
         warnings
     }
+
+    /**
+     * #339: the last [writeVerified] found another writer's bytes after ours (it wrote over the start of their file) and
+     * put ours back cut to length. Their write is lost; the caller says so (status.json). Reset by each save.
+     */
+    @Volatile var overlapped = false
+        private set
 
     /** #251: Warnings / status.json lines from the last sweep of this tree (temps kept as the only copy). */
     fun tempWarnings(): List<String> = kept[treeKey].orEmpty()
