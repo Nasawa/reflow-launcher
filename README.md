@@ -165,7 +165,8 @@ Shape in brief:
   - If the phone has unsaved edits when your change arrives, it **merges automatically**: your file wins, except the
     items the user just touched, whose edits are replayed by ID onto your version. The phone shows
     `Layout updated from launcher.json. Kept your 2 changes.` with *Undo*. With *Ask before merging* on, the user
-    picks `Use file` or `Keep mine` instead, and `status.json` says `conflict` until they do.
+    picks `Use file` or `Keep mine` instead, and `status.json` says `conflict` until they do (its hash, revision and
+    any errors follow your latest write meanwhile).
   - If your write overlapped the phone's own save so closely that the two were mixed, the phone keeps its save and
     `status.json` `warnings` says another write was cut off: write your file again.
   - An edit whose item you deleted is skipped.
@@ -174,7 +175,8 @@ Shape in brief:
   first and verifies it, then replaces `launcher.json` (re-checking it, truncating and writing in one open where the
   storage allows) and verifies the exact bytes, restoring from the temp copy on failure.
   For a few milliseconds, a reader can see a partial file. **If you get a parse error reading `launcher.json`, wait a
-  second and retry.**
+  second and retry.** If it still doesn't parse and `status.json` says `parse_error` with the warning that the phone has
+  a change that isn't saved yet, write the file again: the phone merges its change onto your valid file.
 - **What the launcher expects from your writes.** Write the whole file. The launcher waits until the size and modified
   time are stable for 300 ms before parsing, and a torn or half-synced file simply fails validation and is ignored
   (the phone keeps the last working layout).
@@ -267,7 +269,7 @@ versioning.
 - Put notes in `x-` keys.
 - Pull before editing, validate, then commit and push (git).
 - Write the whole file in one go.
-- Retry a read that fails to parse.
+- Retry a read that fails to parse; if it still fails and `status.json` shows `parse_error` with the unsaved-change warning, write the file again.
 - Check `.configlauncher/status.json` after a change.
   `revision` is the applied file's `revision` (null when the file was rejected); `hash` stays the authority.
 - To reload immediately from a script (instead of waiting for the 2 s poll or pressing Home):
