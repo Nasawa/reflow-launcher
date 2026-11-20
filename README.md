@@ -165,11 +165,14 @@ Shape in brief:
   - If the phone has unsaved edits when your change arrives, it **merges automatically**: your file wins, except the
     items the user just touched, whose edits are replayed by ID onto your version. The phone shows
     `Layout updated from launcher.json. Kept your 2 changes.` with *Undo*. With *Ask before merging* on, the user
-    picks `Use file` or `Keep mine` instead.
+    picks `Use file` or `Keep mine` instead, and `status.json` says `conflict` until they do.
+  - If your write overlapped the phone's own save so closely that the two were mixed, the phone keeps its save and
+    `status.json` `warnings` says another write was cut off: write your file again.
   - An edit whose item you deleted is skipped.
   - Changes that arrive during a drag wait until the drop.
 - **How the launcher writes.** Android's folder access has no atomic replace, so it writes a temp copy in `.configlauncher/`
-  first and verifies it, then truncate-writes `launcher.json` and verifies that, restoring from the temp copy on failure.
+  first and verifies it, then replaces `launcher.json` (re-checking it, truncating and writing in one open where the
+  storage allows) and verifies the exact bytes, restoring from the temp copy on failure.
   For a few milliseconds, a reader can see a partial file. **If you get a parse error reading `launcher.json`, wait a
   second and retry.**
 - **What the launcher expects from your writes.** Write the whole file. The launcher waits until the size and modified
@@ -200,7 +203,8 @@ Shape in brief:
 
 ### Files the launcher writes in your folder
 `.configlauncher/` holds:
-- `status.json`: the last load result (ok or the list of errors, the hash and the time), any `warnings` (for example an
+- `status.json`: the last load result (`ok`, `parse_error`, `invalid` or `too_new` with the list of errors, or `conflict`
+  while the phone asks the user to pick `Use file` or `Keep mine`; the hash and the time), any `warnings` (for example an
   element this launcher skipped, which stays in the file) and any sync-conflict copies it noticed. **Read this to find out why your edit was rejected** without picking up the phone.
   Once dashboard cards render, `consent` lists each card's state on this phone, keyed by element `id`: `needsApproval`, `needsApprovalAgain`,
   `off` or `allowed`, plus a `warning` sentence when the card is waiting or off. Approvals themselves stay on the
@@ -272,7 +276,8 @@ versioning.
   `com.anigeek.reflowlauncher/dev.nasawa.configlauncher.MainActivity` /
   `…ReloadReceiver`. Do not use the slash-dot shorthand after the applicationId.)
   It runs the same load as ⋮ → Reload and rewrites `status.json` before returning Result codes: `0` unchanged,
-  `1` reloaded, `2` rejected (details in `status.json`), `3` unavailable, `4` busy (a drag, the phone's conflict
+  `1` reloaded, `2` rejected (details in `status.json`; also while the phone waits for a broken `launcher.json` to
+  become valid so it can merge its own change onto it), `3` unavailable, `4` busy (a drag, the phone's conflict
   prompt, or a phone edit still in its sub-second save delay), `5` timeout (8 s), `6` save_failed (the phone's own save failed again; `status.json` `warnings` says why).
   On `2`, read `status.json` and fix the listed paths; on `4`, back off and retry; on `3`, `5` or `6`, retry later. Only adb shell can send it (it requires `android.permission.DUMP`).
 

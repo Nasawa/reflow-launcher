@@ -11,7 +11,7 @@ import java.io.IOException
  * launcher.json inside a user-picked SAF tree (persisted READ|WRITE grant, no storage permission).
  * SAF has no atomic replace, so writes follow AQ-4 ([SafWrites]): write a new sidecar temp
  * `.configlauncher/.launcher.json.<8hex>.tmp` (or `.launcher.json.<8hex>.tmp` in the root while `.configlauncher` is
- * unusable, #251), verify, truncate-write launcher.json ("wt"), verify, restore from temp on failure, delete the temp.
+ * unusable, #251), verify, replace launcher.json (#339: one "rw" open that re-checks, truncates and writes, else "wt" plus an explicit truncate; [SafIo]), verify, restore from temp on failure, delete the temp.
  * AGENTS.md goes the same way. Every temp is journaled; a leftover one is restored or kept by the start sweep if it's
  * the only valid copy (#251, #263, #274), and a fixed-name `.configlauncher/<name>.tmp` from a pre-#274 build is
  * settled by the same sweep.
@@ -53,9 +53,8 @@ class SafSource(private val resolver: ContentResolver, val treeUri: Uri, private
 
     private fun readUri(uri: Uri) = resolver.openInputStream(uri)?.use { it.readCapped(ConfigCodec.MAX_BYTES) }
 
-    private fun writeUri(uri: Uri, bytes: ByteArray) {
-        (resolver.openOutputStream(uri, "wt") ?: throw IOException("can't open $uri")).use { it.write(bytes); it.flush() }
-    }
+    // #339: "wt", then an explicit truncate where the provider gave a real file ([SafIo.write]).
+    private fun writeUri(uri: Uri, bytes: ByteArray) = SafIo.write(resolver, uri, bytes)
 
     private val docs = object : DocTree {
         override fun list(parentDocId: String) = children(parentDocId)
@@ -68,6 +67,8 @@ class SafSource(private val resolver: ContentResolver, val treeUri: Uri, private
         override fun delete(docId: String) = DocumentsContract.deleteDocument(resolver, docUri(docId))
         override fun read(docId: String) = readUri(docUri(docId))
         override fun write(docId: String, bytes: ByteArray) = writeUri(docUri(docId), bytes)
+        override fun replace(docId: String, bytes: ByteArray, check: (ByteArray) -> Unit) =
+            SafIo.replace(resolver, docUri(docId), bytes, ConfigCodec.MAX_BYTES, check)
         // #251 (Grace): a document that's gone can come back as "not a descendant" (SecurityException) while the
         // tree grant is still held; that's not-found, so the sweep drops its journal entry. No grant: access lost.
         override fun info(docId: String): DocInfo? = try {
@@ -95,6 +96,7 @@ class SafSource(private val resolver: ContentResolver, val treeUri: Uri, private
     override fun clearSuppression() = SafDirs.clearTree(treeUri.toString())
 
     override fun write(bytes: ByteArray, expectHash: String?) = writes.writeVerified(rootDocId, FILE, "application/json", bytes, "layout", expectHash)
+    override fun lastWriteOverlapped() = writes.overlapped
 
     override fun readRoot(name: String, maxBytes: Int): ByteArray? {
         val child = children(rootDocId)[name] ?: return null

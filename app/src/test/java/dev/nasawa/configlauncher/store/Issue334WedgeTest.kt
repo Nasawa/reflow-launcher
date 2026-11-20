@@ -173,8 +173,10 @@ class Issue334WedgeTest {
         // B6 takes over: conflict, and no B5 left beside it (its Retry would do nothing under B6).
         assertTrue(e.state.value.conflict)
         assertNull(e.state.value.issue)
-        assertFalse(src.warned())
-        assertEquals(ReloadOutcome.BUSY, e.reloadForAgent()) // B6 waits on the user
+        // #339: status.json describes the half-written file B6 is about (parse error), not the B5 reason or the old ok.
+        assertFalse(src.status().contains("write verification failed"))
+        assertTrue(src.status(), src.status().contains("\"result\":\"parse_error\"") && src.status().contains("doesn't load"))
+        assertEquals("#339: the file doesn't load", ReloadOutcome.REJECTED, e.reloadForAgent())
         // Retry again while B6 is up: still B6, never a lone B5 that does nothing.
         assertFalse(e.retrySave())
         assertTrue(e.state.value.conflict); assertNull(e.state.value.issue)
