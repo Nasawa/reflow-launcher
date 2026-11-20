@@ -67,7 +67,10 @@ class Issue339TornWriteTest {
         override fun read(maxBytes: Int) = t.list("root")["launcher.json"]?.let { t.read(it.docId) }
         override fun write(bytes: ByteArray, expectHash: String?) = writes.writeVerified("root", "launcher.json", "application/json", bytes, "layout", expectHash)
         override fun lastWriteOverlapped() = writes.overlapped
-        override fun writeSidecar(subdir: String, name: String, bytes: ByteArray) { sidecars["$subdir/$name"] = String(bytes) }
+        var statusWrites = 0
+        override fun writeSidecar(subdir: String, name: String, bytes: ByteArray) {
+            sidecars["$subdir/$name"] = String(bytes); if (name == StatusJson.FILE) statusWrites++
+        }
         fun status() = sidecars["/status.json"]!!
         fun result() = Regex("\"result\":\"([a-z_]+)\"").find(status())!!.groupValues[1]
     }
@@ -265,12 +268,137 @@ class Issue339TornWriteTest {
         assertTrue(e.edit(moveCamera()))
         src.agentWrites(agent(63).dropLast(3))
         assertFalse(e.flush()); assertTrue(e.state.value.conflict)
-        assertEquals("parse_error", src.result())
+        // #340 follow-up: the user's B6, so `conflict`, with the file's errors.
+        assertEquals("conflict", src.result())
+        assertTrue(src.status(), src.status().contains("not valid"))
         assertTrue(src.status().contains("Use file or Keep mine"))
         assertEquals(ReloadOutcome.BUSY, e.reloadForAgent())
         src.agentWrites(agent(64))
         assertFalse(e.poll(force = true))
         assertTrue("never merged without asking", e.state.value.conflict)
         assertEquals(ReloadOutcome.BUSY, e.reloadForAgent())
+    }
+
+    // ---- #340 follow-ups (Grace's review) ----
+
+    /** Grace's scratch test: the agent's SHORTER cp (truncating open before our truncate, its write after ours). */
+    @Test fun graceShorterAgentMixedWithOurTail() = runBlocking {
+        val src = TreeSource(); val e = engine(src)
+        assertTrue(e.poll(force = true))
+        assertTrue(e.edit(moveCamera()))
+        val a = """{"schemaVersion":1,"revision":63,"pages":[{"id":"home","items":[]}]}""".toByteArray()
+        src.r.afterTargetWrite = { ours -> check(a.size < ours.size); a + ours.copyOfRange(a.size, ours.size) }
+        // Before: kept torn as "theirs": B6 over it, status parse_error, RELOAD 2.
+        assertTrue(e.flush())
+        assertTrue("never left torn", parses(src.file))
+        assertEquals("our save, cut to length", listOf("a-camera", "a-keep"), ids(src.file)); assertEquals(3 to 3, camera(src.file))
+        assertFalse(e.state.value.conflict); assertNull(e.state.value.issue)
+        assertEquals("ok", src.result())
+        assertTrue(src.status(), src.status().contains("overlapped the phone's save"))
+        assertEquals(ReloadOutcome.UNCHANGED, e.reloadForAgent())
+    }
+
+    /** Grace's scratch test: status never `ok` while a broken-file B6 is up; RELOAD 2 throughout, then it merges. */
+    @Test fun graceStaleOkNeverDuringBrokenB6() = runBlocking {
+        val src = TreeSource(); val e = engine(src)
+        assertTrue(e.poll(force = true))
+        assertTrue(e.edit(moveCamera()))
+        src.agentWrites(agent(63).dropLast(5))
+        assertFalse(e.flush()); assertTrue(e.state.value.conflict)
+        repeat(3) { assertNotEquals("ok", src.result()); assertEquals(ReloadOutcome.REJECTED, e.reloadForAgent()); assertNotEquals("ok", src.result()); assertFalse(e.poll(force = true)) }
+        // a different broken file: still rejected, status describes the new one
+        val b2 = agent(64).dropLast(2); src.agentWrites(b2)
+        assertFalse(e.poll()); assertTrue(src.status().contains(ConfigCodec.sha256(b2.toByteArray())))
+        assertEquals("parse_error", src.result())
+        // an edit while broken B6 joins pending; RELOAD still 2 not 4
+        assertTrue(e.edit(Edit.MoveToCell("a-keep", "home", 2, 2)))
+        assertEquals(ReloadOutcome.REJECTED, e.reloadForAgent())
+        src.agentWrites(agent(65))
+        assertEquals(ReloadOutcome.RELOADED, e.reloadForAgent())
+        assertFalse(e.state.value.conflict); assertEquals("ok", src.result())
+        assertEquals(listOf("a-agent-22", "a-camera", "a-keep"), ids(src.file)); assertEquals(3 to 3, camera(src.file))
+    }
+
+    /** Same length as ours, with a tail like ours: a file of theirs that loads is theirs, never "repaired". */
+    @Test fun aSameLengthAgentFileThatLoadsIsNotMixed() {
+        val ours = (base + "\n").toByteArray()
+        val theirsJson = base.replace("\"revision\":62", "\"revision\":63").replace("a.keep", "a.k")
+        assertTrue(theirsJson.length + 1 < ours.size)
+        val theirs = (theirsJson.replaceFirst("{", "{" + " ".repeat(ours.size - theirsJson.length - 1)) + "\n").toByteArray()
+        assertEquals(ours.size, theirs.size); assertTrue(parses(String(theirs)))
+        assertFalse(SafWrites.headOverOurs(theirs, ours))
+        // The same shape that doesn't load (theirs shorter, ours after it) is mixed.
+        val a = theirsJson.toByteArray()
+        assertTrue(SafWrites.headOverOurs(a + ours.copyOfRange(a.size, ours.size), ours))
+        // Broken bytes in the middle of ours, no whole object of theirs before our tail: not mixed.
+        val garbled = ours.copyOf().also { for (i in 20 until 30) it[i] = '#'.code.toByte() }
+        assertFalse(SafWrites.headOverOurs(garbled, ours))
+        assertFalse("ours is ours", SafWrites.headOverOurs(ours, ours))
+        // A whole object of theirs followed by bytes that aren't ours: not our tail, so not mixed.
+        val filler = a + ByteArray(ours.size - a.size) { 'x'.code.toByte() }
+        assertFalse(SafWrites.headOverOurs(filler, ours))
+        // Same, with only the last byte different from ours: no tail of ours at all.
+        val oneOff = (theirsJson.replaceFirst("{", "{" + " ".repeat(ours.size - theirsJson.length - 1)) + "x").toByteArray()
+        assertEquals(ours.size, oneOff.size)
+        assertFalse(SafWrites.headOverOurs(oneOff, ours))
+    }
+
+    @Test fun aSameLengthAgentWriteAfterOursIsKeptAndMerged() = runBlocking {
+        val src = TreeSource(); val e = engine(src)
+        assertTrue(e.poll(force = true))
+        assertTrue(e.edit(moveCamera()))
+        val theirsJson = base.replace("\"revision\":62", "\"revision\":63").replace("a.keep", "a.k")
+        src.r.afterTargetWrite = { ours ->
+            check(theirsJson.length <= ours.size)
+            theirsJson.replaceFirst("{", "{" + " ".repeat(ours.size - theirsJson.length)).toByteArray().also { check(it.size == ours.size) }
+        }
+        assertTrue(e.flush())
+        assertFalse("theirs, not an overlap", src.writes.overlapped)
+        assertEquals(listOf("a-camera", "a-keep"), ids(src.file)); assertEquals(3 to 3, camera(src.file))
+        assertTrue("their change kept", src.file!!.contains("\"a.k\""))
+        assertFalse(src.status().contains("overlapped"))
+    }
+
+    @Test fun withAskBeforeMergingStatusFollowsTheConflictingFile() = runBlocking {
+        val src = TreeSource(); val e = engine(src)
+        assertTrue(e.poll(force = true))
+        e.askBeforeMerge = true
+        assertTrue(e.edit(moveCamera()))
+        src.agentWrites(agent(63))
+        assertFalse(e.flush()); assertTrue(e.state.value.conflict)
+        assertEquals("conflict", src.result()); assertTrue(src.status().contains("\"revision\":63"))
+        // A second valid write: hash and revision follow it, still conflict and the warning.
+        src.agentWrites(agent(64, "a-agent-23"))
+        assertFalse(e.poll(force = true)); assertTrue(e.state.value.conflict)
+        assertEquals("conflict", src.result())
+        assertTrue(src.status().contains(ConfigCodec.sha256(agent(64, "a-agent-23").toByteArray())))
+        assertTrue(src.status(), src.status().contains("\"revision\":64"))
+        assertTrue(src.status().contains("Use file or Keep mine"))
+        // Then a broken one: the agent can see it's broken (errors), still the user's B6.
+        val broken = agent(65).dropLast(4)
+        src.agentWrites(broken)
+        assertEquals(ReloadOutcome.BUSY, e.reloadForAgent())
+        assertTrue(e.state.value.conflict)
+        assertEquals("conflict", src.result())
+        assertTrue(src.status().contains(ConfigCodec.sha256(broken.toByteArray())))
+        assertTrue(src.status(), src.status().contains("\"revision\":null") && src.status().contains("not valid"))
+        assertTrue(src.status().contains("Use file or Keep mine"))
+        // A valid write again (status follows it), then Keep mine replays our move onto it: ok.
+        src.agentWrites(agent(66))
+        assertFalse(e.poll(force = true))
+        assertTrue(src.status().contains("\"revision\":66") && src.status().contains("\"errors\":[]"))
+        assertTrue(e.resolveKeepMine())
+        assertEquals("ok", src.result())
+    }
+
+    @Test fun aForcedPollOfAnUnchangedBrokenFileDoesNotRewriteStatus() = runBlocking {
+        val src = TreeSource(); val e = engine(src)
+        assertTrue(e.poll(force = true))
+        assertTrue(e.edit(moveCamera()))
+        src.agentWrites(agent(63).dropLast(3))
+        assertFalse(e.flush()); assertTrue(e.state.value.conflict)
+        val n = src.statusWrites
+        repeat(3) { assertFalse(e.poll(force = true)) }
+        assertEquals("nothing new to say", n, src.statusWrites)
     }
 }

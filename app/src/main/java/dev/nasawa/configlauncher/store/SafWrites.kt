@@ -154,18 +154,23 @@ internal class SafWrites(
                 // #339: exact bytes. Ours with trailing bytes after them: another writer's file landed after our
                 // truncate and we wrote over its start, so neither file is left (Claw's torn launcher.json). Theirs
                 // can't be put back, so ours is written again (cut to length) and the overlap is reported.
-                if (back != null && back.size > bytes.size && back.startsWith(bytes)) {
+                // #340 follow-up (Grace): the mirror image, a shorter file over the start of ours (its truncating open
+                // landed before our truncate, its write after ours): same length as ours, doesn't load, ours from where
+                // theirs ends. Repaired and reported the same way.
+                val trailing = back != null && back.size > bytes.size && back.startsWith(bytes)
+                val mixed = !trailing && back != null && name == SafSource.FILE && headOverOurs(back, bytes)
+                if (back != null && (trailing || mixed)) {
                     val repaired = runCatching { tree.write(target, bytes); tree.read(target)?.contentEquals(bytes) == true }.getOrDefault(false)
                     if (repaired) {
                         // A tail that is simply the old file's (a provider that didn't truncate) is no overlap.
-                        val oldTail = original?.let { o -> o.size == back.size && (bytes.size until o.size).all { o[it] == back[it] } } == true
+                        val oldTail = trailing && original?.let { o -> o.size == back.size && (bytes.size until o.size).all { o[it] == back[it] } } == true
                         if (!oldTail) overlapped = true
                         back = bytes
                     }
                 }
                 if (back?.let { ConfigCodec.sha256(it) } != want) {
                     // #317: not ours, not a torn copy of ours, not the original: another writer's bytes landed mid-save.
-                    if (expectHash != null && back != null && back.isNotEmpty() && !bytes.startsWith(back) && !back.startsWith(bytes) && original?.contentEquals(back) != true)
+                    if (expectHash != null && back != null && back.isNotEmpty() && !bytes.startsWith(back) && !back.startsWith(bytes) && !mixed && original?.contentEquals(back) != true)
                         throw ConcurrentChangeException(back, "launcher.json changed while saving (someone else wrote it)")
                     throw IOException("write verification failed")
                 }
@@ -389,6 +394,24 @@ internal class SafWrites(
         private fun notFound(e: Exception) =
             e is java.io.FileNotFoundException || e is SecurityException || e is IllegalArgumentException
         private fun ByteArray.startsWith(p: ByteArray) = size >= p.size && p.indices.all { this[it] == p[it] }
+        /**
+         * #340 follow-up (Grace): [back] is another writer's shorter JSON file written over the start of [ours]: the same
+         * length, not a launcher.json that loads (a same-length file of theirs that loads is theirs), and from some
+         * point on byte for byte ours, with a whole JSON object before that point (their file).
+         */
+        internal fun headOverOurs(back: ByteArray, ours: ByteArray): Boolean {
+            if (back.size != ours.size || back.contentEquals(ours)) return false
+            if (ConfigCodec.decode(back) is ParseResult.Ok) return false
+            var k = back.size
+            while (k > 0 && back[k - 1] == ours[k - 1]) k--  // where the common tail starts
+            if (k == back.size) return false                    // no tail of ours at all
+            // Their file ends somewhere in [k, size): try the ends a JSON object can have.
+            return (maxOf(k, 1) until back.size).any { end ->
+                val c = back[end - 1].toInt().toChar()
+                (c == '}' || c.isWhitespace()) &&
+                    runCatching { kotlinx.serialization.json.Json.parseToJsonElement(String(back, 0, end, Charsets.UTF_8)) is kotlinx.serialization.json.JsonObject }.getOrDefault(false)
+            }
+        }
         /** Per tree, the last sweep's [tempWarnings] (SafSource instances are short-lived). */
         private val kept = java.util.concurrent.ConcurrentHashMap<String, List<String>>()
         /** One save or sweep at a time per process, so a start-up sweep never deletes a temp a save is using. */

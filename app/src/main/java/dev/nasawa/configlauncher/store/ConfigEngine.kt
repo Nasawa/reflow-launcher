@@ -356,7 +356,7 @@ class ConfigEngine(
 
     private suspend fun pollLocked(force: Boolean, retrySave: Boolean = false): Boolean {
         if (dragging) return false
-        if (_state.value.conflict) return if (conflictBroken) pollBrokenConflict(force) else false
+        if (_state.value.conflict) return pollConflict(force)
         if (pending.isNotEmpty()) {
             // A save is coming (debounced) or B6 waits on the user: the file is read then. But with B5 up the save already
             // failed and nothing would run it again (#334: polls and RELOAD skipped the file for good, agents' writes
@@ -415,17 +415,22 @@ class ConfigEngine(
     /**
      * #339: B6 over a launcher.json that didn't load (Claw: a torn file kept B6 up, RELOAD busy and status.json on the
      * old `ok` for 5 minutes while the agent kept writing). Read the file when it changed: still broken, status.json
-     * reports its errors; loading, B6 goes and the pending edits merge onto it like any other change.
+     * reports its errors; loading, B6 goes and the pending edits merge onto it like any other change. #340 follow-up:
+     * with Ask before merging (or a merge that wouldn't load), B6 stays, but status.json follows the changed file.
      */
-    private fun pollBrokenConflict(force: Boolean): Boolean {
+    private fun pollConflict(force: Boolean): Boolean {
         val stamp = runCatching { source.stamp() }.getOrNull() ?: return false
         if (!force && stamp == lastStamp) return false
         val bytes = runCatching { source.read(Limits.MAX_BYTES) }.getOrNull() ?: return false
         lastStamp = stamp
         val hash = ConfigCodec.sha256(bytes)
         if (hash == conflictHash) return false
-        return when (val r = ConfigCodec.decode(bytes)) {
-            is ParseResult.Invalid -> { reportConflict(bytes, hash, r); false }
+        val r = ConfigCodec.decode(bytes)
+        // #340 follow-up (Grace): with Ask before merging, B6 stays the user's call, but status.json follows the file as
+        // it changes (hash, revision, errors), so an agent can see a later write of its own is broken.
+        if (!conflictBroken || r is ParseResult.Invalid) { reportConflict(bytes, hash, r); return false }
+        return when (r) {
+            is ParseResult.Invalid -> false
             is ParseResult.Ok -> {
                 conflictBroken = false; conflictHash = null; lastStamp = null
                 _state.update { it.copy(conflict = false) }
@@ -434,11 +439,18 @@ class ConfigEngine(
         }
     }
 
-    /** #339 / #321: status.json while B6 is up describes the file B6 is about, never the last `ok` before it. */
+    /**
+     * #339 / #321: status.json while B6 is up describes the file B6 is about, never the last `ok` before it. B6 over a
+     * file that doesn't load (no Ask before merging): that file's result and errors. B6 the user decides (#340 follow-up:
+     * also over a broken file): `conflict`, with the file's revision, or its errors when it doesn't load.
+     */
     private fun reportConflict(bytes: ByteArray, hash: String, parsed: ParseResult = ConfigCodec.decode(bytes)) {
         conflictHash = hash
         when (parsed) {
-            is ParseResult.Invalid -> { invalidBytes = bytes; writeStatus(StatusJson.resultOf(classifyParse(parsed.errors)), parsed.errors, hash) }
+            is ParseResult.Invalid -> {
+                invalidBytes = bytes
+                writeStatus(if (conflictBroken) StatusJson.resultOf(classifyParse(parsed.errors)) else StatusJson.CONFLICT, parsed.errors, hash)
+            }
             is ParseResult.Ok -> writeStatus(StatusJson.CONFLICT, emptyList(), hash, parsed.config.revision)
         }
     }
