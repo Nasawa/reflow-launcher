@@ -21,6 +21,7 @@ import dev.nasawa.configlauncher.config.Elements
 import dev.nasawa.configlauncher.config.ParseResult
 import dev.nasawa.configlauncher.model.LauncherConfig
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -50,6 +51,8 @@ class ElementEdgeDragTest {
 
     @Retention(AnnotationRetention.RUNTIME) @Target(AnnotationTarget.FUNCTION) annotation class Kind(val k: String)
     @Retention(AnnotationRetention.RUNTIME) @Target(AnnotationTarget.FUNCTION) annotation class Pages(val n: Int)
+    /** p2 has an app at (1,1), the cell the element holds on p1. */
+    @Retention(AnnotationRetention.RUNTIME) @Target(AnnotationTarget.FUNCTION) annotation class TakenOnP2
 
     private class Seed : TestRule {
         override fun apply(base: Statement, d: Description) = object : Statement() {
@@ -57,7 +60,8 @@ class ElementEdgeDragTest {
                 val app = ApplicationProvider.getApplicationContext<ConfigLauncherApp>()
                 app.getSharedPreferences("settings", 0).edit().clear().putBoolean("appOnly", true).putBoolean("homePromptShown", true).commit()
                 val f = File(app.filesDir, "config/source/launcher.json"); f.parentFile!!.mkdirs()
-                f.writeText(doc(d.getAnnotation(Kind::class.java)?.k ?: "widget", d.getAnnotation(Pages::class.java)?.n ?: 3))
+                f.writeText(doc(d.getAnnotation(Kind::class.java)?.k ?: "widget", d.getAnnotation(Pages::class.java)?.n ?: 3,
+                    takenOnP2 = d.getAnnotation(TakenOnP2::class.java) != null))
                 app.store.drafts.value = emptyList()
                 kotlinx.coroutines.runBlocking { app.store.engine.poll(force = true) }
                 base.evaluate()
@@ -215,6 +219,49 @@ class ElementEdgeDragTest {
         cancel()
     }
 
+    // ---- #345 review follow-ups ----
+
+    /** Nodes the user can scroll (the pager's ScrollBy is there only while user scrolling is on). */
+    private fun scrollables() = compose.onAllNodes(androidx.compose.ui.test.SemanticsMatcher.keyIsDefined(
+        androidx.compose.ui.semantics.SemanticsActions.ScrollBy)).fetchSemanticsNodes().size
+
+    /** (a) Pager scrolling is off while an element is dragged (held mid-screen, no edge), and back on after the drop. */
+    @Kind("widget") @Test fun thePagerDoesNotScrollDuringAnElementDrag() {
+        enterEdit()
+        compose.waitForIdle()
+        val idle = scrollables()
+        assertTrue("the pager scrolls in edit mode", idle > 0)
+        val e = element(); start = e.center
+        compose.mainClock.autoAdvance = false
+        compose.onRoot().performTouchInput { down(start); advanceEventTime(1_000); moveBy(Offset(0f, 40f)) }
+        frames(200)
+        assertEquals("one scrollable fewer: the pager", idle - 1, scrollables())
+        cancel()
+        assertEquals(idle, scrollables())
+    }
+
+    /**
+     * (b) The drop check uses the page showing, not the element's own: (1,1) is free on p1 (its own cell) but taken on
+     * p2. A check against p1 would let the drop through to a write that is refused ("Couldn't move…" snackbar).
+     */
+    @Kind("widget") @TakenOnP2 @Test fun theDropCheckUsesThePageShowing() {
+        val before = file.readText()
+        liftTo(root.right - 6f)
+        frames(DragController.EDGE_HOLD_MS + 300)
+        assertTrue(pageShown(2, 3))
+        dropAt(start)
+        // A wrong check would write on the store's IO scope and post the snackbar from there: give it a bounded real-time
+        // window to appear (it does within it under the mutant), and expect it never to.
+        val taken = app.getString(R.string.move_element_taken, "Weather")
+        val appeared = runCatching { compose.waitUntil("snackbar", 3_000) {
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+            compose.onAllNodes(hasText(taken)).fetchSemanticsNodes().isNotEmpty()
+        } }.isSuccess
+        assertFalse("refused before any write: no snackbar", appeared)
+        assertEquals(before, file.readText())
+        assertEquals("p1", placed(saved()).page)
+    }
+
     /** Folders are items: they turn the page through the app path (#328) and land on the page shown. */
     @Kind("folder") @Test fun aFolderHeldAtTheEdgeTurnsThePageAndLandsThere() {
         enterEdit()
@@ -239,11 +286,12 @@ class ElementEdgeDragTest {
 }
 
 /** p1 has "QA Settings" (0,0) and the element of [kind] at (1,1), 1×1, labelled "Weather"; p2.. have an app at (0,0). */
-private fun doc(kind: String, pages: Int): String {
+private fun doc(kind: String, pages: Int, takenOnP2: Boolean = false): String {
     val folder = """,{"id":"f-tools","type":"folder","label":"Tools","x":2,"y":0,"items":[{"id":"a-in","type":"app","package":"com.android.settings"}]}"""
     val pageList = (1..pages).joinToString(",") { n ->
         val items = """{"id":"i$n","type":"app","package":"com.android.settings","label":"QA Settings","x":0,"y":0}""" +
-            (if (n == 1 && kind == "folder") folder else "")
+            (if (n == 1 && kind == "folder") folder else "") +
+            (if (n == 2 && takenOnP2) """,{"id":"t2","type":"app","package":"com.android.settings","label":"Taken","x":1,"y":1}""" else "")
         """{"id":"p$n","items":[$items]}"""
     }
     val el = when (kind) {
