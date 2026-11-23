@@ -397,7 +397,8 @@ internal class SafWrites(
         /**
          * #340 follow-up (Grace): [back] is another writer's shorter JSON file written over the start of [ours]: the same
          * length, not a launcher.json that loads (a same-length file of theirs that loads is theirs), and from some
-         * point on byte for byte ours, with a whole JSON object before that point (their file).
+         * point on byte for byte ours, with a whole JSON object before that point (their file) and more than whitespace
+         * of ours after it.
          */
         internal fun headOverOurs(back: ByteArray, ours: ByteArray): Boolean {
             if (back.size != ours.size || back.contentEquals(ours)) return false
@@ -405,10 +406,13 @@ internal class SafWrites(
             var k = back.size
             while (k > 0 && back[k - 1] == ours[k - 1]) k--  // where the common tail starts
             if (k == back.size) return false                    // no tail of ours at all
-            // Their file ends somewhere in [k, size): try the ends a JSON object can have.
+            // Their file ends somewhere in [k, size): try the ends a JSON object can have. #341 review (Grace): real bytes
+            // of ours must follow it, not only whitespace: a same-length file of theirs that is valid JSON but fails the
+            // schema matched "ours" on our final newline alone and was overwritten as mixed.
             return (maxOf(k, 1) until back.size).any { end ->
                 val c = back[end - 1].toInt().toChar()
                 (c == '}' || c.isWhitespace()) &&
+                    (end until back.size).any { !back[it].toInt().toChar().isWhitespace() } &&
                     runCatching { kotlinx.serialization.json.Json.parseToJsonElement(String(back, 0, end, Charsets.UTF_8)) is kotlinx.serialization.json.JsonObject }.getOrDefault(false)
             }
         }
