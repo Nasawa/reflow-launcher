@@ -343,6 +343,95 @@ class Issue339TornWriteTest {
         assertFalse(SafWrites.headOverOurs(oneOff, ours))
     }
 
+    // ---- #341 follow-ups (Grace's review 5986551503) ----
+
+    /** (a) Same length, valid JSON that fails the schema, ours only from the final newline: theirs, never mixed. */
+    @Test fun aSameLengthSchemaInvalidAgentFileIsNotMixed() {
+        val ours = ConfigCodec.encodeBytes((ConfigCodec.decode(base.toByteArray()) as ParseResult.Ok).config)
+        assertEquals('\n'.code.toByte(), ours.last())
+        val theirs = String(ours).replace("\"a-keep\"", "\"A-keep\"").toByteArray()
+        assertEquals(ours.size, theirs.size)
+        assertTrue("valid JSON", runCatching { kotlinx.serialization.json.Json.parseToJsonElement(String(theirs)) }.isSuccess)
+        assertTrue("fails the schema", ConfigCodec.decode(theirs) is ParseResult.Invalid)
+        assertFalse(SafWrites.headOverOurs(theirs, ours))
+        // A whole object of theirs, then only whitespace up to our final newline: still not mixed.
+        val a = """{"schemaVersion":1}""".toByteArray()
+        val spaced = a + ByteArray(ours.size - a.size - 1) { ' '.code.toByte() } + byteArrayOf('\n'.code.toByte())
+        assertFalse(SafWrites.headOverOurs(spaced, ours))
+        // A real mix (their object, then real bytes of ours) still is.
+        assertTrue(SafWrites.headOverOurs(a + ours.copyOfRange(a.size, ours.size), ours))
+    }
+
+    /** (a) The flow: that agent file lands after our write; it's kept as theirs (invalid), not overwritten as an overlap. */
+    @Test fun aSameLengthSchemaInvalidAgentWriteAfterOursIsKeptAsTheirs() = runBlocking {
+        val src = TreeSource(); val e = engine(src)
+        assertTrue(e.poll(force = true))
+        assertTrue(e.edit(moveCamera()))
+        var theirs: ByteArray? = null
+        src.r.afterTargetWrite = { ours -> String(ours).replace("\"a-keep\"", "\"A-keep\"").toByteArray().also { theirs = it } }
+        e.flush()
+        assertFalse("not an overlap", src.writes.overlapped)
+        assertEquals("their file is left alone", String(theirs!!), src.file)
+        assertFalse(src.status().contains("overlapped"))
+        assertNotEquals("ok", src.result())
+    }
+
+    /** (a) Guard: only same-length read-backs can be mixed (a longer or shorter one never reads past either array). */
+    @Test fun onlySameLengthReadBacksAreMixed() {
+        val ours = ConfigCodec.encodeBytes((ConfigCodec.decode(base.toByteArray()) as ParseResult.Ok).config)
+        val a = """{"schemaVersion":1}""".toByteArray()
+        val mixed = a + ours.copyOfRange(a.size, ours.size)
+        assertTrue(SafWrites.headOverOurs(mixed, ours))
+        assertFalse("longer", SafWrites.headOverOurs(byteArrayOf(' '.code.toByte()) + mixed, ours))
+        assertFalse("shorter", SafWrites.headOverOurs(mixed.copyOfRange(1, mixed.size), ours))
+    }
+
+    /** (b) Every write of ours comes back mixed (the repair too): the original goes back and B5 says so, never kept as theirs. */
+    @Test fun aMixedFileThatCannotBeRepairedIsRestoredNeverKeptAsTheirs() = runBlocking {
+        val src = TreeSource()
+        val head = """{"schemaVersion":1,"revision":63,"pages":[]}""".toByteArray()
+        val t = src.t
+        val mixing = object : DocTree by src.r {
+            override fun write(docId: String, bytes: ByteArray) {
+                src.r.write(docId, bytes)
+                if (t.docs[docId]?.name == "launcher.json" && !bytes.contentEquals(base.toByteArray()) && bytes.size > head.size)
+                    t.write(docId, head + bytes.copyOfRange(head.size, bytes.size))
+            }
+            override fun replace(docId: String, bytes: ByteArray, check: (ByteArray) -> Unit): Boolean {
+                check(t.read(docId) ?: ByteArray(0)); write(docId, bytes); return true
+            }
+        }
+        val key = "t341-mix-${System.identityHashCode(this)}"
+        val w = SafWrites(mixing, SafDirs(mixing, key), key)
+        val src2 = object : ConfigSource by src {
+            override fun write(bytes: ByteArray, expectHash: String?) = w.writeVerified("root", "launcher.json", "application/json", bytes, "layout", expectHash)
+            override fun lastWriteOverlapped() = w.overlapped
+        }
+        val e2 = engine(src2)
+        assertTrue(e2.poll(force = true))
+        assertTrue(e2.edit(moveCamera()))
+        assertFalse(e2.flush())
+        assertEquals("the old file is put back", base, src.file)
+        assertFalse("no B6 over a mixed file", e2.state.value.conflict)
+        assertTrue(e2.state.value.issue is Issue.SaveFailed)
+        assertEquals(1, e2.state.value.pendingEdits)
+    }
+
+    /** (b) A mixed repair over an original of the same length as ours (a one-digit change) still reports the overlap. */
+    @Test fun aMixedRepairOverASameLengthOriginalReportsTheOverlap() {
+        val src = TreeSource()
+        val cfg = (ConfigCodec.decode(base.toByteArray()) as ParseResult.Ok).config
+        val original = ConfigCodec.encodeBytes(cfg)
+        val ours = ConfigCodec.encodeBytes(cfg.copy(revision = 63))
+        assertEquals("same length", original.size, ours.size)
+        src.agentWrites(String(original))
+        val head = """{"schemaVersion":1,"revision":63,"pages":[]}""".toByteArray()
+        src.r.afterTargetWrite = { o -> head + o.copyOfRange(head.size, o.size) }
+        src.writes.writeVerified("root", "launcher.json", "application/json", ours, "layout", expectOf(original))
+        assertEquals("ours, repaired", String(ours), src.file)
+        assertTrue("their write was cut: reported", src.writes.overlapped)
+    }
+
     @Test fun aSameLengthAgentWriteAfterOursIsKeptAndMerged() = runBlocking {
         val src = TreeSource(); val e = engine(src)
         assertTrue(e.poll(force = true))
