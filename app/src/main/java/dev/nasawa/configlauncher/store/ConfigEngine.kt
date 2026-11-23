@@ -180,8 +180,6 @@ class ConfigEngine(
     private val mutex = Mutex()
     private var lastStamp: Stamp? = null
     private var pollCount = 0
-    /** Hashes we wrote ourselves (last 4); seeing one of them again is an echo, not an edit (§5). */
-    private val selfWrites = ArrayDeque<String>()
 
     /** Key of the last status.json written; identical results are not rewritten (no churn, no loop). */
     private var lastStatusKey: String? = null
@@ -379,11 +377,19 @@ class ConfigEngine(
         val bytes = try { src.read(Limits.MAX_BYTES) } catch (e: Exception) { return fail(classify(e, src)) }
             ?: return fail(Issue.Missing)
         val hash = ConfigCodec.sha256(bytes)
-        if (hash == _state.value.baseHash && _state.value.origin == Origin.FILE || hash in selfWrites) {
+        // §5 self-write guard, #349 (Grace): only the layout showing is an echo. A successful save makes its bytes the
+        // base (writeOrThrow), so our latest save is that layout; an older save of ours copied back (A, B, then A again)
+        // is an external change like any other, never swallowed, and status.json `ok` below always names what shows.
+        if (hash == _state.value.baseHash && _state.value.origin == Origin.FILE) {
             lastStamp = stamp
             if (_state.value.issue != null) _state.update { it.copy(issue = null) }
+            // The file is the layout we show again, so anything said about a broken one in between is over.
+            invalidHash = null; invalidBytes = null
             // #103: first look at a newly connected folder holding the file we already show: still write a receipt.
-            if (statusResult == null) writeStatus("ok", emptyList(), hash, _state.value.config.revision, Elements.warnings(_state.value.config), _state.value.config)
+            // #343 (Claw): also when status.json describes another file: an agent restored exactly the loaded layout after
+            // a broken write, and status.json kept that write's parse_error (RELOAD said 0 "unchanged" over it).
+            if (statusResult.let { it == null || it.first != "ok" || it.third != hash })
+                writeStatus("ok", emptyList(), hash, _state.value.config.revision, Elements.warnings(_state.value.config), _state.value.config)
             return false
         }
         if (stabilityMs > 0) {
@@ -527,7 +533,8 @@ class ConfigEngine(
         val curHash = current?.let { ConfigCodec.sha256(it) }
         val base = _state.value.baseHash
         val stillBroken = curHash != null && curHash == invalidHash
-        if (current != null && curHash != base && curHash !in selfWrites && !stillBroken) {
+        // #349: an older save of ours copied back is a change too (only the base, the layout showing, is unchanged).
+        if (current != null && curHash != base && !stillBroken) {
             // §18.2: the file wins except the items targeted by pending ops; prompt only if asked to.
             // A merge whose write failed still returns true from autoMergeLocked (no B6), but reports B5.
             if (!askBeforeMerge && autoMergeLocked(current)) return _state.value.issue !is Issue.SaveFailed
@@ -684,11 +691,10 @@ class ConfigEngine(
         val bytes = ConfigCodec.encodeBytes(config)
         if (bytes.size > Limits.MAX_BYTES) throw TooLargeException(Limits.MAX_BYTES / 1024 / 1024)
         val hash = ConfigCodec.sha256(bytes)
-        selfWrites.addLast(hash); while (selfWrites.size > 4) selfWrites.removeFirst()
         // #317: [expectHash] is the file the caller checked; the source re-checks it right before replacing the target.
-        // Raced: our bytes aren't the file, so they're no self-write (the next look must see the agent's file as new).
-        // #334: any failure, not only a race: bytes that never became the file aren't an echo of ours.
-        try { source.write(bytes, expectHash) } catch (e: Exception) { selfWrites.remove(hash); throw e }
+        // #334 / #349: only bytes that became the file become the base below (the echo guard); a failed or raced write
+        // leaves the base alone, so the next look sees whatever is in the file as new.
+        source.write(bytes, expectHash)
         unsaved = null // written: whatever failed before is saved now
         // #339: saved, but over the start of another writer's file: theirs is lost, so status.json says so.
         overlap = if (source.lastWriteOverlapped()) overlapWarning(StatusJson.iso(clock())) else null
