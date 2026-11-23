@@ -1579,6 +1579,9 @@ These rules apply to every **grid-placed** element (`page`, `x`, `y`, `w`, `h`):
   outside the grid, or the page is gone by then, nothing is written and the snackbar says
   `Couldn't move "<name>": that space is taken.` (`move_element_taken`). The widget stays where it was.
 - **Drag** in edit mode follows the same rules: a widget lands only on a fully free rectangle (§16.4), one write.
+  Widgets, live cards and consent tiles turn the page at the screen edge exactly like items (§4.2: 600 ms hold in the
+  same 24 dp zone, repeating while held, a new empty page past the last, the rail's inner side with an end-edge rail,
+  mirrored in RTL); the drop lands on the page shown then, under the same free-rectangle rule. Folders are items (§4.2).
 - **Never offered for elements:** `Move to dock`, `Add to folder…`, `Hide` (those are for 1×1 app items).
 
 #### 16.7.3 Which elements offer each action
