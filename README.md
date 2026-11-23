@@ -174,6 +174,11 @@ Shape in brief:
 - **How the launcher writes.** Android's folder access has no atomic replace, so it writes a temp copy in `.configlauncher/`
   first and verifies it, then replaces `launcher.json` (re-checking it, truncating and writing in one open where the
   storage allows) and verifies the exact bytes, restoring from the temp copy on failure.
+  Where the storage has no such open, it re-checks `launcher.json` right before writing. One window remains on both
+  paths, because there is no compare-and-swap: a write that starts and finishes between that last check and the
+  phone's own write (a few system calls with the single open, one storage call without it) is replaced with no trace.
+  If your change must not be lost, re-read `launcher.json` a few seconds after `status.json` shows `ok`. If your change
+  isn't in it and there was no conflict, write it again.
   For a few milliseconds, a reader can see a partial file. **If you get a parse error reading `launcher.json`, wait a
   second and retry.** If it still doesn't parse and `status.json` says `parse_error` with the warning that the phone has
   a change that isn't saved yet, write the file again: the phone merges its change onto your valid file.
