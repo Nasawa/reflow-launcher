@@ -34,5 +34,6 @@ Schema `$id`: https://reflowlauncher.com/schema/launcher-config.v1.schema.json (
 2. Write the whole file in one go. Commit and push (git). Never force-push; on a rejected push, `git pull --rebase`, re-validate, push again. Never commit conflict markers.
 3. After the phone syncs, read `.configlauncher/status.json`. If it lists errors, the phone kept its last working layout: fix those errors (paths and messages are given) and write again. `warnings` (for example an element this version skipped) don't block loading; the element stays in the file.
 4. If reading `launcher.json` fails to parse, the phone may be mid-write: wait a second and retry. If it still doesn't parse and `.configlauncher/status.json` says `parse_error` with a warning that the phone has a change that isn't saved yet, write the file again.
+5. If your change must not be lost, re-read `launcher.json` a few seconds after `status.json` shows `ok` and check that your change is in it. A write that lands at the very moment the phone saves its own change can be replaced without a trace; if your change is missing and there was no conflict, write it again.
 
 The phone never runs anything from this file. If the user edits on the phone at the same time, the phone keeps your version except for the items the user just touched.
