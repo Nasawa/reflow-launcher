@@ -13,6 +13,9 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -268,16 +271,23 @@ object ElementActionList {
  * A long-press released without moving opens the sheet ([onLong]); a drag back to its own cell does nothing (dev1).
  * One buzz per new cell. No semantics: TalkBack uses `Move to…`.
  * [selected] draws the §16.4 white 24 % frame (the picked widget; handles are NW-8, #304).
+ *
+ * #344: with [drag], the drag feeds the same 600 ms edge hold as a lifted tile ([DragController.elementStart]), so
+ * holding at the window edge turns the page (and adds one past the last). The target cell is the one under the finger
+ * on the page shown at the time ([DragController.currentPageId]), so [canDrop] and [onDrop] get that page's id; when
+ * it isn't this element's own page, that page draws the outline ([ElementDropPreview]).
  */
 @Composable
 fun ElementDragTarget(
     p: Elements.Placement, cellW: androidx.compose.ui.unit.Dp, cellH: androidx.compose.ui.unit.Dp,
     baseX: androidx.compose.ui.unit.Dp, baseY: androidx.compose.ui.unit.Dp, rtl: Boolean, selected: Boolean,
-    canDrop: (Int, Int) -> Boolean, onDrop: (Int, Int) -> Unit, onLong: () -> Unit, onTap: () -> Unit = {},
+    canDrop: (String, Int, Int) -> Boolean, onDrop: (String, Int, Int) -> Unit, onLong: () -> Unit, onTap: () -> Unit = {},
     /** dev1 fix: one buzz per new cell ([Haptics.cellTick]); tests pass a counter. */
     onTick: (() -> Unit)? = null,
+    /** #344: the element's id and the home screen's drag controller (edge page turns); null = this page only. */
+    id: String? = null, drag: DragController? = null,
 ) {
-    var drag by remember { mutableStateOf<Pair<Float, Float>?>(null) }
+    var dragOffset by remember { mutableStateOf<Pair<Float, Float>?>(null) }
     val view = androidx.compose.ui.platform.LocalView.current
     val tick by rememberUpdatedState(onTick ?: { Haptics.cellTick(view) })
     // #281's drag-start buzz, as for app tiles (LONG_PRESS, default flags: the system setting decides).
@@ -286,9 +296,14 @@ fun ElementDragTarget(
     val cwPx = with(density) { cellW.toPx() }; val chPx = with(density) { cellH.toPx() }
     val drop by rememberUpdatedState(onDrop); val long by rememberUpdatedState(onLong); val can by rememberUpdatedState(canDrop)
     val tap by rememberUpdatedState(onTap)
-    val target = drag?.let { (dx, dy) -> ElementActionList.cellDelta(dx, dy, cwPx, chPx, rtl).let { (a, b) -> (p.x + a) to (p.y + b) } }
+    val dragC by rememberUpdatedState(drag)
+    /** The page a drop would land on now: the one shown ([drag]), else this element's own. */
+    fun pageNow() = dragC?.currentPageId ?: p.page
+    val target = dragOffset?.let { (dx, dy) -> ElementActionList.cellDelta(dx, dy, cwPx, chPx, rtl).let { (a, b) -> (p.x + a) to (p.y + b) } }
     val frame = Modifier.offset(baseX + cellW * p.x, baseY + cellH * p.y).size(cellW * p.w, cellH * p.h)
+    var originInRoot by remember { mutableStateOf(Offset.Zero) }
     androidx.compose.foundation.layout.Box(frame
+        .onGloballyPositioned { originInRoot = it.positionInRoot() }
         // #304: a tap selects (the frame and handles are drawn by ResizeFrame).
         .pointerInput(Unit) { detectTapGestures(onTap = { tap() }) }
         .pointerInput(p) {
@@ -296,34 +311,61 @@ fun ElementDragTarget(
             // its own cell is a cancelled move (no menu, no write).
             var moved = false
             var cell = 0 to 0
+            var startInRoot = Offset.Zero // the finger at pickup, root px (the page may scroll away under it: #344)
+            fun finger() = dragOffset?.let { (x, y) -> startInRoot + Offset(x, y) } ?: startInRoot
             detectDragGesturesAfterLongPress(
-                onDragStart = { drag = 0f to 0f; moved = false; cell = 0 to 0; view.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS) },
+                onDragStart = { at ->
+                    dragOffset = 0f to 0f; moved = false; cell = 0 to 0
+                    startInRoot = originInRoot + at
+                    view.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
+                    if (id != null) dragC?.elementStart(id, startInRoot)
+                },
                 onDrag = { ch, d ->
                     ch.consume()
-                    val n = drag?.let { (x, y) -> (x + d.x) to (y + d.y) } ?: return@detectDragGesturesAfterLongPress
-                    drag = n
+                    val n = dragOffset?.let { (x, y) -> (x + d.x) to (y + d.y) } ?: return@detectDragGesturesAfterLongPress
+                    dragOffset = n
                     if (kotlin.math.hypot(n.first, n.second) > slop) moved = true
                     val c = ElementActionList.cellDelta(n.first, n.second, cwPx, chPx, rtl)
                     if (c != cell) { cell = c; tick() }
+                    dragC?.elementMove(finger())
                 },
                 onDragEnd = {
-                    val t = drag?.let { (dx, dy) -> ElementActionList.cellDelta(dx, dy, cwPx, chPx, rtl) }
-                    drag = null
+                    val t = dragOffset?.let { (dx, dy) -> ElementActionList.cellDelta(dx, dy, cwPx, chPx, rtl) }
+                    val page = pageNow()
+                    dragOffset = null
+                    if (id != null) dragC?.elementEnd(id)
                     when {
                         t == null -> {}
-                        t == (0 to 0) -> if (!moved) long()
-                        can(p.x + t.first, p.y + t.second) -> drop(p.x + t.first, p.y + t.second)
+                        t == (0 to 0) && page == p.page -> if (!moved) long()
+                        can(page, p.x + t.first, p.y + t.second) -> drop(page, p.x + t.first, p.y + t.second)
                     }
                 },
-                onDragCancel = { drag = null },
+                onDragCancel = { dragOffset = null; if (id != null) dragC?.elementEnd(id) },
             )
         })
-    target?.let { (tx, ty) ->
-        val ok = (tx to ty) == (p.x to p.y) || canDrop(tx, ty)
-        androidx.compose.foundation.layout.Box(Modifier.offset(baseX + cellW * tx, baseY + cellH * ty).size(cellW * p.w, cellH * p.h)
-            .border(2.dp, if (ok) androidx.compose.ui.graphics.Color(0xCCFFFFFF) else androidx.compose.ui.graphics.Color(0xFFE53935),
-                androidx.compose.foundation.shape.RoundedCornerShape(12.dp)))
-    }
+    // The outline: here while the drop would land on this page; on the page shown otherwise (#344).
+    val page = pageNow()
+    val preview = target?.let { (tx, ty) -> DragController.ElementPreview(id ?: "", page, tx, ty, p.w, p.h,
+        ((tx to ty) == (p.x to p.y) && page == p.page) || canDrop(page, tx, ty)) }
+    if (drag != null && id != null) androidx.compose.runtime.SideEffect { if (drag.elementDragging == id) drag.elementPreview = preview }
+    if (preview != null && preview.pageId == p.page) ElementOutline(preview, cellW, cellH, baseX, baseY)
+}
+
+/** #303 / #344: the white (free) or red (taken) outline where a dragged element would land. */
+@Composable
+internal fun ElementOutline(t: DragController.ElementPreview, cellW: androidx.compose.ui.unit.Dp, cellH: androidx.compose.ui.unit.Dp,
+                            baseX: androidx.compose.ui.unit.Dp, baseY: androidx.compose.ui.unit.Dp) {
+    androidx.compose.foundation.layout.Box(Modifier.offset(baseX + cellW * t.x, baseY + cellH * t.y).size(cellW * t.w, cellH * t.h)
+        .border(2.dp, if (t.ok) androidx.compose.ui.graphics.Color(0xCCFFFFFF) else androidx.compose.ui.graphics.Color(0xFFE53935),
+            androidx.compose.foundation.shape.RoundedCornerShape(12.dp)))
+}
+
+/** #344: on the page shown, the outline of an element dragged here from another page (edge page turn). */
+@Composable
+internal fun ElementDropPreview(drag: DragController, pageId: String, ownIds: Set<String>, cellW: androidx.compose.ui.unit.Dp,
+                                cellH: androidx.compose.ui.unit.Dp, baseX: androidx.compose.ui.unit.Dp, baseY: androidx.compose.ui.unit.Dp) {
+    val t = drag.elementPreview ?: return
+    if (t.pageId == pageId && t.id !in ownIds && drag.elementDragging == t.id) ElementOutline(t, cellW, cellH, baseX, baseY)
 }
 
 /** #303 §16.7.1: the `Removed "<name>" from home.` snackbar; [job] ends the Undo window (release unless [restored]). */

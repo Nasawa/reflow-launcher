@@ -115,7 +115,8 @@ internal class SafWrites(
      * repeated inside the target's own "rw" open ([DocTree.replace]) where the provider allows, and the read-back is
      * compared exactly: ours with trailing bytes is repaired ([overlapped]), never kept as theirs. What's left: a write
      * that starts and ends between the in-open re-read and the truncate (or, without "rw", between the re-read and the
-     * "wt" open: one provider call), or one we then overwrite in full, isn't seen.
+     * "wt" open: one provider call; #342 added that re-read after the failed "rw" open), or one we then overwrite in
+     * full, isn't seen. Each launcher.json save logs its path and looks under the `ReflowSave` tag ([trace]).
      */
     fun writeVerified(rootDocId: String, name: String, mime: String, bytes: ByteArray, what: String, expectHash: String? = null) = synchronized(lock) {
         overlapped = false
@@ -141,6 +142,7 @@ internal class SafWrites(
             // The target's current bytes, kept in memory: the restore puts these back (not the temp's new bytes).
             var original = tree.read(target)
             // #317: a look before the target changes (an agent's write since the caller's check stops the save).
+            trace(name) { "look expect=${short(expectHash)} original=${short(original)}" }
             requireUnchanged(expectHash, original)
             var back: ByteArray? = null
             var readBack = false
@@ -148,9 +150,22 @@ internal class SafWrites(
                 // #339: the last look and the write in one open, so an agent's `cp` landing after the look above is
                 // caught too (it was overwritten in full, and the read-back saw only our bytes: a silent loss).
                 // Providers without a seekable descriptor take the old two-call path ([DocTree.write]).
-                val replaced = tree.replace(target, bytes) { now -> requireUnchanged(expectHash, now); original = now }
-                if (!replaced) tree.write(target, bytes)
+                val replaced = tree.replace(target, bytes) { now ->
+                    trace(name) { "rw look now=${short(now)}" }
+                    requireUnchanged(expectHash, now); original = now
+                }
+                if (!replaced) {
+                    // #342: no "rw" descriptor, so the look above and the "wt" open are separate calls, and the failed
+                    // "rw" open came between them: an agent's whole `cp` landing there was overwritten in full and the
+                    // read-back saw only ours (Claw's round 66 on dev4: status `ok`, the agent's item gone). Look again
+                    // right before the write; what's left is the one provider call that opens "wt".
+                    val now = tree.read(target)
+                    trace(name) { "no rw: look again now=${short(now)}, then wt" }
+                    requireUnchanged(expectHash, now); original = now
+                    tree.write(target, bytes)
+                } else trace(name) { "rw replace done" }
                 back = tree.read(target); readBack = true
+                trace(name) { "read-back=${short(back)} ours=${short(bytes)}" }
                 // #339: exact bytes. Ours with trailing bytes after them: another writer's file landed after our
                 // truncate and we wrote over its start, so neither file is left (Claw's torn launcher.json). Theirs
                 // can't be put back, so ours is written again (cut to length) and the overlap is reported.
@@ -165,6 +180,7 @@ internal class SafWrites(
                         // A tail that is simply the old file's (a provider that didn't truncate) is no overlap.
                         val oldTail = trailing && original?.let { o -> o.size == back.size && (bytes.size until o.size).all { o[it] == back[it] } } == true
                         if (!oldTail) overlapped = true
+                        trace(name) { "repaired ${if (trailing) "trailing" else "mixed"} read-back, overlap=${!oldTail}" }
                         back = bytes
                     }
                 }
@@ -174,7 +190,7 @@ internal class SafWrites(
                         throw ConcurrentChangeException(back, "launcher.json changed while saving (someone else wrote it)")
                     throw IOException("write verification failed")
                 }
-            } catch (e: ConcurrentChangeException) { throw e } catch (e: Exception) {
+            } catch (e: ConcurrentChangeException) { trace(name) { "changed under the save: ${short(e.current)}" }; throw e } catch (e: Exception) {
                 // #334: look once more before restoring. An empty read-back (or a prefix of ours) can be another writer
                 // mid-`cp` (truncate, then write); if its bytes landed since, restoring would put the old file over
                 // them. So with [expectHash], restore only a target that's still what the read-back saw (or, when the
@@ -393,11 +409,22 @@ internal class SafWrites(
         /** A provider saying the document is gone (deleted, or "not a descendant" of the tree any more). */
         private fun notFound(e: Exception) =
             e is java.io.FileNotFoundException || e is SecurityException || e is IllegalArgumentException
+        /**
+         * #342: one logcat line per step of a launcher.json save (tag `ReflowSave`, hashes cut to 8 hex), so a race
+         * re-run can line the phone's looks up with the agent's `cp`. Off the device (JVM tests) it's a no-op.
+         */
+        private inline fun trace(name: String, msg: () -> String) {
+            if (name != SafSource.FILE) return
+            runCatching { android.util.Log.i("ReflowSave", msg()) }
+        }
+        private fun short(b: ByteArray?) = b?.let { if (it.isEmpty()) "empty" else ConfigCodec.sha256(it).take(8) + "/" + it.size } ?: "none"
+        private fun short(h: String?) = h?.take(8) ?: "none"
         private fun ByteArray.startsWith(p: ByteArray) = size >= p.size && p.indices.all { this[it] == p[it] }
         /**
          * #340 follow-up (Grace): [back] is another writer's shorter JSON file written over the start of [ours]: the same
          * length, not a launcher.json that loads (a same-length file of theirs that loads is theirs), and from some
-         * point on byte for byte ours, with a whole JSON object before that point (their file).
+         * point on byte for byte ours, with a whole JSON object before that point (their file) and more than whitespace
+         * of ours after it.
          */
         internal fun headOverOurs(back: ByteArray, ours: ByteArray): Boolean {
             if (back.size != ours.size || back.contentEquals(ours)) return false
@@ -405,10 +432,13 @@ internal class SafWrites(
             var k = back.size
             while (k > 0 && back[k - 1] == ours[k - 1]) k--  // where the common tail starts
             if (k == back.size) return false                    // no tail of ours at all
-            // Their file ends somewhere in [k, size): try the ends a JSON object can have.
+            // Their file ends somewhere in [k, size): try the ends a JSON object can have. #341 review (Grace): real bytes
+            // of ours must follow it, not only whitespace: a same-length file of theirs that is valid JSON but fails the
+            // schema matched "ours" on our final newline alone and was overwritten as mixed.
             return (maxOf(k, 1) until back.size).any { end ->
                 val c = back[end - 1].toInt().toChar()
                 (c == '}' || c.isWhitespace()) &&
+                    (end until back.size).any { !back[it].toInt().toChar().isWhitespace() } &&
                     runCatching { kotlinx.serialization.json.Json.parseToJsonElement(String(back, 0, end, Charsets.UTF_8)) is kotlinx.serialization.json.JsonObject }.getOrDefault(false)
             }
         }

@@ -650,10 +650,10 @@ fun HomeScreen(vm: HomeViewModel) {
                                 if (pages.size >= 2) CustomAccessibilityAction(listPages) { pageList = true; true } else null,
                             )
                         }, key = { pages.getOrNull(it)?.id ?: it },
-                    userScrollEnabled = drag.dragged == null,
+                    userScrollEnabled = drag.dragged == null && drag.elementDragging == null,
                     // #328: while dragging, every page stays composed, so the lifted tile's gesture (on its own page) survives
-                    // an edge page turn and keeps the drag alive.
-                    beyondViewportPageCount = if (drag.dragged != null) pages.size else 0,
+                    // an edge page turn and keeps the drag alive. #344: the same for a widget or card dragged by its span.
+                    beyondViewportPageCount = if (drag.dragged != null || drag.elementDragging != null) pages.size else 0,
                 ) { index ->
                     pages.getOrNull(index)?.let { PageGrid(it, ui.layout.grid, vm.apps, drag, editing, onOpen, onLong, a11y, onEmptyLong = { homeMenu = true },
                         tiles = if (cardsLive) consentTiles(it.id) else consentTiles(it.id).filter { t -> t.reason == ConsentUi.Reason.Update },
@@ -665,10 +665,11 @@ fun HomeScreen(vm: HomeViewModel) {
                         onHostedLong = { t -> hostedSheet = t }, onHostedTap = ::hostedTap,
                         onCell = { w, h -> if (widgets.setCell(w, h)) hostedScope.launch(kotlinx.coroutines.Dispatchers.IO) { vm.store.engine.appWidgetsChanged() } },
                         elementActions = elementActions, selected = selectedElement,
-                        canDropElement = { id, x, y -> ElementEdits.fits(vm.store.shownConfig(), it.id, x, y,
+                        // #344: the page is the one shown at the drop (an edge hold may have turned it).
+                        canDropElement = { id, pg, x, y -> ElementEdits.fits(vm.store.shownConfig(), pg, x, y,
                             ElementEdits.element(vm.store.shownConfig(), id)?.let(dev.nasawa.configlauncher.config.Elements::placement)?.w ?: 1,
                             ElementEdits.element(vm.store.shownConfig(), id)?.let(dev.nasawa.configlauncher.config.Elements::placement)?.h ?: 1, ignore = id) },
-                        onDropElement = { id, x, y -> writeMove(id, elementName(id), it.id, x, y) },
+                        onDropElement = { id, pg, x, y -> writeMove(id, elementName(id), pg, x, y) },
                         onSelectElement = { id -> selectedElement = id },
                         resizeBounds = { id -> ElementInfo.sizeBounds(ui.load.config, id,
                             hostedAll.firstOrNull { t -> t.id == id }?.let { t -> widgets.info(t.pkg, t.cls)?.let(widgets::facts) }) },
@@ -1196,8 +1197,8 @@ internal fun PageGrid(page: ResolvedPage, grid: Grid, apps: InstalledApps, drag:
                      onHostedLong: (dev.nasawa.configlauncher.hosted.HostedWidgets.Tile) -> Unit = {}, onHostedTap: (dev.nasawa.configlauncher.hosted.HostedWidgets.Tile) -> (() -> Unit)? = { null },
                      onCell: (Float, Float) -> Unit = { _, _ -> },
                      elementActions: (String, ElementKind) -> List<CustomAccessibilityAction> = { _, _ -> emptyList() },
-                     canDropElement: (String, Int, Int) -> Boolean = { _, _, _ -> false },
-                     onDropElement: (String, Int, Int) -> Unit = { _, _, _ -> }, selected: String? = null,
+                     canDropElement: (String, String, Int, Int) -> Boolean = { _, _, _, _ -> false },
+                     onDropElement: (String, String, Int, Int) -> Unit = { _, _, _, _ -> }, selected: String? = null,
                      onSelectElement: (String) -> Unit = {}, resizeBounds: (String) -> ElementInfo.Limits? = { null },
                      canResize: (String, Int, Int, Int, Int) -> Boolean = { _, _, _, _, _ -> false },
                      onResizeElement: (String, ResizeMath.Rect) -> Unit = { _, _ -> }, onResizeActive: (Boolean) -> Unit = {},
@@ -1370,11 +1371,14 @@ internal fun PageGrid(page: ResolvedPage, grid: Grid, apps: InstalledApps, drag:
             if (editing) {
                 @Composable fun target(id: String, p: dev.nasawa.configlauncher.config.Elements.Placement, onLongPress: () -> Unit) =
                     ElementDragTarget(p, cellWDp, cellHDp, baseXDp, baseYDp, rtl, selected = id == selected,
-                        canDrop = { x, y -> canDropElement(id, x, y) }, onDrop = { x, y -> onDropElement(id, x, y) }, onLong = onLongPress,
-                        onTap = { onSelectElement(id) })
+                        canDrop = { pg, x, y -> canDropElement(id, pg, x, y) }, onDrop = { pg, x, y -> onDropElement(id, pg, x, y) }, onLong = onLongPress,
+                        onTap = { onSelectElement(id) }, id = id, drag = drag)
                 hosted.forEach { t -> key("drag-" + t.id) { target(t.id, t.placement) { onHostedLong(t) } } }
                 live.forEach { l -> key("drag-" + l.id) { target(l.id, l.placement) { onWidgetLong(WidgetSheetFor(null, l)) } } }
                 tiles.forEach { t -> t.id?.let { id -> key("drag-$id") { target(id, t.placement) { onWidgetLong(WidgetSheetFor(t, null)) } } } }
+                // #344: an element brought here from another page by an edge hold: its outline on this page.
+                ElementDropPreview(drag, page.id, (hosted.map { it.id } + live.map { it.id } + tiles.mapNotNull { it.id }).toSet(),
+                    cellWDp, cellHDp, baseXDp, baseYDp)
                 // #304: the selected one gets its frame and drag-resize handles, on top of everything else.
                 val sel = selected?.let { id -> (hosted.firstOrNull { it.id == id }?.placement ?: live.firstOrNull { it.id == id }?.placement
                     ?: tiles.firstOrNull { it.id == id }?.placement)?.let { id to it } }
