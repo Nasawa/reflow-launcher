@@ -382,8 +382,13 @@ class ConfigEngine(
         if (hash == _state.value.baseHash && _state.value.origin == Origin.FILE || hash in selfWrites) {
             lastStamp = stamp
             if (_state.value.issue != null) _state.update { it.copy(issue = null) }
+            // The file is the layout we show again, so anything said about a broken one in between is over.
+            invalidHash = null; invalidBytes = null
             // #103: first look at a newly connected folder holding the file we already show: still write a receipt.
-            if (statusResult == null) writeStatus("ok", emptyList(), hash, _state.value.config.revision, Elements.warnings(_state.value.config), _state.value.config)
+            // #343 (Claw): also when status.json describes another file: an agent restored exactly the loaded layout after
+            // a broken write, and status.json kept that write's parse_error (RELOAD said 0 "unchanged" over it).
+            if (statusResult.let { it == null || it.first != "ok" || it.third != hash })
+                writeStatus("ok", emptyList(), hash, _state.value.config.revision, Elements.warnings(_state.value.config), _state.value.config)
             return false
         }
         if (stabilityMs > 0) {
