@@ -156,6 +156,27 @@ class DragController(private val engine: () -> ConfigEngine, private val onCance
     private var edgeDir = 0
     private var edgeJob: Job? = null
 
+    /**
+     * #344: a widget or card dragged by its span ([ElementDragTarget]) uses the same edge hold as a lifted tile: its id
+     * while the drag runs (null otherwise). The pager keeps every page composed and stops its own scrolling meanwhile,
+     * so the gesture on the element's own page survives a turn; the drop lands on the page shown then ([currentPageId]).
+     */
+    var elementDragging by mutableStateOf<String?>(null); private set
+    /** #344: where an element drag would land right now (drawn by the page it's on), or null. */
+    var elementPreview by mutableStateOf<ElementPreview?>(null)
+    data class ElementPreview(val id: String, val pageId: String, val x: Int, val y: Int, val w: Int, val h: Int, val ok: Boolean)
+
+    /** #344: an element drag started with the finger at [fingerInRoot] (root px). */
+    fun elementStart(id: String, fingerInRoot: Offset) {
+        if (dragged != null) return
+        elementDragging = id; elementPreview = null
+        edgeHold(fingerInRoot)
+    }
+    /** #344: the element drag's finger moved to [fingerInRoot] (root px): starts or stops the edge hold. */
+    fun elementMove(fingerInRoot: Offset) { if (elementDragging != null) edgeHold(fingerInRoot) }
+    /** #344: [id]'s element drag ended (dropped or cancelled; a gesture restarted after its own write is a no-op). */
+    fun elementEnd(id: String) { if (elementDragging == id) { stopEdgeHold(); elementDragging = null; elementPreview = null } }
+
     /** #282: the drop target under the finger right now (null: none, or refused). The overlay highlights it. */
     var target by mutableStateOf<DropTarget?>(null); private set
 
@@ -220,19 +241,22 @@ class DragController(private val engine: () -> ConfigEngine, private val onCance
         // A new cell or slot, re-entering from no target included (#306: intended); leaving to "no target" is silent.
         if (t != null && t.edit != target?.edit) tick()
         target = t
-        edgeHold()
+        edgeHold(fingerInRoot)
     }
 
+    /** True while a tile is lifted (not on its way back or in) or an element is dragged (#344). */
+    private val edgeAlive get() = (dragged != null && !returning && !settling && !landing) || elementDragging != null
+
     /** #328: starts or stops the edge hold when the finger enters or leaves an edge zone (or switches edges). */
-    private fun edgeHold() {
-        val d = EdgeTurn.direction(fingerInRoot, overlayBounds, dockRect, dockVertical, edgeZonePx, rtl)
+    private fun edgeHold(finger: Offset) {
+        val d = EdgeTurn.direction(finger, overlayBounds, dockRect, dockVertical, edgeZonePx, rtl)
         if (d == edgeDir) return
         stopEdgeHold(); edgeDir = d
         val s = scope ?: return
         if (d != 0) edgeJob = s.launch {
             while (true) {
                 delay(EDGE_HOLD_MS)
-                if (dragged == null || returning || settling || landing || !onEdgeHold(d)) break
+                if (!edgeAlive || !onEdgeHold(d)) break
             }
         }
     }

@@ -37,7 +37,7 @@ class ElementDragTargetTest {
         val vc = slopPx?.let { s -> object : ViewConfiguration by base { override val touchSlop = s } } ?: base
         CompositionLocalProvider(LocalViewConfiguration provides vc) { Box(Modifier.size(400.dp, 500.dp).testTag("area")) {
             ElementDragTarget(Elements.Placement("home", 1, 1, 1, 1), 100.dp, 100.dp, 0.dp, 0.dp, rtl = false, selected = false,
-                canDrop = { _, _ -> true }, onDrop = { x, y -> drops += x to y }, onLong = { longs++ }, onTick = { ticks++ })
+                canDrop = { _, _, _ -> true }, onDrop = { _, x, y -> drops += x to y }, onLong = { longs++ }, onTick = { ticks++ })
         } }
     } }
 
