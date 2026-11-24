@@ -1,5 +1,6 @@
 package dev.nasawa.configlauncher.ui
 
+import androidx.compose.ui.platform.testTag
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.material3.AlertDialog
@@ -356,9 +357,13 @@ fun ElementDragTarget(
 internal fun ElementOutline(t: DragController.ElementPreview, cellW: androidx.compose.ui.unit.Dp, cellH: androidx.compose.ui.unit.Dp,
                             baseX: androidx.compose.ui.unit.Dp, baseY: androidx.compose.ui.unit.Dp) {
     androidx.compose.foundation.layout.Box(Modifier.offset(baseX + cellW * t.x, baseY + cellH * t.y).size(cellW * t.w, cellH * t.h)
+        .testTag(if (t.ok) ElementOutlineTags.FREE else ElementOutlineTags.TAKEN) // tests only: no label, TalkBack skips it
         .border(2.dp, if (t.ok) androidx.compose.ui.graphics.Color(0xCCFFFFFF) else androidx.compose.ui.graphics.Color(0xFFE53935),
             androidx.compose.foundation.shape.RoundedCornerShape(12.dp)))
 }
+
+/** Test tags on [ElementOutline]: white (the drop fits) or red (taken). */
+internal object ElementOutlineTags { const val FREE = "elementOutline-free"; const val TAKEN = "elementOutline-taken" }
 
 /** #344: on the page shown, the outline of an element dragged here from another page (edge page turn). */
 @Composable

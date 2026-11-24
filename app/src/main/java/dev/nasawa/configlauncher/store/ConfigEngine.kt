@@ -277,7 +277,9 @@ class ConfigEngine(
         return try {
             if (adopted != null) {
                 val hash = ConfigCodec.sha256(existing!!)
-                lastStamp = target.stamp()
+                // #351: the target must still answer (a throw rolls back, #174), but that stamp is after our read, so it
+                // could hide a write in between: not kept; the next poll reads and hashes (ours is an echo then).
+                target.stamp(); lastStamp = null
                 _state.value = LoadState(adopted, Origin.FILE, target.displayName, hash, reconnectable = target.reconnectable)
                 // #103: a fresh receipt for the adopted file, so status.json isn't left from an earlier install.
                 writeStatus("ok", emptyList(), hash, adopted.revision, Elements.warnings(adopted), adopted)
@@ -698,7 +700,11 @@ class ConfigEngine(
         unsaved = null // written: whatever failed before is saved now
         // #339: saved, but over the start of another writer's file: theirs is lost, so status.json says so.
         overlap = if (source.lastWriteOverlapped()) overlapWarning(StatusJson.iso(clock())) else null
-        lastStamp = source.stamp()
+        // #351 (Claw, dev5, 3/200): never a stamp taken after the read-back. The temp delete and sweep run between the two
+        // (40-120 ms on the A51), so an agent's `cp` finishing there was in that stamp: every poll then saw "no change"
+        // and skipped the read, the screen and status.json kept our save over the agent's file until a hash-anyway poll.
+        // No stamp: the next poll reads and hashes (ours is an echo then, with a stamp taken before that read).
+        lastStamp = null
         writeStatus("ok", emptyList(), hash, config.revision, Elements.warnings(config), config)
         _state.value = LoadState(config, Origin.FILE, source.displayName, hash, reconnectable = source.reconnectable)
         saveLastGood(bytes)

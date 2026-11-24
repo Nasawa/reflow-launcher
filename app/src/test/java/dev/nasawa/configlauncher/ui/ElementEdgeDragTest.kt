@@ -262,6 +262,22 @@ class ElementEdgeDragTest {
         assertEquals("p1", placed(saved()).page)
     }
 
+    /**
+     * #350 review nit: the outline on the page showing is checked against that page too. Hovering (not dropping) over
+     * (1,1) after the turn: free on p1 (the element's own cell), taken on p2, so the outline is red; a check against
+     * the element's own page would draw it white.
+     */
+    @Kind("widget") @TakenOnP2 @Test fun theOutlineOnThePageShowingIsRedOverItsTakenCell() {
+        liftTo(root.right - 6f)
+        frames(DragController.EDGE_HOLD_MS + 300)
+        assertTrue(pageShown(2, 3))
+        moveTo(start) // the same screen cell, now p2's (1,1): "Taken"
+        fun tagged(t: String) = compose.onAllNodes(hasTestTag(t), useUnmergedTree = true).fetchSemanticsNodes().size
+        assertEquals("red over the taken cell", 1, tagged(ElementOutlineTags.TAKEN))
+        assertEquals("no white outline anywhere", 0, tagged(ElementOutlineTags.FREE))
+        cancel()
+    }
+
     /** Folders are items: they turn the page through the app path (#328) and land on the page shown. */
     @Kind("folder") @Test fun aFolderHeldAtTheEdgeTurnsThePageAndLandsThere() {
         enterEdit()

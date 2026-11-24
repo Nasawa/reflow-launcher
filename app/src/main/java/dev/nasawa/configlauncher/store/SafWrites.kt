@@ -116,7 +116,8 @@ internal class SafWrites(
      * compared exactly: ours with trailing bytes is repaired ([overlapped]), never kept as theirs. What's left: a write
      * that starts and ends between the in-open re-read and the truncate (or, without "rw", between the re-read and the
      * "wt" open: one provider call; #342 added that re-read after the failed "rw" open), or one we then overwrite in
-     * full, isn't seen. Each launcher.json save logs its path and looks under the `ReflowSave` tag ([trace]).
+     * full, isn't seen. Each launcher.json save can log its path and looks under the `ReflowSave` tag ([trace]): off
+     * unless `adb shell setprop log.tag.ReflowSave DEBUG`.
      */
     fun writeVerified(rootDocId: String, name: String, mime: String, bytes: ByteArray, what: String, expectHash: String? = null) = synchronized(lock) {
         overlapped = false
@@ -411,12 +412,16 @@ internal class SafWrites(
             e is java.io.FileNotFoundException || e is SecurityException || e is IllegalArgumentException
         /**
          * #342: one logcat line per step of a launcher.json save (tag `ReflowSave`, hashes cut to 8 hex), so a race
-         * re-run can line the phone's looks up with the agent's `cp`. Off the device (JVM tests) it's a no-op.
+         * re-run can line the phone's looks up with the agent's `cp`. Off by default (after #351): debug level, only when
+         * `adb shell setprop log.tag.ReflowSave DEBUG` (until reboot; `setprop log.tag.ReflowSave INFO` turns it off), so
+         * a release build logs nothing per save. The message isn't built when off. Off the device (JVM tests) a no-op.
          */
         private inline fun trace(name: String, msg: () -> String) {
             if (name != SafSource.FILE) return
-            runCatching { android.util.Log.i("ReflowSave", msg()) }
+            runCatching { if (android.util.Log.isLoggable(SAVE_TAG, android.util.Log.DEBUG)) android.util.Log.d(SAVE_TAG, msg()) }
         }
+        /** The `ReflowSave` logcat tag ([trace]); 23 chars at most for [android.util.Log.isLoggable]. */
+        const val SAVE_TAG = "ReflowSave"
         private fun short(b: ByteArray?) = b?.let { if (it.isEmpty()) "empty" else ConfigCodec.sha256(it).take(8) + "/" + it.size } ?: "none"
         private fun short(h: String?) = h?.take(8) ?: "none"
         private fun ByteArray.startsWith(p: ByteArray) = size >= p.size && p.indices.all { this[it] == p[it] }
