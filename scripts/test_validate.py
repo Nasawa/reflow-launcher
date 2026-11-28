@@ -469,3 +469,107 @@ class CardReadout(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Formatters(unittest.TestCase):
+    """#361 RW-4: Bindings and Thresholds match the Kotlin strings."""
+
+    def setUp(self):
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        self.zone = ZoneInfo("America/Denver")
+        self.now = datetime.fromisoformat("2026-11-28T16:38:00+00:00")
+        self.env = {
+            "now": self.now,
+            "zone": self.zone,
+            "locale": "en_US",
+            "is24Hour": False,
+            "data": {
+                "ctx": V.Num("79.43"),
+                "started_at": "2026-11-28T07:35:00-07:00",
+                "state": "idle",
+                "updatedAt": "2026-11-28T09:33:00-07:00",
+                "blank": "",
+            },
+            "fetch": {},
+            "batteryPercent": 80,
+            "charging": False,
+            "full": False,
+            "nextAlarm": datetime.fromisoformat("2026-11-28T18:00:00+00:00"),
+        }
+
+    def text(self, s, env=None):
+        return V.Bindings.expand(s, env or self.env)["text"]
+
+    def value(self, s, env=None):
+        return V.Bindings.expand(s, env or self.env)
+
+    def test_round_default_n_is_zero(self):
+        self.assertEqual("79", self.text("{data:ctx|round}"))
+        self.assertEqual("79.4", self.text("{data:ctx|round:1}"))
+        self.assertEqual("—", self.text("{data:missing|round}"))
+
+    def test_two_formatters_left_to_right(self):
+        self.assertEqual("79", self.text("{data:ctx|round:1|round}"))
+        self.assertEqual("1m 19s", self.text("{data:ctx|round|duration}"))
+
+    def test_since_and_duration(self):
+        self.assertEqual("9h 3m", V.Bindings.format_duration(9 * 3600 + 3 * 60))
+        self.assertEqual("2h 3m", self.text("{data:started_at|since}"))
+
+    def test_missing_versus_empty_versus_default(self):
+        missing = self.value("{data:missing}")
+        self.assertEqual("—", missing["text"])
+        self.assertFalse(missing["empty"])
+        self.assertEqual("offline", self.value("{data:missing|default:offline}")["text"])
+        empty = self.value("{data:blank}")
+        self.assertEqual("", empty["text"])
+        self.assertTrue(empty["empty"])
+        empty_def = self.value("{data:blank|default:offline}")
+        self.assertTrue(empty_def["empty"])
+
+    def test_battery_and_relative(self):
+        self.assertEqual("80", self.text("{battery}"))
+        self.assertEqual("0.8", self.text("{batteryFraction}"))
+        self.assertEqual("5 min ago", self.text("{relative}"))
+        env = dict(self.env)
+        env["data"] = dict(self.env["data"])
+        env["data"]["updatedAt"] = "2026-11-28T09:37:30-07:00"
+        self.assertEqual("just now", self.text("{relative}", env))
+
+    def test_time_12_and_24(self):
+        self.assertEqual("9:38 AM", self.text("{time}"))
+        env = dict(self.env, is24Hour=True)
+        self.assertEqual("9:38", self.text("{time}", env))
+        self.assertEqual("09:38", self.text("{time:HH:mm}", env))
+
+    def test_threshold_74_75_76(self):
+        entries = [(0, "accent"), (75, "warn"), (90, "error")]
+        self.assertEqual("accent", V.Thresholds.tone(74, entries))
+        self.assertEqual("warn", V.Thresholds.tone(75, entries))
+        self.assertEqual("warn", V.Thresholds.tone(76, entries))
+        self.assertEqual("accent", V.Thresholds.tick_tone(74, 100, entries))
+        self.assertEqual("warn", V.Thresholds.tick_tone(75, 100, entries))
+        self.assertEqual("warn", V.Thresholds.tick_tone(76, 100, entries))
+
+    def test_load_errors_and_as_of(self):
+        card = {"id": "w-1", "type": "card", "requires": 6, "page": "home", "x": 0, "y": 1, "w": 2, "h": 2,
+                "layouts": {"1x1": [{"type": "text", "text": "{foo}"}]}}
+        doc = {"schemaVersion": 1, "grid": {"columns": 4, "rows": 12},
+               "pages": [{"id": "home", "items": []}], "elements": [card]}
+        _, errs = V.validate(json.dumps(doc).encode(), use_schema=False)
+        self.assertTrue(any(e.startswith("elements[0].layouts.1x1[0].text: unknown token {foo}") for e in errs), errs)
+        card2 = dict(card)
+        card2["layouts"] = {"1x1": [{"type": "text", "text": "hi"}]}
+        card2["data"] = {"asOf": "bad path!"}
+        _, errs = V.validate(json.dumps({**doc, "elements": [card2]}).encode(), use_schema=False)
+        self.assertTrue(any(e.startswith('elements[0].data.asOf: "bad path!" isn\'t a data path') for e in errs), errs)
+
+    def test_as_of_is_a_readout_key(self):
+        card = {"id": "w-1", "type": "card", "requires": 4, "page": "home", "x": 0, "y": 1, "w": 2, "h": 2,
+                "data": {"asOf": "last_updated"},
+                "layouts": {"1x1": [{"type": "text", "text": "hi"}]}}
+        doc = {"schemaVersion": 1, "grid": {"columns": 4, "rows": 12},
+               "pages": [{"id": "home", "items": []}], "elements": [card]}
+        _, errs = V.validate(json.dumps(doc).encode(), use_schema=False)
+        self.assertIn("elements[0].requires: a card that uses readout keys needs feature level 6 or higher", errs)

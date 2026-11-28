@@ -17,7 +17,7 @@ import kotlinx.serialization.json.*
  * - `layouts`: 1–3 `"WxH"` keys, each a list of nodes: containers `column`, `row`, `tile`; primitives `text`, `metric`,
  *   `list`, `icon`, `progress`, `button`. Taps must be allowed by a declared capability.
  * - Optional `title`, `author` (omitted = hidden), `source` (in the consent fingerprint; not a fetch origin), `surface`
- *   (`"auto"`, `"none"`, or `{color, opacity}`), `header`, `summary`, `layers`, `minSpan`, `data.staleAfter`.
+ *   (`"auto"`, `"none"`, or `{color, opacity}`), `header`, `summary`, `layers`, `minSpan`, `data.staleAfter`, `data.asOf`.
  * - A text or metric that resolves to an empty string is not drawn ([emptyNotDrawn]); a missing path is drawn as "—".
  * Strict like every known type: unknown keys are errors. `scripts/validate.py` mirrors this.
  */
@@ -99,21 +99,24 @@ object Card : Elements.ElementType {
             c.keys(m, "$path.minSpan", setOf("w", "h"), setOf("w", "h"), xKeys = false)
             c.int(m, "w", "$path.minSpan", 1, 12); c.int(m, "h", "$path.minSpan", 1, 12)
         } }
-        c.str(o, "title", path, max = 40)
+        c.str(o, "title", path, max = 40)?.let { binding(it, "$path.title", c) }
         c.str(o, "author", path, max = 40, min = 1)
         // Q-D5: the site taps open silently: a bare hostname (https) or http:// / https:// + hostname.
         c.str(o, "source", path)?.let { if (it.length > 253 + 8 || !HOST.matches(it)) c.err("", "$path.source must be a lowercase hostname, optionally with http:// or https://.") }
         surface(o, path, c)
         c.bool(o, "header", path)
-        c.str(o, "summary", path, max = MAX_SUMMARY)
+        c.str(o, "summary", path, max = MAX_SUMMARY)?.let { binding(it, "$path.summary", c) }
         o["layers"]?.let { e ->
             if (e !is JsonArray) c.err("$path.layers", "must be an array")
             else layers(e, "$path.layers", c)
         }
         val caps = capabilities(o, path, c)
         o["data"]?.let { e -> c.obj(e, "$path.data")?.let { d ->
-            c.keys(d, "$path.data", setOf("staleAfter"), emptySet(), xKeys = false)
+            c.keys(d, "$path.data", setOf("staleAfter", "asOf"), emptySet(), xKeys = false)
             c.str(d, "staleAfter", "$path.data", max = 32, re = DURATION)
+            c.str(d, "asOf", "$path.data", max = 64, min = 1)?.let { asOf ->
+                Bindings.checkAsOf(asOf, "$path.data.asOf")?.let { c.err("", it) }
+            }
         } }
         o["layouts"]?.let { e -> c.obj(e, "$path.layouts")?.let { ls -> layouts(ls, "$path.layouts", caps, c) } }
     }
@@ -188,7 +191,22 @@ object Card : Elements.ElementType {
         if (".." in s || s.startsWith(".")) { c.err(path, fileNameMsg()); return }
         if ('{' !in s) { if (!FILE.matches(s)) c.err(path, fileNameMsg()); return }
         if (!template) { c.err(path, "must be a file name, not a template"); return }
+        fileTokenError(s, path)?.let { c.err("", it); return }
         if (!legalTemplate(s)) c.err(path, "must be a file name template ending in .png, .jpg, .jpeg or .webp")
+    }
+
+    /** First load-error from a `{data:…}` / `{fetch:…}` token in a picture `src`, or null. */
+    fun fileTokenError(s: String, path: String): String? {
+        var i = 0
+        while (i < s.length) {
+            if (s[i] == '{') {
+                val j = s.indexOf('}', i + 1)
+                if (j < 0) return Bindings.check(s, path)
+                Bindings.checkFileToken(s.substring(i + 1, j), path)?.let { return it }
+                i = j + 1
+            } else i++
+        }
+        return null
     }
 
     private fun looksRemote(s: String) =
@@ -244,19 +262,19 @@ object Card : Elements.ElementType {
         c.int(o, "weight", np, 1, 12)
         o["color"]?.let { TitleBar.checkColor(it, "$np.color", c) }
         val has = { k: String -> k in fields }
-        if (has("text")) c.str(o, "text", np, max = MAX_TEXT)
+        if (has("text")) c.str(o, "text", np, max = MAX_TEXT)?.let { binding(it, "$np.text", c) }
         if (has("role")) c.str(o, "role", np)?.let { if (it !in ROLES) c.err("$np.role", "must be caption, body, title or display") }
         if (has("maxLines")) c.int(o, "maxLines", np, 1, 6)
         if (has("align")) c.str(o, "align", np)?.let { if (it !in ALIGN) c.err("$np.align", "must be start, center or end") }
         if (has("font")) c.str(o, "font", np)?.let { if (it !in FONT) c.err("$np.font", "must be default or mono") }
-        if (has("label")) c.str(o, "label", np, max = 40)
+        if (has("label")) c.str(o, "label", np, max = 40)?.let { binding(it, "$np.label", c) }
         if (has("icon") && type == "button") c.str(o, "icon", np, max = 64)
         if (type == "progress") {
             val max = o["max"]?.let { num(o, "max", np, c) }
             if (max != null && max <= 0.0) c.err("$np.max", "must be a number greater than 0")
             o["value"]?.let { v ->
                 val p = v as? JsonPrimitive
-                if (p?.isString == true) c.str(o, "value", np, max = MAX_TEXT)
+                if (p?.isString == true) c.str(o, "value", np, max = MAX_TEXT)?.let { binding(it, "$np.value", c) }
                 else {
                     val n = p?.content?.toDoubleOrNull()
                     val hi = if (max != null && max > 0.0) max else 1.0
@@ -270,14 +288,14 @@ object Card : Elements.ElementType {
                 if (n == null || n.isString || n.content.toLongOrNull() == null) c.err("$np.count", "must be an integer")
             }
             c.str(o, "by", np)?.let { if (it !in BY) c.err("$np.by", "must be value or position") }
-        } else if (has("value")) c.str(o, "value", np, max = MAX_TEXT)
-        if (has("unit")) c.str(o, "unit", np, max = 16)
-        if (has("status")) c.str(o, "status", np, max = MAX_TEXT)
-        if (has("items")) c.str(o, "items", np, max = MAX_TEXT)
+        } else if (has("value")) c.str(o, "value", np, max = MAX_TEXT)?.let { binding(it, "$np.value", c) }
+        if (has("unit")) c.str(o, "unit", np, max = 16)?.let { binding(it, "$np.unit", c) }
+        if (has("status")) c.str(o, "status", np, max = MAX_TEXT)?.let { binding(it, "$np.status", c) }
+        if (has("items")) c.str(o, "items", np, max = MAX_TEXT)?.let { binding(it, "$np.items", c) }
         if (has("maxItems")) o["maxItems"]?.let { v ->
             if ((v as? JsonPrimitive)?.let { it.isString && it.content == "auto" } != true) c.int(o, "maxItems", np, 1, 20)
         }
-        if (has("emptyText")) c.str(o, "emptyText", np, max = 80)
+        if (has("emptyText")) c.str(o, "emptyText", np, max = 80)?.let { binding(it, "$np.emptyText", c) }
         if (type == "icon") {
             c.str(o, "name", np, max = 64)
             c.str(o, "package", np, re = Validator.PKG)
@@ -323,11 +341,21 @@ object Card : Elements.ElementType {
         c.str(o, "url", tp, max = MAX_URL, min = 1)?.let { url ->
             if (mentionsSecret(url)) c.err("$tp.url", "a link can't use a secret.")
             else if ('{' !in url) urlProblem(url)?.let { c.err("$tp.url", it) }
+            else binding(url, "$tp.url", c)
         }
     }
 
     /** A leftover `${secret:…}` or `{secret:…}` in a string (reflow-widgets.md §5). */
     fun mentionsSecret(s: String): Boolean = SECRET_REF.containsMatchIn(s)
+
+    /** Load-time binding grammar (#361). A sentence starting with [path], or null when [s] is fine. */
+    fun binding(s: String, path: String, c: Validator.Checks) {
+        Bindings.check(s, path)?.let { c.err("", it) }
+    }
+
+    /** Expand a template with an injected [Bindings.Env]. Never uses the real clock. */
+    fun bind(s: String, env: Bindings.Env, path: String = "elements[0]"): Bindings.Value =
+        Bindings.expand(s, env, path)
 
     private fun isFalse(e: JsonElement?): Boolean =
         (e as? JsonPrimitive)?.let { !it.isString && it.content == "false" } == true
@@ -360,6 +388,7 @@ object Card : Elements.ElementType {
     /** True when the card uses a key introduced at [Elements.FL_CARDS_READOUT]. */
     fun usesReadoutKeys(o: JsonObject): Boolean {
         if ("header" in o || "summary" in o || "layers" in o) return true
+        (o["data"] as? JsonObject)?.let { if ("asOf" in it) return true }
         o["surface"]?.let { s ->
             if (s is JsonObject) return true
             if ((s as? JsonPrimitive)?.takeIf { it.isString }?.content != "auto") return true

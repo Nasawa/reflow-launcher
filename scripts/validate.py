@@ -20,6 +20,9 @@ Item order and unspecified keys like `grid` are kept as written; only a phone ed
 Stdlib only, plus optional `jsonschema`.
 """
 import argparse, json, math, pathlib, re, sys
+from datetime import datetime, timedelta, timezone
+from decimal import Decimal, ROUND_HALF_UP
+from zoneinfo import ZoneInfo
 
 MAX_BYTES = 2 * 1024 * 1024
 MAX_DEPTH = 16
@@ -894,6 +897,619 @@ class TitleBar:
 ELEMENT_TYPES["titleBar"] = TitleBar
 
 
+class Thresholds:
+    """#361 (RW-4): evaluate a card threshold list. Inclusive lower bound (74/75/76)."""
+    DEFAULT = "accent"
+
+    @staticmethod
+    def tone(percent, entries, default=None):
+        t = Thresholds.DEFAULT if default is None else default
+        for fr, tone in entries:
+            if percent >= fr:
+                t = tone
+            else:
+                break
+        return t
+
+    @staticmethod
+    def percent(value, maxv):
+        return 0.0 if maxv == 0 else (value / maxv) * 100.0
+
+    @staticmethod
+    def tick_percent(index, count):
+        return 0.0 if count <= 0 else index * 100.0 / count
+
+    @staticmethod
+    def tick_tone(index, count, entries, default=None):
+        return Thresholds.tone(Thresholds.tick_percent(index, count), entries, default)
+
+    @staticmethod
+    def segment_percent(index, segments):
+        return 0.0 if segments <= 0 else (index + 1) * 100.0 / segments
+
+    @staticmethod
+    def segment_tone(index, segments, entries, default=None):
+        return Thresholds.tone(Thresholds.segment_percent(index, segments), entries, default)
+
+
+class Bindings:
+    """#361 (RW-4): card binding grammar, the five formatters, {relative}, ambient tokens, evaluation."""
+    MISSING = "—"
+    MAX_FORMATTERS = 2
+    MAX_ROUND = 10
+    SEG = re.compile(r"^([A-Za-z0-9_-]+)((\[[0-9]+])*)$")
+    IDX = re.compile(r"\[([0-9]+)]")
+    SOURCE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_-]*$")
+    AMBIENT = ("time", "date", "battery", "batteryFraction", "batteryState", "nextAlarm", "relative")
+    FORMATTERS = ("round", "duration", "since", "time", "default")
+
+    @staticmethod
+    def legal_path(path):
+        return bool(path) and all(Bindings.SEG.fullmatch(p) for p in path.split("."))
+
+    @staticmethod
+    def check(s, path):
+        msg, _ = Bindings.parse(s, path)
+        return msg
+
+    @staticmethod
+    def parse(s, path="elements[0]"):
+        if "\n" in s or "\r" in s:
+            return f"{path}: A template is one line. Remove the line break.", None
+        parts, lit, tokens, i, n = [], [], 0, 0, len(s)
+        while i < n:
+            c = s[i]
+            if c == "{" and i + 1 < n and s[i + 1] == "{":
+                lit.append("{"); i += 2; continue
+            if c == "}" and i + 1 < n and s[i + 1] == "}":
+                lit.append("}"); i += 2; continue
+            if c == "}":
+                return f"{path}: the \"}}\" at character {i + 1} has no opening \"{{\". For a literal brace, write }}}}.", None
+            if c == "{":
+                j = s.find("}", i + 1)
+                if j < 0:
+                    return f"{path}: the \"{{\" at character {i + 1} isn't closed. For a literal brace, write {{{{.", None
+                inner = s[i + 1:j]
+                err, tok = Bindings._token(inner, path)
+                if err:
+                    return err, None
+                if lit:
+                    parts.append(("lit", "".join(lit))); lit.clear()
+                parts.append(("tok", tok))
+                tokens += 1
+                i = j + 1
+                continue
+            lit.append(c); i += 1
+        if lit:
+            parts.append(("lit", "".join(lit)))
+        if tokens > Template.MAX_TOKENS:
+            return f"{path} has {tokens} tokens; the maximum is {Template.MAX_TOKENS}.", None
+        return None, parts
+
+    @staticmethod
+    def check_file_token(inner, path):
+        err, tok = Bindings._token(inner, path)
+        if err:
+            return err
+        if tok["kind"] not in ("data", "fetch"):
+            return f"{path}: \"{{{inner}}}\" isn't a file name token, so this card wasn't loaded. Use {{data:…}} or {{fetch:…}} in a picture src."
+        if tok["formatters"]:
+            return f"{path}: {{{inner}}} has a formatter, so this card wasn't loaded. A picture file name can only use {{data:…}} or {{fetch:…}}."
+        return None
+
+    @staticmethod
+    def _token(inner, path):
+        bits, buf = [], []
+        for ch in inner:
+            if ch == "|":
+                bits.append("".join(buf)); buf.clear()
+            else:
+                buf.append(ch)
+        bits.append("".join(buf))
+        if not bits or bits[0] == "":
+            return (
+                f"{path}: unknown token {{{inner}}}, so this card wasn't loaded. "
+                "Use {data:…}, {fetch:…}, {time}, {date}, {battery}, {batteryFraction}, {batteryState}, {nextAlarm} or {relative}."
+            ), None
+        if len(bits) - 1 > Bindings.MAX_FORMATTERS:
+            return (
+                f"{path}: {{{inner}}} has {len(bits) - 1} formatters, so this card wasn't loaded. "
+                f"A token can have at most {Bindings.MAX_FORMATTERS}."
+            ), None
+        fmts = []
+        for f in bits[1:]:
+            err, fmt = Bindings._formatter(f, inner, path)
+            if err:
+                return err, None
+            fmts.append(fmt)
+        return Bindings._head(bits[0], inner, path, fmts)
+
+    @staticmethod
+    def _pattern_err(name, arg, inner, path):
+        if arg == "":
+            return f"{path}: {{{name}:}} has an empty pattern. Write {{{name}}} for the default format."
+        length = len(arg)  # code points: templates are BMP in practice; match Kotlin codePointCount for BMP
+        length = len(arg.encode("utf-16-le")) // 2  # close to codePointCount for BMP and non-BMP
+        if length > Template.MAX_PATTERN:
+            return f"{path}: the pattern in {{{name}:…}} is {length} characters; the maximum is {Template.MAX_PATTERN}."
+        bad = Template.bad_in_pattern(arg)
+        if bad is None:
+            return None
+        if bad == "'":
+            return f"{path}: A ' quote isn't closed. Add a closing ' after the text."
+        if len(bad) > 1 or bad[0] in Template.LETTERS:
+            mx = Template.LETTERS[bad[0]]
+            return f"{path}: {bad} is too long. Use at most {mx}, like {bad[:mx]}."
+        return f"{path}: \"{bad}\" isn't allowed in {{{name}:{arg}}}. Use y M d E a H h k K m; seconds and time zones aren't supported."
+
+    @staticmethod
+    def _formatter(f, inner, path):
+        colon = f.find(":")
+        name, arg = (f, None) if colon < 0 else (f[:colon], f[colon + 1:])
+        if name == "round":
+            if arg is None:
+                n = 0
+            else:
+                try:
+                    n = int(arg)
+                    if str(n) != arg or n < 0:
+                        n = None
+                except ValueError:
+                    n = None
+            if n is None or not (0 <= n <= Bindings.MAX_ROUND):
+                return (
+                    f"{path}: the n in {{{inner}}} isn't a whole number from 0 to {Bindings.MAX_ROUND}, "
+                    "so this card wasn't loaded. Write {…|round} or {…|round:1}."
+                ), None
+            return None, ("round", n)
+        if name == "duration":
+            if arg is not None:
+                return f"{path}: duration in {{{inner}}} doesn't take an argument, so this card wasn't loaded. Write {{…|duration}}.", None
+            return None, ("duration", None)
+        if name == "since":
+            if arg is not None:
+                return f"{path}: since in {{{inner}}} doesn't take an argument, so this card wasn't loaded. Write {{…|since}}.", None
+            return None, ("since", None)
+        if name == "time":
+            if arg is not None:
+                err = Bindings._pattern_err("time", arg, inner, path)
+                if err:
+                    return err, None
+            return None, ("time", arg)
+        if name == "default":
+            if arg is None:
+                return f"{path}: default in {{{inner}}} needs a text value, so this card wasn't loaded. Write {{…|default:text}}.", None
+            return None, ("default", arg)
+        return (
+            f"{path}: unknown formatter \"{name}\" in {{{inner}}}, so this card wasn't loaded. Use round, duration, since, time or default."
+        ), None
+
+    @staticmethod
+    def _head(head, inner, path, fmts):
+        colon = head.find(":")
+        name, arg = (head, None) if colon < 0 else (head[:colon], head[colon + 1:])
+        tok = {"raw": inner, "kind": name, "path": None, "source": None, "pattern": None, "formatters": fmts}
+        if name == "data":
+            if arg is None or not Bindings.legal_path(arg):
+                return (
+                    f"{path}: {{{inner}}} isn't a data path, so this card wasn't loaded. "
+                    "Use a path of dots and [index] like {data:updatedAt}."
+                ), None
+            tok["path"] = arg
+            return None, tok
+        if name == "fetch":
+            dot = arg.find(".") if arg else -1
+            source = arg[:dot] if dot > 0 else None
+            rest = arg[dot + 1:] if dot > 0 else None
+            if arg is None or source is None or not Bindings.SOURCE.fullmatch(source) or not rest or not Bindings.legal_path(rest):
+                return (
+                    f"{path}: {{{inner}}} isn't a fetch path, so this card wasn't loaded. "
+                    "Write {fetch:source.path}, with a source name and a path of dots and [index]."
+                ), None
+            tok["path"], tok["source"] = rest, source
+            return None, tok
+        if name in ("time", "date"):
+            if arg is not None:
+                err = Bindings._pattern_err(name, arg, inner, path)
+                if err:
+                    return err, None
+            tok["kind"] = name
+            tok["pattern"] = arg
+            return None, tok
+        if name in ("battery", "batteryFraction", "batteryState"):
+            if arg is not None:
+                return (
+                    f"{path}: {{{name}}} doesn't take a path, so this card wasn't loaded. Write {{{name}}}."
+                ), None
+            return None, tok
+        if name == "nextAlarm":
+            if arg is not None:
+                err = Bindings._pattern_err("nextAlarm", arg, inner, path)
+                if err:
+                    return err, None
+            tok["pattern"] = arg
+            return None, tok
+        if name == "relative":
+            if arg is None or arg == "":
+                p = "updatedAt"
+            elif arg.startswith("data.") and Bindings.legal_path(arg[5:]):
+                p = arg[5:]
+            elif Bindings.legal_path(arg):
+                p = arg
+            else:
+                return (
+                    f"{path}: {{relative}} doesn't take a pattern, so this card wasn't loaded. Write {{relative}} or {{relative:updatedAt}}."
+                ), None
+            tok["path"] = p
+            return None, tok
+        return (
+            f"{path}: unknown token {{{inner}}}, so this card wasn't loaded. "
+            "Use {data:…}, {fetch:…}, {time}, {date}, {battery}, {batteryFraction}, {batteryState}, {nextAlarm} or {relative}."
+        ), None
+
+    @staticmethod
+    def check_as_of(s, path):
+        p = s[5:] if s.startswith("data.") and Bindings.legal_path(s[5:]) else s
+        if Bindings.legal_path(p):
+            return None
+        return f"{path}: \"{s}\" isn't a data path, so this card wasn't loaded. Use a path of dots and [index] like updatedAt."
+
+    @staticmethod
+    def as_of_path(s):
+        return s[5:] if s.startswith("data.") and Bindings.legal_path(s[5:]) else s
+
+    @staticmethod
+    def lookup(root, path):
+        if root is None:
+            return None
+        cur = root
+        for seg in path.split("."):
+            m = Bindings.SEG.fullmatch(seg)
+            if m is None or not isinstance(cur, dict):
+                return None
+            cur = cur.get(m.group(1))
+            if cur is None:
+                return None
+            for ix in Bindings.IDX.finditer(m.group(2)):
+                i = int(ix.group(1))
+                if not isinstance(cur, list) or i >= len(cur):
+                    return None
+                cur = cur[i]
+        return cur
+
+    @staticmethod
+    def scalar(root, path):
+        """None if missing/null/structured. ('empty', '') if empty string. ('num', n, text) or ('text', s)."""
+        v = Bindings.lookup(root, path)
+        if v is None:
+            return None
+        if isinstance(v, (dict, list)):
+            return None
+        if v is None:
+            return None
+        if _is_str(v):
+            return ("empty", "") if v == "" else ("text", v)
+        if isinstance(v, bool):
+            return ("text", "true" if v else "false")
+        if isinstance(v, Num) or isinstance(v, (int, float)):
+            try:
+                n = float(v)
+            except (TypeError, ValueError):
+                return ("text", str(v))
+            return ("num", n, str(v) if isinstance(v, Num) else (str(int(v)) if isinstance(v, int) and not isinstance(v, bool) else str(v)))
+        return None
+
+    @staticmethod
+    def round(n, digits):
+        q = Decimal(1).scaleb(-digits)
+        v = Decimal(str(n) if not isinstance(n, float) else format(n, ".15g")).quantize(q, rounding=ROUND_HALF_UP)
+        s = format(v, "f")
+        if "." in s:
+            s = s.rstrip("0").rstrip(".")
+        return "0" if s in ("-0",) else s
+
+    @staticmethod
+    def format_duration(seconds):
+        neg = seconds < 0
+        s = abs(int(seconds))
+        h, rem = divmod(s, 3600)
+        m, sec = divmod(rem, 60)
+        if h > 0 and m > 0:
+            body = f"{h}h {m}m"
+        elif h > 0:
+            body = f"{h}h"
+        elif m > 0 and sec > 0:
+            body = f"{m}m {sec}s"
+        elif m > 0:
+            body = f"{m}m"
+        else:
+            body = f"{sec}s"
+        return f"-{body}" if neg else body
+
+    @staticmethod
+    def relative(at, now):
+        sec = int((now - at).total_seconds())
+        if sec < 0:
+            ahead = -sec
+            if ahead < 60:
+                return "just now"
+            if ahead < 3600:
+                return f"{ahead // 60} min from now"
+            if ahead < 86400:
+                return f"{ahead // 3600} h from now"
+            return f"{ahead // 86400} d from now"
+        if sec < 60:
+            return "just now"
+        if sec < 3600:
+            return f"{sec // 60} min ago"
+        if sec < 86400:
+            return f"{sec // 3600} h ago"
+        return f"{sec // 86400} d ago"
+
+    @staticmethod
+    def battery_state(env):
+        b = env.get("batteryPercent")
+        if b is None:
+            return ""
+        if env.get("full") or (env.get("charging") and b >= 100):
+            return "Full"
+        if env.get("charging"):
+            return "Charging"
+        if b <= 15:
+            return "Low"
+        return ""
+
+    @staticmethod
+    def parse_time(text, zone):
+        if not text:
+            return None
+        from datetime import datetime as dt
+        try:
+            return dt.fromisoformat(text.replace("Z", "+00:00"))
+        except ValueError:
+            pass
+        try:
+            return dt.fromisoformat(text).replace(tzinfo=zone) if dt.fromisoformat(text).tzinfo is None else dt.fromisoformat(text)
+        except ValueError:
+            return None
+
+    @staticmethod
+    def _as_aware(at, zone):
+        if at.tzinfo is None:
+            return at.replace(tzinfo=zone)
+        return at
+
+    @staticmethod
+    def format_instant(at, pattern, env, time=True):
+        zone = env["zone"]
+        loc = env.get("locale") or "en_US"
+        zdt = Bindings._as_aware(at, zone).astimezone(zone)
+        if pattern is None:
+            if time:
+                pattern = "H:mm" if env.get("is24Hour") else "h:mm a"
+            else:
+                pattern = "MMM d, yyyy"
+        try:
+            return Bindings._java_pattern(zdt, pattern, loc)
+        except Exception:
+            return Bindings.MISSING
+
+    @staticmethod
+    def _java_pattern(zdt, pattern, loc):
+        """A small DateTimeFormatter subset: y M d E a H h k K m and quoted literals."""
+        import calendar
+        out, i, n = [], 0, len(pattern)
+        # locale weekday / month / ampm: use English for en_* to match typical JVM Locale.US
+        am = "AM"; pm = "PM"
+        months_full = ["January","February","March","April","May","June","July","August","September","October","November","December"]
+        months_abbr = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
+        days_full = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"]
+        days_abbr = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"]
+        while i < n:
+            c = pattern[i]
+            if c == "'":
+                j = i + 1
+                buf = []
+                while j < n:
+                    if pattern[j] == "'":
+                        if j + 1 < n and pattern[j + 1] == "'":
+                            buf.append("'"); j += 2; continue
+                        break
+                    buf.append(pattern[j]); j += 1
+                out.append("".join(buf))
+                i = j + 1
+                continue
+            if c in "yMdEaHhKkmt":
+                j = i
+                while j < n and pattern[j] == c:
+                    j += 1
+                w = j - i
+                if c == "y":
+                    ys = f"{zdt.year:0{w}d}"
+                    out.append(ys[-w:] if w < 4 else f"{zdt.year:0{w}d}")
+                elif c == "M":
+                    mo = zdt.month
+                    out.append(str(mo) if w == 1 else (f"{mo:02d}" if w == 2 else (months_abbr[mo-1] if w <= 3 else months_full[mo-1])))
+                elif c == "d":
+                    out.append(str(zdt.day) if w == 1 else f"{zdt.day:02d}")
+                elif c == "E":
+                    # Java E is day-of-week; Monday=0 in Python weekday()
+                    wd = zdt.weekday()
+                    out.append(days_full[wd] if w >= 4 else days_abbr[wd])
+                elif c == "a":
+                    out.append(am if zdt.hour < 12 else pm)
+                elif c == "H":
+                    out.append(str(zdt.hour) if w == 1 else f"{zdt.hour:02d}")
+                elif c == "h":
+                    h = zdt.hour % 12 or 12
+                    out.append(str(h) if w == 1 else f"{h:02d}")
+                elif c == "k":
+                    k = 24 if zdt.hour == 0 else zdt.hour
+                    out.append(str(k) if w == 1 else f"{k:02d}")
+                elif c == "K":
+                    k = zdt.hour % 12
+                    out.append(str(k) if w == 1 else f"{k:02d}")
+                elif c == "m":
+                    out.append(str(zdt.minute) if w == 1 else f"{zdt.minute:02d}")
+                else:
+                    out.append(c * w)
+                i = j
+                continue
+            out.append(c); i += 1
+        return "".join(out)
+
+    @staticmethod
+    def expand(s, env, path="elements[0]"):
+        err, parts = Bindings.parse(s, path)
+        if err or parts is None:
+            return {"text": Bindings.MISSING, "empty": False, "number": None}
+        return Bindings.expand_parts(parts, env)
+
+    @staticmethod
+    def expand_parts(parts, env):
+        if not parts:
+            return {"text": "", "empty": True, "number": None}
+        if len(parts) == 1 and parts[0][0] == "tok":
+            return Bindings._expand_tok(parts[0][1], env)
+        sb, any_ = [], False
+        for kind, val in parts:
+            if kind == "lit":
+                sb.append(val)
+                if val:
+                    any_ = True
+            else:
+                v = Bindings._expand_tok(val, env)
+                if not v["empty"]:
+                    sb.append(v["text"]); any_ = True
+        text = "".join(sb)
+        if not any_ and text == "":
+            return {"text": "", "empty": True, "number": None}
+        return {"text": text, "empty": False, "number": None}
+
+    @staticmethod
+    def _fraction_text(n):
+        s = format(Decimal(str(n)).normalize(), "f")
+        if s == "-0":
+            return "0"
+        return s
+
+    @staticmethod
+    def _expand_tok(tok, env):
+        missing = empty = False
+        number = None
+        text = ""
+        kind = tok["kind"]
+        if kind == "data":
+            s = Bindings.scalar(env.get("data"), tok["path"])
+            if s is None:
+                missing = True
+            elif s[0] == "empty":
+                empty = True
+            elif s[0] == "num":
+                number, text = s[1], s[2]
+            else:
+                text = s[1]
+        elif kind == "fetch":
+            src = (env.get("fetch") or {}).get(tok["source"])
+            s = Bindings.scalar(src, tok["path"])
+            if s is None:
+                missing = True
+            elif s[0] == "empty":
+                empty = True
+            elif s[0] == "num":
+                number, text = s[1], s[2]
+            else:
+                text = s[1]
+        elif kind == "time":
+            text = Bindings.format_instant(env["now"], tok.get("pattern"), env, True)
+        elif kind == "date":
+            text = Bindings.format_instant(env["now"], tok.get("pattern"), env, False)
+        elif kind == "battery":
+            b = env.get("batteryPercent")
+            if b is None:
+                missing = True
+            else:
+                number, text = float(b), str(int(b))
+        elif kind == "batteryFraction":
+            b = env.get("batteryPercent")
+            if b is None:
+                missing = True
+            else:
+                number = max(0, min(100, int(b))) / 100.0
+                text = Bindings._fraction_text(number)
+        elif kind == "batteryState":
+            text = Bindings.battery_state(env)
+            if text == "":
+                empty = True
+        elif kind == "nextAlarm":
+            at = env.get("nextAlarm")
+            if at is None:
+                empty = True
+            else:
+                text = Bindings.format_instant(at, tok.get("pattern"), env, True)
+        elif kind == "relative":
+            raw = Bindings.scalar(env.get("data"), tok["path"])
+            at = Bindings.parse_time(raw[1] if raw and raw[0] == "text" else (raw[2] if raw and raw[0] == "num" else None), env["zone"])
+            if at is None:
+                missing = True
+            else:
+                text = Bindings.relative(Bindings._as_aware(at, env["zone"]), Bindings._as_aware(env["now"], env["zone"]))
+        for f in tok["formatters"]:
+            name, arg = f
+            if missing or empty:
+                if name == "default" and missing:
+                    text = arg
+                    missing = False
+                    empty = text == ""
+                    number = None
+                    break
+                continue
+            if name == "default":
+                continue
+            if name == "round":
+                n = number if number is not None else _to_float(text)
+                if n is None:
+                    missing, text, number = True, "", None
+                else:
+                    text = Bindings.round(n, arg)
+                    number = float(text)
+            elif name == "duration":
+                n = number if number is not None else _to_float(text)
+                if n is None:
+                    missing, text, number = True, "", None
+                else:
+                    text = Bindings.format_duration(round(n))
+                    number = None
+            elif name == "since":
+                at = Bindings.parse_time(text, env["zone"])
+                if at is None:
+                    missing, text, number = True, "", None
+                else:
+                    sec = int((Bindings._as_aware(env["now"], env["zone"]) - Bindings._as_aware(at, env["zone"])).total_seconds())
+                    text = Bindings.format_duration(sec)
+                    number = None
+            elif name == "time":
+                at = Bindings.parse_time(text, env["zone"])
+                if at is None:
+                    missing, text, number = True, "", None
+                else:
+                    text = Bindings.format_instant(at, arg, env, True)
+                    number = None
+        if empty:
+            return {"text": "", "empty": True, "number": None}
+        if missing:
+            return {"text": Bindings.MISSING, "empty": False, "number": None}
+        return {"text": text, "empty": False, "number": number}
+
+
+def _to_float(s):
+    try:
+        return float(s)
+    except (TypeError, ValueError):
+        return None
+
+
+
 class Card:
     """Card.kt (#137 S3-A + #360 RW-1): dashboard card schema, M1 readout keys at FL_CARDS_READOUT."""
     LEVEL, SINGLE = 4, False
@@ -1008,14 +1624,18 @@ class Card:
                 r.keys(m, f"{path}.minSpan", {"w", "h"}, ["w", "h"], x_keys=False)
                 r.int(m, "w", f"{path}.minSpan", 1, 12)
                 r.int(m, "h", f"{path}.minSpan", 1, 12)
-        r.str(o, "title", path, mx=40)
+        s = r.str(o, "title", path, mx=40)
+        if s is not None:
+            Card.binding(r, s, f"{path}.title")
         r.str(o, "author", path, mx=40, mn=1)
         src = r.str(o, "source", path)   # Q-D5: the site taps open silently
         if src is not None and (len(src) > 253 + 8 or not Card._full(Card.HOST, src)):
             r.err("", f"{path}.source must be a lowercase hostname, optionally with http:// or https://.")
         Card.surface(r, o, path)
         r.bool(o, "header", path)
-        r.str(o, "summary", path, mx=Card.MAX_SUMMARY)
+        s = r.str(o, "summary", path, mx=Card.MAX_SUMMARY)
+        if s is not None:
+            Card.binding(r, s, f"{path}.summary")
         if "layers" in o:
             if not isinstance(o["layers"], list):
                 r.err(f"{path}.layers", "must be an array")
@@ -1025,8 +1645,13 @@ class Card:
         if "data" in o:
             d = r.obj(o["data"], f"{path}.data")
             if d is not None:
-                r.keys(d, f"{path}.data", {"staleAfter"}, [], x_keys=False)
+                r.keys(d, f"{path}.data", {"staleAfter", "asOf"}, [], x_keys=False)
                 r.str(d, "staleAfter", f"{path}.data", mx=32, rx=Card.DURATION)
+                asof = r.str(d, "asOf", f"{path}.data", mx=64, mn=1)
+                if asof is not None:
+                    msg = Bindings.check_as_of(asof, f"{path}.data.asOf")
+                    if msg:
+                        r.err("", msg)
         if "layouts" in o:
             ls = r.obj(o["layouts"], f"{path}.layouts")
             if ls is not None:
@@ -1152,6 +1777,10 @@ class Card:
         if not template:
             r.err(path, "must be a file name, not a template")
             return
+        msg = Card.file_token_error(s, path)
+        if msg:
+            r.err("", msg)
+            return
         if not Card.legal_template(s):
             r.err(path, "must be a file name template ending in .png, .jpg, .jpeg or .webp")
 
@@ -1223,7 +1852,9 @@ class Card:
             Card._color(r, o["color"], f"{np}.color")
         has = lambda k: k in fields
         if has("text"):
-            r.str(o, "text", np, mx=Card.MAX_TEXT)
+            s = r.str(o, "text", np, mx=Card.MAX_TEXT)
+            if s is not None:
+                Card.binding(r, s, f"{np}.text")
         if has("role"):
             ro = r.str(o, "role", np)
             if ro is not None and ro not in Card.ROLES:
@@ -1239,7 +1870,9 @@ class Card:
             if fo is not None and fo not in Card.FONT:
                 r.err(f"{np}.font", "must be default or mono")
         if has("label"):
-            r.str(o, "label", np, mx=40)
+            s = r.str(o, "label", np, mx=40)
+            if s is not None:
+                Card.binding(r, s, f"{np}.label")
         if has("icon") and t == "button":
             r.str(o, "icon", np, mx=64)
         if t == "progress":
@@ -1249,7 +1882,9 @@ class Card:
             if "value" in o:
                 v = o["value"]
                 if _is_str(v):
-                    r.str(o, "value", np, mx=Card.MAX_TEXT)
+                    s = r.str(o, "value", np, mx=Card.MAX_TEXT)
+                    if s is not None:
+                        Card.binding(r, s, f"{np}.value")
                 else:
                     try:
                         n = float(v) if isinstance(v, Num) and not isinstance(v, bool) else None
@@ -1273,17 +1908,27 @@ class Card:
             if by is not None and by not in Card.BY:
                 r.err(f"{np}.by", "must be value or position")
         elif has("value"):
-            r.str(o, "value", np, mx=Card.MAX_TEXT)
+            s = r.str(o, "value", np, mx=Card.MAX_TEXT)
+            if s is not None:
+                Card.binding(r, s, f"{np}.value")
         if has("unit"):
-            r.str(o, "unit", np, mx=16)
+            s = r.str(o, "unit", np, mx=16)
+            if s is not None:
+                Card.binding(r, s, f"{np}.unit")
         if has("status"):
-            r.str(o, "status", np, mx=Card.MAX_TEXT)
+            s = r.str(o, "status", np, mx=Card.MAX_TEXT)
+            if s is not None:
+                Card.binding(r, s, f"{np}.status")
         if has("items"):
-            r.str(o, "items", np, mx=Card.MAX_TEXT)
+            s = r.str(o, "items", np, mx=Card.MAX_TEXT)
+            if s is not None:
+                Card.binding(r, s, f"{np}.items")
         if has("maxItems") and "maxItems" in o and o["maxItems"] != "auto":
             r.int(o, "maxItems", np, 1, 20)
         if has("emptyText"):
-            r.str(o, "emptyText", np, mx=80)
+            s = r.str(o, "emptyText", np, mx=80)
+            if s is not None:
+                Card.binding(r, s, f"{np}.emptyText")
         if t == "icon":
             r.str(o, "name", np, mx=64)
             r.str(o, "package", np, rx=PKG)
@@ -1357,10 +2002,38 @@ class Card:
                 p = Card.url_problem(url)
                 if p:
                     r.err(f"{tp}.url", p)
+            else:
+                Card.binding(r, url, f"{tp}.url")
 
     @staticmethod
     def mentions_secret(s):
         return Card.SECRET_REF.search(s) is not None
+
+    @staticmethod
+    def binding(r, s, path):
+        msg = Bindings.check(s, path)
+        if msg:
+            r.err("", msg)
+
+    @staticmethod
+    def file_token_error(s, path):
+        i, n = 0, len(s)
+        while i < n:
+            if s[i] == "{":
+                j = s.find("}", i + 1)
+                if j < 0:
+                    return Bindings.check(s, path)
+                msg = Bindings.check_file_token(s[i + 1:j], path)
+                if msg:
+                    return msg
+                i = j + 1
+            else:
+                i += 1
+        return None
+
+    @staticmethod
+    def bind(s, env, path="elements[0]"):
+        return Bindings.expand(s, env, path)
 
     @staticmethod
     def url_problem(url):
@@ -1379,6 +2052,9 @@ class Card:
     @staticmethod
     def uses_readout_keys(o):
         if "header" in o or "summary" in o or "layers" in o:
+            return True
+        data = o.get("data")
+        if isinstance(data, dict) and "asOf" in data:
             return True
         sf = o.get("surface")
         if isinstance(sf, dict) or (_is_str(sf) and sf != "auto"):
