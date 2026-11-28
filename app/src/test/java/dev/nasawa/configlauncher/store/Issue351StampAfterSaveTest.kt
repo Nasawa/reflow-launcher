@@ -8,6 +8,7 @@ import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
+import java.io.File
 
 /**
  * #351 (Claw, v1.1.0-dev5, A51, 3/200): an agent's `cp` finishing 40-120 ms after the save's read-back was never loaded.
@@ -119,5 +120,8 @@ class Issue351StampAfterSaveTest {
         assertTrue("the next poll loads the agent's file", e.poll())
         assertEquals(listOf("a-agent-55", "a-camera", "a-keep"), ids(e.state.value.config))
         assertEquals(ConfigCodec.sha256(agent.toByteArray()), e.state.value.baseHash)
+        val status = File(to.dir, ".configlauncher/status.json").readText()
+        assertEquals("status.json names the file on disk", ConfigCodec.sha256(agent.toByteArray()),
+            Regex("\"hash\":\"([0-9a-f]+)\"").find(status)!!.groupValues[1])
     }
 }

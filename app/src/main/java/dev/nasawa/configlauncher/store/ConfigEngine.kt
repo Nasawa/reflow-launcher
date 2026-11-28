@@ -277,9 +277,9 @@ class ConfigEngine(
         return try {
             if (adopted != null) {
                 val hash = ConfigCodec.sha256(existing!!)
-                // #351: the target must still answer (a throw rolls back, #174), but that stamp is after our read, so it
-                // could hide a write in between: not kept; the next poll reads and hashes (ours is an echo then).
-                target.stamp(); lastStamp = null
+                // stamp() is only the #174 rollback trigger (a throw rolls the move back). The result is not kept (#351:
+                // a stamp after the read could hide a write in between). lastStamp is already null from the switch above.
+                target.stamp()
                 _state.value = LoadState(adopted, Origin.FILE, target.displayName, hash, reconnectable = target.reconnectable)
                 // #103: a fresh receipt for the adopted file, so status.json isn't left from an earlier install.
                 writeStatus("ok", emptyList(), hash, adopted.revision, Elements.warnings(adopted), adopted)
