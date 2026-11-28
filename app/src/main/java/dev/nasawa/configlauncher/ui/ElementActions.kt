@@ -318,7 +318,8 @@ fun ElementDragTarget(
                 onDragStart = { at ->
                     dragOffset = 0f to 0f; moved = false; cell = 0 to 0
                     startInRoot = originInRoot + at
-                    view.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
+                    Haptics.beginGesture()
+                    Haptics.longPress(view)
                     if (id != null) dragC?.elementStart(id, startInRoot)
                 },
                 onDrag = { ch, d ->
@@ -336,12 +337,13 @@ fun ElementDragTarget(
                     dragOffset = null
                     if (id != null) dragC?.elementEnd(id)
                     when {
-                        t == null -> {}
-                        t == (0 to 0) && page == p.page -> if (!moved) long()
-                        can(page, p.x + t.first, p.y + t.second) -> drop(page, p.x + t.first, p.y + t.second)
+                        t == null -> Haptics.beginGesture()
+                        t == (0 to 0) && page == p.page -> if (!moved) long() else Haptics.beginGesture()
+                        can(page, p.x + t.first, p.y + t.second) -> { drop(page, p.x + t.first, p.y + t.second); Haptics.beginGesture() }
+                        else -> Haptics.beginGesture()
                     }
                 },
-                onDragCancel = { dragOffset = null; if (id != null) dragC?.elementEnd(id) },
+                onDragCancel = { dragOffset = null; if (id != null) dragC?.elementEnd(id); Haptics.beginGesture() },
             )
         })
     // The outline: here while the drop would land on this page; on the page shown otherwise (#344).
