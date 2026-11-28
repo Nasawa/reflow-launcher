@@ -77,6 +77,8 @@ object Card : Elements.ElementType {
     const val MAX_SEGMENTS = 20
     const val MIN_TICKS = 10
     const val MAX_TICKS = 120
+    const val MIN_LINES = 1
+    const val MAX_LINES = 6
     const val MIN_WIDTH = 0.1
     const val MAX_WIDTH = 1.5
     const val MAX_OFFSET = 0.25
@@ -264,7 +266,8 @@ object Card : Elements.ElementType {
         val has = { k: String -> k in fields }
         if (has("text")) c.str(o, "text", np, max = MAX_TEXT)?.let { binding(it, "$np.text", c) }
         if (has("role")) c.str(o, "role", np)?.let { if (it !in ROLES) c.err("$np.role", "must be caption, body, title or display") }
-        if (has("maxLines")) c.int(o, "maxLines", np, 1, 6)
+        // Range 1–6 is a load warning (clamped), not an error.
+        if (has("maxLines")) c.int(o, "maxLines", np, Long.MIN_VALUE)
         if (has("align")) c.str(o, "align", np)?.let { if (it !in ALIGN) c.err("$np.align", "must be start, center or end") }
         if (has("font")) c.str(o, "font", np)?.let { if (it !in FONT) c.err("$np.font", "must be default or mono") }
         if (has("label")) c.str(o, "label", np, max = 40)?.let { binding(it, "$np.label", c) }
@@ -490,6 +493,13 @@ object Card : Elements.ElementType {
         fun walkNodes(e: JsonElement, np: String) {
             val n = e as? JsonObject ?: return
             val type = (n["type"] as? JsonPrimitive)?.content
+            n["maxLines"]?.let { mv ->
+                val k = (mv as? JsonPrimitive)?.takeIf { !it.isString }?.content?.toLongOrNull()
+                if (k != null && (k < MIN_LINES || k > MAX_LINES)) {
+                    val setTo = k.coerceIn(MIN_LINES.toLong(), MAX_LINES.toLong())
+                    out += "$np.maxLines: $k is outside $MIN_LINES to $MAX_LINES, so it was set to $setTo. Use a value in that range."
+                }
+            }
             if (type == "progress") {
                 val style = (n["style"] as? JsonPrimitive)?.content
                 n["count"]?.let { cv ->

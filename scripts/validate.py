@@ -1574,6 +1574,7 @@ class Card:
     MAX_CHILDREN, MAX_DEPTH, MAX_NODES, MAX_TEXT, MAX_URL = 12, 4, 48, 200, 2048
     MAX_SUMMARY, MAX_LAYERS, MAX_FILE, MAX_THRESHOLDS, MAX_SEGMENTS = 120, 4, 80, 5, 20
     MIN_TICKS, MAX_TICKS, MIN_WIDTH, MAX_WIDTH, MAX_OFFSET, ABOVE_OPACITY = 10, 120, 0.1, 1.5, 0.25, 0.6
+    MIN_LINES, MAX_LINES = 1, 6
 
     @staticmethod
     def unknown_capability(o):
@@ -1889,7 +1890,8 @@ class Card:
             if ro is not None and ro not in Card.ROLES:
                 r.err(f"{np}.role", "must be caption, body, title or display")
         if has("maxLines"):
-            r.int(o, "maxLines", np, 1, 6)
+            # Range 1–6 is a load warning (clamped), not an error.
+            r.int(o, "maxLines", np, -(1 << 63))
         if has("align"):
             al = r.str(o, "align", np)
             if al is not None and al not in Card.ALIGN:
@@ -2190,6 +2192,13 @@ class Card:
         def walk(n, np):
             if not isinstance(n, dict):
                 return
+            if "maxLines" in n:
+                cv = n["maxLines"]
+                if isinstance(cv, Num) and cv.is_int():
+                    k = int(cv)
+                    if k < Card.MIN_LINES or k > Card.MAX_LINES:
+                        set_to = min(max(k, Card.MIN_LINES), Card.MAX_LINES)
+                        out.append(f"{np}.maxLines: {k} is outside {Card.MIN_LINES} to {Card.MAX_LINES}, so it was set to {set_to}. Use a value in that range.")
             if n.get("type") == "progress":
                 style = n.get("style")
                 if "count" in n:

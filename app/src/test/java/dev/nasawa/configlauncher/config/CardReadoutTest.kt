@@ -157,6 +157,17 @@ class CardReadoutTest {
         assertEquals(listOf("""elements[0].layouts.1x1[0].count is ignored unless style is "ticks", so the tick count isn't used. Set style to "ticks" to use count, or drop count."""), warnings(countIgnored))
     }
 
+    @Test fun maxLinesOutOfRangeIsAWarning() {
+        val high = doc(card(layouts = """{"2x2":[{"type":"text","text":"a"},{"type":"text","text":"b","maxLines":9}]}"""))
+        assertEquals(listOf("elements[0].layouts.2x2[1].maxLines: 9 is outside 1 to 6, so it was set to 6. Use a value in that range."), warnings(high))
+        val low = doc(card(layouts = """{"2x2":[{"type":"text","text":"a"},{"type":"text","text":"b","maxLines":0}]}"""))
+        assertEquals(listOf("elements[0].layouts.2x2[1].maxLines: 0 is outside 1 to 6, so it was set to 1. Use a value in that range."), warnings(low))
+        val below = doc(card(layouts = """{"2x2":[{"type":"text","text":"a"},{"type":"text","text":"b","maxLines":-2}]}"""))
+        assertEquals(listOf("elements[0].layouts.2x2[1].maxLines: -2 is outside 1 to 6, so it was set to 1. Use a value in that range."), warnings(below))
+        assertTrue(warnings(doc(card(layouts = """{"1x1":[{"type":"text","text":"a","maxLines":1}]}"""))).none { "maxLines" in it })
+        assertTrue(warnings(doc(card(layouts = """{"1x1":[{"type":"text","text":"a","maxLines":6}]}"""))).none { "maxLines" in it })
+    }
+
     @Test fun missingFileWarningsAreExact() {
         val o = Json.parseToJsonElement(card(extra = ""","layers":[{"kind":"picture","src":"sticker.webp","default":"sticker-idle.webp","scrim":"none"},{"kind":"content"}]""")).jsonObject
         assertEquals(

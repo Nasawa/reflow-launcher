@@ -402,6 +402,36 @@ class CardReadout(unittest.TestCase):
         self.assertEqual([], errs)
         self.assertEqual(["elements[0].layers[1].opacity is above 0.6 on a layer above content, so it's shown at 0.6 to keep text readable. Use 0.6 or less, or move the layer under the content."], V.warnings(tree))
 
+    def test_max_lines_warning_sentences(self):
+        card = {"id": "w-1", "type": "card", "requires": 6, "page": "home", "x": 0, "y": 1, "w": 2, "h": 2,
+                "layouts": {"2x2": [{"type": "text", "text": "a"}, {"type": "text", "text": "b", "maxLines": 9}]}}
+        tree, errs = V.validate(self._raw(card), use_schema=False)
+        self.assertEqual([], errs)
+        self.assertEqual(
+            ["elements[0].layouts.2x2[1].maxLines: 9 is outside 1 to 6, so it was set to 6. Use a value in that range."],
+            V.warnings(tree),
+        )
+        card["layouts"] = {"2x2": [{"type": "text", "text": "a"}, {"type": "text", "text": "b", "maxLines": 0}]}
+        tree, errs = V.validate(self._raw(card), use_schema=False)
+        self.assertEqual([], errs)
+        self.assertEqual(
+            ["elements[0].layouts.2x2[1].maxLines: 0 is outside 1 to 6, so it was set to 1. Use a value in that range."],
+            V.warnings(tree),
+        )
+        card["layouts"] = {"2x2": [{"type": "text", "text": "a"}, {"type": "text", "text": "b", "maxLines": -2}]}
+        tree, errs = V.validate(self._raw(card), use_schema=False)
+        self.assertEqual([], errs)
+        self.assertEqual(
+            ["elements[0].layouts.2x2[1].maxLines: -2 is outside 1 to 6, so it was set to 1. Use a value in that range."],
+            V.warnings(tree),
+        )
+        for n in (1, 6):
+            card["layouts"] = {"1x1": [{"type": "text", "text": "a", "maxLines": n}]}
+            tree, errs = V.validate(self._raw(card), use_schema=False)
+            self.assertEqual([], errs)
+            self.assertTrue(all("maxLines" not in w for w in V.warnings(tree)), V.warnings(tree))
+
+
     def test_default_scrim_uses_real_index(self):
         card = {"id": "w-1", "type": "card", "requires": 6, "page": "home", "x": 0, "y": 1, "w": 2, "h": 2,
                 "layers": [{"kind": "picture", "src": "photo.webp"}, {"kind": "content"}],

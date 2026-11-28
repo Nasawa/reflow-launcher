@@ -1984,7 +1984,7 @@ glyph for warn ▲ and error ■.
 
 | Primitive | Shows | Overflow | Empty / stale / error | TalkBack |
 |---|---|---|---|---|
-| `text` | Template text (title-bar grammar + `{data:…}`), `role` caption/body/title/`display`, optional `align` (`start`/`center`/`end`), `font` (`default`/`mono`), `status` (dot), `color`, `maxLines` 1–4 | Ellipsize at the end | Binding missing → `—`. Empty string → not drawn (the row disappears if nothing is left) | As written |
+| `text` | Template text (title-bar grammar + `{data:…}`), `role` caption/body/title/`display`, optional `align` (`start`/`center`/`end`), `font` (`default`/`mono`), `status` (dot), `color`, `maxLines` 1–6 | Ellipsize at the end | Binding missing → `—`. Empty string → not drawn (the row disappears if nothing is left) | As written |
 | `metric` | Label (caption), value (metric tier), optional unit, status, `thresholds` (colours the status dot) and `color`, like `Site A · up` | Label ellipsizes first, value never truncates. Too narrow → the unit is dropped, then the label | Binding missing → `—`. Empty string → not drawn | `Site A, up` |
 | `list` | Rows from a data array: leading dot/icon, primary text, trailing caption (`down`). `maxItems` or `auto` (as many as fit) | `auto` shows what fits plus `+2 more` | Empty → `emptyText` (default `Nothing to show`) | `Unhealthy monitors, list, 1 item. Label Printer, down` |
 | `icon` | Material symbol or app icon, `icon`/`icon.l` | Dropped by priority | — | Its `label`, or skipped if decorative |
