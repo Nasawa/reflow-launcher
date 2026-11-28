@@ -1445,7 +1445,7 @@ with cell reservation → `appWidget` host → first-party `text`/`clock`.
 ### 16.2 Placeholders and copy (Q-W2)
 A placeholder fills the element's cells: rounded 12 dp frame, white 12 % fill, the provider's app icon (48 dp) centred,
 label below (12 sp, one line), then a one-line reason (11 sp, secondary). Tap runs the next step for that state;
-long-press opens the item sheet (`Edit layout`, `Remove from home`, and `App info` when the package is installed).
+long-press opens the item sheet (§16.7.3): `Edit layout`, `Resize`, `Reconfigure` (when reconfigurable), `App info` (when the package is installed), `Remove from home`.
 TalkBack: `<Label>, widget, <reason>`.
 
 | State | Reason (exact) | Tap |
@@ -1492,6 +1492,7 @@ or the user has dismissed this explanation for that package.
   background (Launcher3's rule); a widget that rounds its own `@android:id/background` keeps its shape.
 - **TalkBack:** custom action `Resize…` opens a sheet with Width and Height steppers (current, min, max shown as
   `Width, 2 of 4`), `Done` writes once. Also `Move to…` (existing) and `Remove from home`.
+- **Home long-press `Resize` (polish-audit item 12).** The home (non-edit) item sheet offers `Resize` (`menu_resize`, no ellipsis) for `appWidget` (live or any §16.2 placeholder) and for `card` (live or a consent tile). It does not appear for apps, folders or shortcuts, nor for `text` / `clock` or the title bar. It is separate from the TalkBack custom action `Resize…`, which opens the stepper sheet above. Tapping `Resize` enters normal edit mode (§4.1) with that item already selected and its resize handles showing, and reuses the handle and cell-snap path in this section. You leave it the usual §4.1 ways: `Done`, Back, Home, or 30 s idle. When TalkBack is on, the menu's `Resize` opens that same stepper sheet instead of the handles, because the handles aren't usable by touch exploration. There is no extra haptic beyond the menu-open tick.
 
 ### 16.5 Out-of-range size cue (Q-W5)
 Warning only is not enough on the home screen. **Also a visual cue:** a 2 dp amber outline around the live widget (or
@@ -1587,12 +1588,14 @@ These rules apply to every **grid-placed** element (`page`, `x`, `y`, `w`, `h`):
 #### 16.7.3 Which elements offer each action
 | Element | Long-press sheet | TalkBack custom actions |
 |---|---|---|
-| `card`, live | `Permissions`, `Edit layout`, `Remove from home` | `Permissions`, `Resize…`, `Move to…`, `Remove from home` (§17.7) |
-| `card`, consent tile (any §17.3 state, incl. `Turned off` and `Update Reflow Launcher to show this`) | `Review`, `Edit layout`, `Remove from home` | `Review`, `Move to…`, `Remove from home` (§17.7) |
-| `appWidget`, live or any §16.2 placeholder | `Edit layout`, `Reconfigure` (when reconfigurable), `App info` (when installed), `Remove from home` | `Resize…`, `Move to…`, `Remove from home` (§16.4) |
+| `card`, live | `Permissions`, `Resize`, `Edit layout`, `Remove from home` | `Permissions`, `Resize…`, `Move to…`, `Remove from home` (§17.7) |
+| `card`, consent tile (any §17.3 state, incl. `Turned off` and `Update Reflow Launcher to show this`) | `Review`, `Resize`, `Edit layout`, `Remove from home` | `Review`, `Resize…`, `Move to…`, `Remove from home` (§17.7) |
+| `appWidget`, live or any §16.2 placeholder | `Edit layout`, `Resize`, `Reconfigure` (when reconfigurable), `App info` (when installed), `Remove from home` | `Resize…`, `Move to…`, `Remove from home` (§16.4) |
 | `text` / `clock` (Stage 4) | `Edit layout`, `Remove from home` | `Resize…`, `Move to…`, `Remove from home` |
 | `titleBar` | None (anchored, not on the grid) | None |
 | `enabled: false`, or a grid element whose `type` this version skips | None (nothing is drawn; cells stay reserved) | None |
+
+`Resize` (`menu_resize`, no ellipsis) sits right after the item's first action: after `Permissions` on a live `card`, after `Review` on a consent tile, and after `Edit layout` on an `appWidget`. It is not offered on apps, folders, shortcuts, `text` / `clock`, or the title bar. When TalkBack is on, that menu item opens the same stepper sheet as the `Resize…` custom action (§16.4).
 
 The title bar is turned off with `Show title bar` (§15.2), which writes `enabled: false` and never deletes it. A
 disabled or skipped grid element is changed in the file only. The phone never removes what it can't show.
@@ -1610,6 +1613,7 @@ Strings (new; `%1$s` placeholders as in §17.13):
 | `move_element_taken` | `Couldn't move "%1$s": that space is taken.` | 1 = name | Snackbar; target taken at write time |
 | `move_element_no_room` | `No room` | — | Reason on a disabled page in the picker, and on a disabled `Move to…` |
 | `move_element_no_room_any` | `No room on any page.` | — | Announced when the disabled `Move to…` is activated |
+| `menu_resize` | `Resize` | — | Home item-sheet action for `appWidget` and `card` (§16.4, §16.7.3). No ellipsis |
 
 The `Undo` button is the existing one; its window is the one above (10 s or longer).
 
@@ -1776,8 +1780,8 @@ skipped element):
 - Unknown kind: `elements[4]: capability kind "phone.calendar" isn't supported by this Reflow Launcher, so the widget was skipped. It stays in the file. Update the app, or check the kind for a typo.`
 (`warn_capability_kind`, §17.13.)
 
-Long-press: the item sheet with the title, `Widget · from launcher.json`, then `Review`, `Edit layout`,
-`Remove from home`. TalkBack: `<Title>, widget, needs your OK. Double-tap to review.`
+Long-press: the item sheet with the title, `Widget · from launcher.json`, then `Review`, `Resize`, `Edit layout`,
+`Remove from home` (§16.7.3). TalkBack: `<Title>, widget, needs your OK. Double-tap to review.`
 
 ### 17.4 The badge, the notice and the review list
 **Count:** the number of widgets in `Needs your OK` or `Needs your OK again` (not `Turned off`; that was the user's choice).
@@ -1906,7 +1910,7 @@ Widget detail (from the review list, or item sheet → `Review` / `Permissions`)
   links `Open settings` for that.
 
 ### 17.7 Accessibility (adds to §12)
-- **Consent tile:** one node: `<Title>, widget, needs your OK. Double-tap to review.` Custom actions `Review`, `Move to…`,
+- **Consent tile:** one node: `<Title>, widget, needs your OK. Double-tap to review.` Custom actions `Review`, `Resize…` (§16.4), `Move to…`,
   `Remove from home`.
 - **Live widget:** the root node reads `<Title>, widget` followed by its children in reading order. Each primitive has a
   spoken form (§17.9). Custom actions: `Permissions`, `Resize…` (§16.4),
