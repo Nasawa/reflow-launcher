@@ -11,7 +11,7 @@ import org.junit.rules.TemporaryFolder
 import java.io.File
 
 /**
- * #351 (v1.1.0-dev5, A51, 3/200): an agent's `cp` finishing 40-120 ms after the save's read-back was never loaded.
+ * #351 (in device runs): an agent's `cp` finishing 40-120 ms after the save's read-back was never loaded.
  * The save took launcher.json's stamp (docId, modified, size) only after the read-back, the temp delete and the sweep,
  * so that stamp was already the agent's file; every later poll saw "no change" and skipped the read. Screen and
  * status.json kept our save over the agent's file. Real [ConfigEngine] and [SafWrites] on a fake tree; the agent's

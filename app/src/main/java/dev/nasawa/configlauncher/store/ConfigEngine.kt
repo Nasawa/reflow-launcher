@@ -700,8 +700,8 @@ class ConfigEngine(
         unsaved = null // written: whatever failed before is saved now
         // #339: saved, but over the start of another writer's file: theirs is lost, so status.json says so.
         overlap = if (source.lastWriteOverlapped()) overlapWarning(StatusJson.iso(clock())) else null
-        // #351 (dev5, 3/200): never a stamp taken after the read-back. The temp delete and sweep run between the two
-        // (40-120 ms on the A51), so an agent's `cp` finishing there was in that stamp: every poll then saw "no change"
+        // #351 (in device runs): never a stamp taken after the read-back. The temp delete and sweep run between the two
+        // (40-120 ms on a test phone), so an agent's `cp` finishing there was in that stamp: every poll then saw "no change"
         // and skipped the read, the screen and status.json kept our save over the agent's file until a hash-anyway poll.
         // No stamp: the next poll reads and hashes (ours is an echo then, with a stamp taken before that read).
         lastStamp = null

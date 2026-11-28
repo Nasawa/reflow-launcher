@@ -36,11 +36,11 @@ class WidgetDataTest {
     }
 
     @Test fun lookupAndText() {
-        val r = root("""{"monitors":{"summary":"Monitors","n":3,"ok":true,"none":null},"unhealthy":[{"name":"nas"}],"empty":""}""")
+        val r = root("""{"monitors":{"summary":"Monitors","n":3,"ok":true,"none":null},"unhealthy":[{"name":"host"}],"empty":""}""")
         assertEquals("Monitors", WidgetData.text(r, "monitors.summary"))
         assertEquals("3", WidgetData.text(r, "monitors.n"))
         assertEquals("true", WidgetData.text(r, "monitors.ok"))
-        assertEquals("nas", WidgetData.text(r, "unhealthy[0].name"))
+        assertEquals("host", WidgetData.text(r, "unhealthy[0].name"))
         for (p in listOf("monitors.none", "monitors", "unhealthy[1].name", "nope.x", "empty", "a..b", "unhealthy[x]")) assertEquals(p, "—", WidgetData.text(r, p))
         assertEquals("—", WidgetData.text(null, "a"))
         assertTrue(WidgetData.lookup(r, "unhealthy") is JsonArray)
