@@ -1497,6 +1497,12 @@
               "type": "string",
               "maxLength": 32,
               "pattern": "^P(?=[0-9]|T[0-9])([0-9]+D)?(T(?=[0-9])([0-9]+H)?([0-9]+M)?([0-9]+S)?)?$"
+            },
+            "asOf": {
+              "description": "Path of an ISO-8601 timestamp used for as-of / {relative}. A leading data. is accepted. Default is the data file's root updatedAt, else the time a fetch finished.",
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
             }
           },
           "additionalProperties": false

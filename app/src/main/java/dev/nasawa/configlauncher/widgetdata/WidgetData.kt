@@ -86,7 +86,7 @@ object WidgetData {
 
     const val EMPTY = "—"
 
-    /** A bound value as text: strings and numbers as written, `true`/`false`; anything missing, null or structured is `—`. */
+    /** A bound value as text for older callers: strings and numbers as written, `true`/`false`; a missing, null, structured, or empty value is `—`. New card bindings use [dev.nasawa.configlauncher.config.Bindings.scalar], which keeps an empty string distinct (not drawn, §4.3). */
     fun text(root: JsonObject?, path: String): String = when (val v = lookup(root, path)) {
         is JsonPrimitive -> if (v.isString) v.content.ifEmpty { EMPTY } else if (v.content == "null") EMPTY else v.content
         else -> EMPTY

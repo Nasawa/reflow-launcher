@@ -142,7 +142,7 @@ Base sp, then × `k` capped at 1.25, with the system font scale on top, under th
 | `time[:pattern]` | ISO-8601 timestamp → local time or date, with the title-bar pattern allow-list |
 | `default:text` | the text when the path is missing or null |
 
-These cover `state` strings, boot timestamps and `last_updated` without a language. `since` and `time` are the first to cut if cost bites. Existing `{relative}` (`5 min ago`) stays.
+These cover `state` strings, boot timestamps and `last_updated` without a language. `since` and `time` are the first to cut if cost bites. Existing `{relative}` (`5 minutes ago` / `1 minute ago`, and the same wording with hours, days, and `from now`) stays. `just now` is unchanged.
 - **Ambient tokens**, no consent and no permission, because they read no private data and URLs are literals so they can't leave the phone (§9). This is a product ruling: ux.md §17.1 today lists battery and next-alarm under Phone data that prompts; when Pragma updates that section, these tokens move out of the prompt list (§14). A card that uses only these tokens plus Show-tier kinds (`data.file`, `ui.reload`, `ui.openDrawer`) goes live with no prompt.
 
 | Token | Value |

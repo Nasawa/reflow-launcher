@@ -4,7 +4,7 @@ import kotlinx.serialization.json.*
 import org.junit.Assert.*
 import org.junit.Test
 
-/** #360 RW-1: M1 readout keys at FL_CARDS_READOUT. Drawing, loading and evaluation are later issues. */
+/** #360 RW-1 / #361 RW-4: M1 readout keys, binding grammar, and data.asOf. */
 class CardReadoutTest {
     private fun doc(card: String) =
         """{"schemaVersion":1,"grid":{"columns":4,"rows":12},"pages":[{"id":"home","items":[{"id":"a","type":"app","package":"p.a","x":0,"y":0}]}],"elements":[$card]}"""
@@ -157,6 +157,17 @@ class CardReadoutTest {
         assertEquals(listOf("""elements[0].layouts.1x1[0].count is ignored unless style is "ticks", so the tick count isn't used. Set style to "ticks" to use count, or drop count."""), warnings(countIgnored))
     }
 
+    @Test fun maxLinesOutOfRangeIsAWarning() {
+        val high = doc(card(layouts = """{"2x2":[{"type":"text","text":"a"},{"type":"text","text":"b","maxLines":9}]}"""))
+        assertEquals(listOf("elements[0].layouts.2x2[1].maxLines: 9 is outside 1 to 6, so it was set to 6. Use a value in that range."), warnings(high))
+        val low = doc(card(layouts = """{"2x2":[{"type":"text","text":"a"},{"type":"text","text":"b","maxLines":0}]}"""))
+        assertEquals(listOf("elements[0].layouts.2x2[1].maxLines: 0 is outside 1 to 6, so it was set to 1. Use a value in that range."), warnings(low))
+        val below = doc(card(layouts = """{"2x2":[{"type":"text","text":"a"},{"type":"text","text":"b","maxLines":-2}]}"""))
+        assertEquals(listOf("elements[0].layouts.2x2[1].maxLines: -2 is outside 1 to 6, so it was set to 1. Use a value in that range."), warnings(below))
+        assertTrue(warnings(doc(card(layouts = """{"1x1":[{"type":"text","text":"a","maxLines":1}]}"""))).none { "maxLines" in it })
+        assertTrue(warnings(doc(card(layouts = """{"1x1":[{"type":"text","text":"a","maxLines":6}]}"""))).none { "maxLines" in it })
+    }
+
     @Test fun missingFileWarningsAreExact() {
         val o = Json.parseToJsonElement(card(extra = ""","layers":[{"kind":"picture","src":"sticker.webp","default":"sticker-idle.webp","scrim":"none"},{"kind":"content"}]""")).jsonObject
         assertEquals(
@@ -196,5 +207,30 @@ class CardReadoutTest {
         ok(doc(card(layouts = """{"1x1":[{"type":"text","role":"display","align":"center","font":"mono","status":"ok","text":"Hi","color":"onSurface"}]}""")))
         ok(doc(card(layouts = """{"1x1":[{"type":"button","label":"Go","icon":"refresh","tap":{"kind":"ui.reload"}}]}""", extra = ""","capabilities":[{"kind":"ui.reload"}]""")))
         ok(doc(card(layouts = """{"1x1":[{"type":"progress","value":79,"max":100,"segments":10}]}""")))
+    }
+
+
+    @Test fun asOfIsAReadoutKeyAndMustBeAPath() {
+        val errs = errors(doc(card(extra = ""","data":{"asOf":"bad path!"}""")))
+        assertTrue(errs.toString(), errs.any { it.startsWith("elements[0].data.asOf: \"bad path!\" isn't a data path") })
+        val needs = errors(doc(card(extra = ""","data":{"asOf":"last_updated"}""", requires = 4)))
+        assertTrue(needs.toString(), needs.contains("elements[0].requires: a card that uses readout keys needs feature level 6 or higher"))
+        ok(doc(card(extra = ""","data":{"asOf":"last_updated","staleAfter":"PT15M"}""")))
+    }
+
+    @Test fun bindingErrorsUseThePathPrefix() {
+        val errs = errors(doc(card(layouts = """{"1x1":[{"type":"text","text":"{foo}"}]}""")))
+        assertTrue(errs.toString(), errs.any { it.startsWith("elements[0].layouts.1x1[0].text: unknown token {foo}") })
+    }
+
+    @Test fun bindUsesInjectedEnv() {
+        val env = Bindings.Env(
+            now = java.time.Instant.parse("2026-11-28T16:38:00Z"),
+            zone = java.time.ZoneId.of("America/Denver"),
+            locale = java.util.Locale.US,
+            is24Hour = true,
+            data = kotlinx.serialization.json.Json.parseToJsonElement("""{"ctx":79.43}""").jsonObject,
+        )
+        assertEquals("79", Card.bind("{data:ctx|round}", env).text)
     }
 }

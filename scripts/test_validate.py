@@ -402,6 +402,36 @@ class CardReadout(unittest.TestCase):
         self.assertEqual([], errs)
         self.assertEqual(["elements[0].layers[1].opacity is above 0.6 on a layer above content, so it's shown at 0.6 to keep text readable. Use 0.6 or less, or move the layer under the content."], V.warnings(tree))
 
+    def test_max_lines_warning_sentences(self):
+        card = {"id": "w-1", "type": "card", "requires": 6, "page": "home", "x": 0, "y": 1, "w": 2, "h": 2,
+                "layouts": {"2x2": [{"type": "text", "text": "a"}, {"type": "text", "text": "b", "maxLines": 9}]}}
+        tree, errs = V.validate(self._raw(card), use_schema=False)
+        self.assertEqual([], errs)
+        self.assertEqual(
+            ["elements[0].layouts.2x2[1].maxLines: 9 is outside 1 to 6, so it was set to 6. Use a value in that range."],
+            V.warnings(tree),
+        )
+        card["layouts"] = {"2x2": [{"type": "text", "text": "a"}, {"type": "text", "text": "b", "maxLines": 0}]}
+        tree, errs = V.validate(self._raw(card), use_schema=False)
+        self.assertEqual([], errs)
+        self.assertEqual(
+            ["elements[0].layouts.2x2[1].maxLines: 0 is outside 1 to 6, so it was set to 1. Use a value in that range."],
+            V.warnings(tree),
+        )
+        card["layouts"] = {"2x2": [{"type": "text", "text": "a"}, {"type": "text", "text": "b", "maxLines": -2}]}
+        tree, errs = V.validate(self._raw(card), use_schema=False)
+        self.assertEqual([], errs)
+        self.assertEqual(
+            ["elements[0].layouts.2x2[1].maxLines: -2 is outside 1 to 6, so it was set to 1. Use a value in that range."],
+            V.warnings(tree),
+        )
+        for n in (1, 6):
+            card["layouts"] = {"1x1": [{"type": "text", "text": "a", "maxLines": n}]}
+            tree, errs = V.validate(self._raw(card), use_schema=False)
+            self.assertEqual([], errs)
+            self.assertTrue(all("maxLines" not in w for w in V.warnings(tree)), V.warnings(tree))
+
+
     def test_default_scrim_uses_real_index(self):
         card = {"id": "w-1", "type": "card", "requires": 6, "page": "home", "x": 0, "y": 1, "w": 2, "h": 2,
                 "layers": [{"kind": "picture", "src": "photo.webp"}, {"kind": "content"}],
@@ -465,6 +495,169 @@ class CardReadout(unittest.TestCase):
             'elements[0].layers[0].default: "sticker-idle.webp" isn\'t in this card\'s pictures folder, so the default picture was skipped.',
         ], ws)
 
+class Formatters(unittest.TestCase):
+    """#361 RW-4: Bindings and Thresholds match the Kotlin strings."""
+
+    def setUp(self):
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        self.zone = ZoneInfo("America/Denver")
+        self.now = datetime.fromisoformat("2026-11-28T16:38:00+00:00")
+        self.env = {
+            "now": self.now,
+            "zone": self.zone,
+            "locale": "en_US",
+            "is24Hour": False,
+            "data": {
+                "ctx": V.Num("79.43"),
+                "started_at": "2026-11-28T07:35:00-07:00",
+                "state": "idle",
+                "updatedAt": "2026-11-28T09:33:00-07:00",
+                "blank": "",
+            },
+            "fetch": {},
+            "batteryPercent": 80,
+            "charging": False,
+            "full": False,
+            "nextAlarm": datetime.fromisoformat("2026-11-28T18:00:00+00:00"),
+        }
+
+    def text(self, s, env=None):
+        return V.Bindings.expand(s, env or self.env)["text"]
+
+    def value(self, s, env=None):
+        return V.Bindings.expand(s, env or self.env)
+
+    def test_round_default_n_is_zero(self):
+        self.assertEqual("79", self.text("{data:ctx|round}"))
+        self.assertEqual("79.4", self.text("{data:ctx|round:1}"))
+        self.assertEqual("—", self.text("{data:missing|round}"))
+
+    def test_two_formatters_left_to_right(self):
+        self.assertEqual("79", self.text("{data:ctx|round:1|round}"))
+        self.assertEqual("1m 19s", self.text("{data:ctx|round|duration}"))
+
+    def test_since_and_duration(self):
+        self.assertEqual("9h 3m", V.Bindings.format_duration(9 * 3600 + 3 * 60))
+        self.assertEqual("2h 3m", self.text("{data:started_at|since}"))
+
+    def test_missing_versus_empty_versus_default(self):
+        missing = self.value("{data:missing}")
+        self.assertEqual("—", missing["text"])
+        self.assertFalse(missing["empty"])
+        self.assertEqual("offline", self.value("{data:missing|default:offline}")["text"])
+        empty = self.value("{data:blank}")
+        self.assertEqual("", empty["text"])
+        self.assertTrue(empty["empty"])
+        empty_def = self.value("{data:blank|default:offline}")
+        self.assertTrue(empty_def["empty"])
+
+    def test_battery_and_relative(self):
+        self.assertEqual("80", self.text("{battery}"))
+        self.assertEqual("0.8", self.text("{batteryFraction}"))
+        self.assertEqual("5 minutes ago", self.text("{relative}"))
+        env = dict(self.env)
+        env["data"] = dict(self.env["data"])
+        env["data"]["updatedAt"] = "2026-11-28T09:37:30-07:00"
+        self.assertEqual("just now", self.text("{relative}", env))
+        env["data"]["updatedAt"] = "2026-11-28T09:37:00-07:00"
+        self.assertEqual("1 minute ago", self.text("{relative}", env))
+        env["data"]["updatedAt"] = "2026-11-28T08:38:00-07:00"
+        self.assertEqual("1 hour ago", self.text("{relative}", env))
+        env["data"]["updatedAt"] = "2026-11-27T09:38:00-07:00"
+        self.assertEqual("1 day ago", self.text("{relative}", env))
+        env["data"]["updatedAt"] = "2026-11-28T09:39:00-07:00"
+        self.assertEqual("1 minute from now", self.text("{relative}", env))
+
+    def test_time_12_and_24(self):
+        self.assertEqual("9:38 AM", self.text("{time}"))
+        env = dict(self.env, is24Hour=True)
+        self.assertEqual("9:38", self.text("{time}", env))
+        self.assertEqual("09:38", self.text("{time:HH:mm}", env))
+
+    def test_threshold_74_75_76(self):
+        entries = [(0, "accent"), (75, "warn"), (90, "error")]
+        self.assertEqual("accent", V.Thresholds.tone(74, entries))
+        self.assertEqual("warn", V.Thresholds.tone(75, entries))
+        self.assertEqual("warn", V.Thresholds.tone(76, entries))
+        self.assertEqual("accent", V.Thresholds.tick_tone(74, 100, entries))
+        self.assertEqual("warn", V.Thresholds.tick_tone(75, 100, entries))
+        self.assertEqual("warn", V.Thresholds.tick_tone(76, 100, entries))
+
+    def test_load_errors_and_as_of(self):
+        card = {"id": "w-1", "type": "card", "requires": 6, "page": "home", "x": 0, "y": 1, "w": 2, "h": 2,
+                "layouts": {"1x1": [{"type": "text", "text": "{foo}"}]}}
+        doc = {"schemaVersion": 1, "grid": {"columns": 4, "rows": 12},
+               "pages": [{"id": "home", "items": []}], "elements": [card]}
+        _, errs = V.validate(json.dumps(doc).encode(), use_schema=False)
+        self.assertTrue(any(e.startswith("elements[0].layouts.1x1[0].text: unknown token {foo}") for e in errs), errs)
+        card2 = dict(card)
+        card2["layouts"] = {"1x1": [{"type": "text", "text": "hi"}]}
+        card2["data"] = {"asOf": "bad path!"}
+        _, errs = V.validate(json.dumps({**doc, "elements": [card2]}).encode(), use_schema=False)
+        self.assertTrue(any(e.startswith('elements[0].data.asOf: "bad path!" isn\'t a data path') for e in errs), errs)
+
+
+        self.assertEqual(
+            "elements[0].text: the number after round in {data:ctx|round:11} isn't a whole number from 0 to 10, so the last working layout is shown. Write {…|round} or {…|round:1}.",
+            V.Bindings.check("{data:ctx|round:11}", "elements[0].text"),
+        )
+        self.assertEqual(
+            "elements[0].text: {relative:bad path!} isn't a data path, so the last working layout is shown. Write {relative} or {relative:updatedAt}.",
+            V.Bindings.check("{relative:bad path!}", "elements[0].text"),
+        )
+        self.assertEqual(
+            "elements[0].text: {battery:foo} doesn't take a path, so the last working layout is shown. Write {battery}.",
+            V.Bindings.check("{battery:foo}", "elements[0].text"),
+        )
+        self.assertEqual(
+            'elements[0].layers[0].src: "{time}" isn\'t allowed in a picture file name, so the last working layout is shown. Use {data:…} or {fetch:…}.',
+            V.Bindings.check_file_token("time", "elements[0].layers[0].src"),
+        )
+        self.assertEqual(
+            "elements[0].layers[0].src: {data:state|round} has a formatter, so the last working layout is shown. Use a bare {data:…} or {fetch:…} in a picture file name.",
+            V.Bindings.check_file_token("data:state|round", "elements[0].layers[0].src"),
+        )
+
+    def test_as_of_is_a_readout_key(self):
+        card = {"id": "w-1", "type": "card", "requires": 4, "page": "home", "x": 0, "y": 1, "w": 2, "h": 2,
+                "data": {"asOf": "last_updated"},
+                "layouts": {"1x1": [{"type": "text", "text": "hi"}]}}
+        doc = {"schemaVersion": 1, "grid": {"columns": 4, "rows": 12},
+               "pages": [{"id": "home", "items": []}], "elements": [card]}
+        _, errs = V.validate(json.dumps(doc).encode(), use_schema=False)
+        self.assertIn("elements[0].requires: a card that uses readout keys needs feature level 6 or higher", errs)
+
+    def test_non_finite_round_is_missing(self):
+        env = dict(self.env)
+        env["data"] = dict(self.env["data"])
+        env["data"]["nan"] = "NaN"
+        env["data"]["inf"] = "Infinity"
+        env["data"]["ninf"] = "-Infinity"
+        self.assertEqual("—", self.text("{data:nan|round}", env))
+        self.assertEqual("—", self.text("{data:inf|round}", env))
+        self.assertEqual("—", self.text("{data:ninf|round}", env))
+        self.assertEqual("—", self.text("{data:nan|duration}", env))
+
+    def test_round_arg_must_be_strict_digits(self):
+        def msg(tok):
+            return (
+                f"elements[0].text: the number after round in {tok} isn't a whole number from 0 to 10, "
+                "so the last working layout is shown. Write {…|round} or {…|round:1}."
+            )
+        self.assertEqual(msg("{data:ctx|round:01}"), V.Bindings.check("{data:ctx|round:01}", "elements[0].text"))
+        self.assertEqual(msg("{data:ctx|round:+1}"), V.Bindings.check("{data:ctx|round:+1}", "elements[0].text"))
+        self.assertEqual(msg("{data:ctx|round:-1}"), V.Bindings.check("{data:ctx|round:-1}", "elements[0].text"))
+        self.assertEqual(msg("{data:ctx|round:00}"), V.Bindings.check("{data:ctx|round:00}", "elements[0].text"))
+        self.assertIsNone(V.Bindings.check("{data:ctx|round:0}", "elements[0].text"))
+        self.assertIsNone(V.Bindings.check("{data:ctx|round:10}", "elements[0].text"))
+        self.assertIsNone(V.Bindings.check("{data:ctx|round}", "elements[0].text"))
+
+    def test_default_date_follows_locale_medium(self):
+        # Title-bar grammar: DateTimeFormatter.ofLocalizedDate(MEDIUM). US stays MMM d, yyyy.
+        self.assertEqual("Nov 28, 2026", self.text("{date}"))
+        env = dict(self.env, locale="de_DE")
+        self.assertEqual("28.11.2026", self.text("{date}", env))
 
 
 if __name__ == "__main__":
