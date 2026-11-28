@@ -2,7 +2,7 @@
 
 **Status:** proposal, revised 2026-11-27 with the product answers, the UX rulings, and the later review folded in as decided (§13). Author: Archimedes. **Docs only.** It creates no issues and changes no code.
 **Baseline:** main `86b9ab2` (1.1.0 dev builds; feature level 5).
-**Pairs with:** Pragma's [polish-audit.md](polish-audit.md) on this same branch and PR (her 17-item ranked audit and her 4 open questions).
+**Pairs with:** Pragma's [polish-audit.md](polish-audit.md) (her 18-item ranked audit and her 4 open questions, now answered in §13). Item 12 is the widget `Resize` action.
 **Worked examples are in §8:** a file-fed status card, and a file-fed usage card with a decorative sticker and tick bars, which can later be backed by Home Assistant. The examples may be revised.
 
 **The goal:** an agent should be able to declare a readout in the JSON schema and upload it to the phone, without a special companion app. A generic clock or battery set is secondary.
@@ -95,7 +95,7 @@
 | card | `layers` | Optional ordered array, back to front, at most 4. Kinds `picture` and `content`. A picture has `src`, optional `default`, `fit` (`cover`\|`contain`\|`fixed`), `width` (with `fixed`), `align`, `offset`, `opacity`, `overflow`, and `scrim` (`"auto"`\|`"none"`\|`{color, opacity}`). §4.4 |
 | card | `header` | `false` hides the title row when the §4.5 rule allows it. Default `true`. Decided; see §4.5 |
 | card | `summary` | Optional template (≤120 chars) that TalkBack reads as **one sentence**. Default: the nodes in order. Adopts Pragma's "one sentence per widget" |
-| `text` | `role: "display"`, `align`, `font`, `status` | `display` is the large tier (sizes for Pragma, §10). `align` is `start`\|`center`\|`end`. `font` is `default`\|`mono` (the system monospace, nothing else). `status` puts a dot before the text. ux §17.9 already says every primitive takes `status`, and `Card.kt` only allows it on `metric`, so this aligns code with ux |
+| `text` | `role: "display"`, `align`, `font`, `status` | `display` is the large typographic tier (22 / 28 / 36, tall 44; floor 18; ux §17.8). `align` is `start`\|`center`\|`end`. `font` is `default`\|`mono` (the system monospace, nothing else). `status` puts a dot before the text. ux §17.9 already says every primitive takes `status`, and `Card.kt` only allows it on `metric`, so this aligns code with ux |
 | `progress` | `max`, `segments`, `style`, `count`, `thresholds`, `by` | `max` (default 1) lets `value` be `79` with `max: 100`. `segments` is 2–20 (the cap is 20). `style: "ticks"` draws thin ticks with optional `count` 10–120 (§4.2). `thresholds` and `by`: §4.2 |
 | `metric` | `thresholds` | Colours the status dot from the numeric `value` |
 | `button` | `icon` | Material symbol name. ux §17.9 already has it, and `Card.kt` doesn't |
@@ -103,7 +103,13 @@
 | any node | `color` | Text, icon and fill colour (the title-bar colour grammar). The `status` tones stay the fixed ones in ux §17.8, and **red is never text** (ux §17.8) |
 | text/metric | empty = not drawn | A text or metric that resolves to an empty string is not drawn. A row with nothing left disappears. This is what makes conditional parts (§1.3) cost nothing |
 
-All sizes follow the existing cell-relative rule (`k`, ux §17.8). The `display` tier's sp values are for Pragma to set (§9).
+All sizes follow the existing cell-relative rule (`k`, ux §17.8). The `display` tier sits one step above `metric`, for a clock or a large status word:
+
+| Role | Compact | Regular | Wide | Floor |
+|---|---|---|---|---|
+| `display` | 22 | 28 | 36 (tall: 44) | 18 |
+
+Base sp, then × `k` capped at 1.25, with the system font scale on top, under the same caps as the other tiers (never above 2× base, never below the floor). TalkBack reads display text as written.
 
 ### 4.2 Thresholds (replaces formulas and Jinja)
 
@@ -164,7 +170,8 @@ A card may have `layers[]`, ordered **back to front**. The kinds are **`picture`
 - **`align`:** one of nine anchors, `topStart` `top` `topEnd` `start` `center` `end` `bottomStart` `bottom` `bottomEnd` (start/end mirror in RTL), default `center`.
 - **`offset`:** `{ "x": <frac>, "y": <frac> }`, each from **−0.25 to 0.25** of the card size. Default `{0, 0}`. **+x** is toward the end (mirrors in RTL); **+y** is toward the bottom of the card (my call: a positive `y` with `align: "bottom"` is how a sticker peeks out below). Values outside the range are set to the near end, with a warning. The sentence is the same at both ends, and `width` uses it too: `elements[N].layers[I].offset.x: 0.4 is outside -0.25 to 0.25, so it was set to 0.25. Use a value in that range.` or `elements[N].layers[I].width: 2 is outside 0.1 to 1.5, so it was set to 1.5. Use a value in that range.`
 - **`opacity`:** 0 to 1, default 1.
-- **`overflow`:** if `true`, the picture may draw up to **25% of the card's size past any edge**. The part outside the card is **decorative and does not take taps**. It is **clipped to the page bounds** and **never enters the system-bar insets**. It draws **beneath neighbouring cards and elements**, so it never covers their content or chrome. Taps on that outside area fall through to whatever is under the decoration (a neighbour, or the home). Without `overflow`, the layer is **clipped to the card's rounded shape**. Overflow past 25% is clipped to 25%, even if `width` and `offset` would go further.
+- **`overflow`:** if `true`, the picture may draw up to **25% past any edge**: 25% of the card's width past the start or end edge, and 25% of the card's height past the top or bottom edge. The part outside the card is **decorative**: it does not take taps, long-presses or TalkBack focus. Hit-testing uses the card's rounded shape, not the overflow ink. A press on overflow over a neighbour goes to that neighbour; over empty space it goes to the home (the empty-cell long-press menu, or a tap on the wallpaper). It draws **beneath neighbouring cards and elements**, so it never covers their content or chrome.
+- Overflow is **clipped to the home grid (the pager)**. It also **never paints into the dock, the rail, the banner, the title bar, the page label, the page indicator, or the system-bar insets**, and it is clipped at the screen edge. During a page swipe it stays clipped to the moving page, and never paints onto the incoming page, the dock or the rail. Overflow past 25% is clipped to 25%, even if `width` and `offset` would go further. Without `overflow`, the layer is **clipped to the card's rounded shape**.
 - No free x/y/z beyond `align` + `offset`, no size beyond `fit` / `width`, no animation.
 
 `src` is a **file name** or a **filename template**. `default` is an optional literal file name on the layer, used when the resolved `src` is invalid or missing:
@@ -312,6 +319,14 @@ A link that passes the checks is opened **only** as `Intent(Intent.ACTION_VIEW, 
 ```
 - **Fingerprint:** `net.fetch` lines are the **canonical** origin (as designed), and each secret is a line `secret ha @ <canonical origin>`. A new secret name, or a new origin, is a broadening → `needsApproval` / `needsApprovalAgain`. The ceiling never shrinks (Q-A9), as today.
 - **Value:** typed (or pasted) on the phone in the approval sheet for that line, or imported once (§6.6). It is stored **device-local, wrapped by an `AndroidKeyStore` AES-GCM key**, in `filesDir/secrets/`. The entry field is a password-type field, masked after the last character, and the sheet uses `FLAG_SECURE`. Re-entering a value for the same `(name, origin)` **overwrites the stored value atomically** (temp + rename, like `ConsentStore`) and clears a `rejected` flag.
+- **Entry copy (Pragma).** On the Allow sheet, under the capability lines, one block per listed secret:
+  ```
+  This widget needs the secret "ha" for https://ha.example.com.
+  The value stays on this phone. It isn't written to your layout file.
+  [ Value for "ha" ]
+  ```
+  Field TalkBack: `Value for ha, password field, hidden`. Filling the fields and tapping `Allow` is the usual path. If a field is left empty, `Allow` still approves the origin, and the widget waits for the secret as in the missing-secret state. `Keep off` does not store values. Rotating the phone drops a half-typed value, which is acceptable (§10).
+- **Re-enter sheet** (missing or rejected; also from long-press). Title: `Enter "ha"`. Line under it: `For https://ha.example.com, used by "Example Co".` Missing body: `"Example Co" needs this secret on this phone before it can update.` Rejected body: `https://ha.example.com rejected "ha". Enter a new value to try again.` Buttons: `Save` · `Not now`. TalkBack: title `Enter ha, for https://ha.example.com`; field as above; buttons `Save, button` and `Not now, button`. Focus starts on the field.
 - **Scope:** keyed by `(name, <canonical origin>)`, not by element id (C3). The same `ha` entered once serves every approved widget for that canonical origin. Each widget still needs its own approval of that origin and that secret name. A widget for another origin gets *another* `ha`, which needs its own entry, so one origin can never receive another origin's secret. The HTTP client attaches it only when the request's canonical origin equals the stored origin, and only as the matching `auth` entry declares (`Authorization: Bearer …`, a named header, or a named query param added at request time). It is never stored in `url`.
 - **Fetch snapshot:** the last-good response body lives in app-private **`filesDir/cards/`**, never in the synced config folder. `status.json` reports only the display state and a warning sentence, **never the body**, because the body could contain secret-derived data.
 - **Backup exclusions:** add **`secrets/`** and **`cards/`** to **both** exclusions in `data_extraction_rules.xml` (the same pattern as `consent/` and `widgets/`; `allowBackup="false"` already covers older Android).
@@ -356,7 +371,17 @@ A typical Home Assistant setup uses https with a publicly trusted certificate on
 - **Two guards.** (1) `network-security-config` permits cleartext (`cleartextTrafficPermitted="true"` in the base config), because that file can't express IP ranges. (2) **The app-level allowlist is the real guard.** It is applied to the **connected address** on every request. The single per-card HTTP client is the only networking code; there is no WebView. Well-known cloud-metadata addresses `169.254.169.254` and `fd00:ec2::254` are **always refused**, for both **http and https**, even though link-local is otherwise allowed for LAN http (my call). IPv4-mapped and NAT64 forms of those addresses are refused the same way, including `::ffff:169.254.169.254` and `64:ff9b::a9fe:a9fe`.
 - **A public address over http is refused**, and the source never fetches. At load, a literal public IP or a well-known public host can warn early: `elements[N].data.sources[0]: "http://example.com" is a public address, so http isn't allowed there. Use https, or a host on your own network.` At connect time, a name that resolves to a public address uses: `elements[N].data.sources[0]: "http://ha.lan" resolved to a public address, so http isn't allowed there. Use https, or a host on your own network.`
 - An `http://` origin still needs the existing **named approval** and the "less secure" disclosure (dynamic-widgets §3, Q-C7). That is not a private-IP denial.
-- **A source that attaches a secret over http** shows a **one-time, device-local acknowledgement**, per `(secret name, origin)`: `This sends ha unencrypted on your network.` with `Send unencrypted` and `Cancel`. It is never synced, and **Forget secret** also forgets it. Until it is given there is **no fetch**: `elements[N]: widget "agent" is waiting for your OK to send ha unencrypted on your network.`
+- **A source that attaches a secret over http** shows a **one-time, device-local acknowledgement**, per `(secret name, origin)`. It is never synced, and **Forget secret** also forgets it. Until it is given there is **no fetch**: `elements[N]: widget "agent" is waiting for your OK to send ha unencrypted on your network.`
+  Sheet copy (Pragma):
+  ```
+  Send "ha" unencrypted?
+  "Example Co" wants to send the secret "ha" to http://ha.example.com.
+  The connection isn't private. Others on your network could see or change
+  it. Only allow this if you trust this network. You're choosing a less
+  secure connection.
+              [Cancel]   [Send unencrypted]
+  ```
+  `Cancel` is the initial focus (same as the link confirm sheet). TalkBack reads the title, then the body, then `Cancel, button`, then `Send unencrypted, button`.
 - **No proxy.** Fetches always connect **directly**, with `Proxy.NO_PROXY`, and **ignore** the system proxy and any Wi-Fi proxy. The LAN check therefore sees the real peer, not a proxy on the LAN in front of a public site. A **proxy-only network is not supported in M2**. When a direct connection fails for any reason (a proxy-only network, or the host simply being down), the fetch counts as unreachable: named warning `warn_fetch_unreachable`, user text `Can't reach <origin>. Reflow connects directly and doesn't use network proxies.` (for example `Can't reach https://ha.example.com. Reflow connects directly and doesn't use network proxies.`). Last-good data is kept; the stale marker appears once `staleAfter` passes; the normal backoff applies (×2, ×4, ×8, then hold at ×8, or `PT1H` at most, as in §7). It **never** falls back to the proxy.
 
 **Redirects (every hop, RW-8).** Follow at most **3** hops. Re-run the transport check on **every** hop: the scheme, and for http the LAN rule on the **resolved and connected** address (including mapped and NAT64 forms). An **`https`→`http` hop is always refused**. A hop whose origin is not in the card's approved `origins` is refused. Header and query secrets are re-attached **only** when the hop is the same canonical origin; they are dropped on any other hop (and `Referer` is still never sent). A redirect loop, or a 4th hop, is a failed fetch. Each of these failures has a named warning:
@@ -367,9 +392,29 @@ A typical Home Assistant setup uses https with a publicly trusted certificate on
 
 **(c) Self-signed https (RW-11, optional; does not block M2).**
 - Planned, and free to land after RW-8 and RW-9. Until it lands, a self-signed origin is a **TLS failure**: last-good data is shown stale, and the certificate is never accepted silently.
-- When it lands: a certificate the system doesn't trust makes the fetch fail with `needsPin`. The user is shown the certificate's **SHA-256 fingerprint on the phone** and must confirm it matches their server: `Trust this certificate for https://ha.lan:8123? SHA-256: 3A:9F:… Check it matches your server before you tap Trust.`
-- On Trust, the launcher **pins that fingerprint for the canonical origin** (device-local, never synced). Later connections must present that certificate.
-- **If the certificate changes, re-prompt.** Fetching stops, last-good shows stale, and `elements[N]: the certificate for https://ha.lan:8123 changed since you trusted it, so the widget "agent" stopped fetching. Open it to check the new fingerprint.` It is never accepted silently.
+- When it lands: a certificate the system doesn't trust makes the fetch fail with `needsPin`. The user is shown the certificate's **SHA-256 fingerprint on the phone** and must confirm it matches their server. Sheet copy (Pragma):
+  ```
+  Trust this certificate?
+  https://ha.example.com:8123 uses a certificate Android doesn't trust.
+  Check that this fingerprint matches your server before you trust it.
+  SHA-256
+  3A:9F:12:4B:…
+           [Don't trust]   [Trust certificate]
+  ```
+  The fingerprint is shown in grouped monospace and may be copied (it is not a secret). `Don't trust` is the initial focus. It leaves the widget off (the certificate is not pinned, and the widget does not fetch). TalkBack: `Trust this certificate for https://ha.example.com:8123? SHA-256: [read in pairs]. Check it matches your server before you tap Trust certificate.`
+- On `Trust certificate`, the launcher **pins that fingerprint for the canonical origin** (device-local, never synced). Later connections must present that certificate.
+- **If the certificate changes, re-prompt.** Fetching stops, last-good shows stale, and `elements[N]: the certificate for https://ha.example.com:8123 changed since you trusted it, so the widget "agent" stopped fetching. Open it to check the new fingerprint.` It is never accepted silently. Sheet copy (Pragma):
+  ```
+  Certificate changed for https://ha.example.com:8123
+  The certificate no longer matches the one you trusted. This can be
+  normal, like a renewed certificate, or someone could be intercepting
+  the connection. Check that this new fingerprint matches your server
+  before you trust it.
+  SHA-256
+  3A:9F:12:4B:…
+           [Don't trust]   [Trust new certificate]
+  ```
+  `Don't trust` is the initial focus. It leaves the widget off (the old pin is kept, the origin stays paused, and the prompt can be reopened from the detail page). TalkBack reads the title, then the body, then the new fingerprint in pairs, then the buttons.
 - Any approved origin can be pinned this way (my call), since the user confirms the fingerprint by hand. The pin follows the same `(canonical origin)` rule as secrets.
 
 ### 6.6 Optional one-shot `secrets.import.json`
@@ -382,7 +427,21 @@ An agent managing the phone's setup shouldn't have to leave tokens in a permanen
 - **Where:** `secrets.import.json` in the config folder root, next to `launcher.json`. At most 16 entries and 4 KiB. `name` follows the secret-name rule, `origin` is canonicalized (§5).
 - **When it is looked for:** on load, on `RELOAD`, and when home resumes (not on the 2 s poll).
 - **Never a live source.** It is not part of `launcher.json`, never logged, and never mentioned in `status.json` except by the warnings below. It is not treated as consumed until the file has been **successfully deleted**.
-- **The phone prompts first.** A sheet lists the **names and origins, never the values**, and marks an entry that would replace a stored one. Buttons: `Import and delete file`, `Delete file without importing`, `Not now`. (Pragma writes the final copy.)
+- **The phone prompts first.** A sheet lists the **names and origins, never the values**, and marks an entry that would replace a stored one. Until the person picks an option, the importer never parses, logs or displays secret values; it reads only the names and origins it needs for the sheet. After `Not now`, the file stays untouched until the next load. Sheet copy (Pragma):
+  ```
+  Import secrets?
+  A file in your config folder wants to add these secrets to this phone.
+  The values stay on the phone, and the file will be deleted.
+   · ha · https://ha.example.com
+   · status · https://status.example.com
+     Already on this phone. Importing will replace it.
+   · usage · https://usage.example.com
+     Already on this phone for https://metrics.example.com. Importing will
+     replace it and use it for https://usage.example.com.
+  If this folder is synced, a copy of the file may still exist elsewhere.
+  [Not now]  [Delete file without importing]  [Import and delete file]
+  ```
+  `Import and delete file` is primary. `Already on this phone. Importing will replace it.` is only for a row whose name and origin both match a stored secret. A row whose name matches but whose origin changes gets the rebind line, with the old origin first and the new origin second. TalkBack: title `Import secrets?`; a new row `ha, https://ha.example.com`; a same-origin replace `status, https://status.example.com, already on this phone, will be replaced`; a rebind row is read as written, `Already on this phone for https://metrics.example.com. Importing will replace it and use it for https://usage.example.com.`; then the footnote; buttons named as written, each `button`.
 - **On OK:** parse the file **in memory**, with **no plaintext temp file** in the config folder or in cache. Write each secret to the encrypted store as an **idempotent overwrite** by `(name, origin)`, and **only then** delete the import file. The file **stays until that delete succeeds**.
 - **An interrupted import is not consumed.** If the process dies after writing some or all values and before the delete, or mid-delete, the file is still there. The prompt comes back on the next load, and re-importing is safe (the same `(name, origin)` overwrites atomically).
 - **If the delete fails, keep the loud warning, and the prompt comes back** (a top notice until the file is gone, plus `warn_secret_import_left`): `secrets.import.json is still in your config folder and holds secret values. Delete it now. If this folder is synced or in git, change those secrets.` An unreadable file: `secrets.import.json can't be read, so nothing was imported. Delete it, because it may still hold secret values.`
@@ -589,7 +648,7 @@ The priority is §8. The first-party set is therefore **recipes: ready-made card
 
 ## 11. What is explicitly cut
 
-Formulas, expressions, `$if()$`, Jinja, flows, globals, komponents, scripts of any kind; absolute layout; remote pictures, SVG, GIF; the inline `image` node; a separate `scrim` layer kind; the `{bind, map, default}` picture form; `${secret:NAME}` placeholders; free x/y/z beyond `align` + `offset`; picture animation; overflow past 25% or over neighbouring cards or into system-bar insets; more than 4 layers per card; WebView, HTML, JS; any HA client, entity picker or WebSocket; `/api/states`, POST fetches, request bodies, cookies, denied header names (`Host`, `Cookie`, …); secrets in the URL; secrets in a permanent synced file; background wakeups, jobs, alarms, services, push, real-time sockets; built-in weather fetch, provider choice and location permission; media (notification listener); calendar permission (for now); analog or other clock styles; per-widget theme galleries and a phone-side style editor; per-widget secrets (shared by name and origin instead); widget stacks and pop-ups; RSS and news; text/clock/battery as element types.
+Formulas, expressions, `$if()$`, Jinja, flows, globals, komponents, scripts of any kind; absolute layout; remote pictures, SVG, GIF; the inline `image` node; a separate `scrim` layer kind; the `{bind, map, default}` picture form; `${secret:NAME}` placeholders; free x/y/z beyond `align` + `offset`; picture animation; overflow past 25% or over neighbouring cards, the dock, the rail, or into system-bar insets; more than 4 layers per card; WebView, HTML, JS; any HA client, entity picker or WebSocket; `/api/states`, POST fetches, request bodies, cookies, denied header names (`Host`, `Cookie`, …); secrets in the URL; secrets in a permanent synced file; background wakeups, jobs, alarms, services, push, real-time sockets; built-in weather fetch, provider choice and location permission; media (notification listener); calendar permission (for now); analog or other clock styles; per-widget theme galleries and a phone-side style editor; per-widget secrets (shared by name and origin instead); widget stacks and pop-ups; RSS and news; text/clock/battery as element types.
 
 ## 12. Proposed issue breakdown (build order)
 
@@ -629,7 +688,7 @@ A card using any new key and `requires` below `FL_CARDS_READOUT` is an error. A 
 
 **RW-10. Consent UX for `net.fetch` and secrets (extends #142).** Prompt lines, the private-origin note, the `http://` acknowledgement (`This sends ha unencrypted on your network.`), **Forget secret**, **re-enter** after `rejected`. *Acceptance:* a broadened line prompts only for the new lines, and the approved secret *name* (never the value) appears in the fingerprint. The acknowledgement is per `(secret name, origin)`, device-local, and cleared by **Forget secret**. 401/403 marks the secret `rejected`, stops fetching, keeps last-good stale, offers re-enter on long-press, and does not auto-delete. After **Forget secret** (token removed): `warn_secret_missing`, last-good stale, no further fetches until a value is entered. *Grace:* Compose tests. **R:** one end-to-end approval on a phone, plus a 401 and a Forget-secret check.
 
-**RW-11. TOFU pin for self-signed HTTPS (optional; does not block M2).** §6.5(c): `needsPin` on an untrusted certificate, the on-phone SHA-256 fingerprint prompt, pin per canonical origin (device-local, never synced), re-prompt when the certificate changes, never a silent accept. It depends on RW-8 and can land after RW-8 and RW-9. Until it lands, the failure mode is the TLS one in RW-8, and M2 is still complete for hosts with a public certificate. *Acceptance:* an untrusted certificate stops the fetch with last-good shown stale until Trust; Trust pins the fingerprint, and a later connection with the same certificate works; a different certificate stops fetching and shows `elements[N]: the certificate for https://ha.lan:8123 changed since you trusted it, so the widget "agent" stopped fetching. Open it to check the new fingerprint.`; **Forget** removes the pin. A pin on `https://ha.example:8123` does not apply to a different scheme or port (`http://ha.example:8123` and `https://ha.example:443` are unpinned). *Grace:* JVM with a self-signed MockWebServer; emulator. **R:** a self-signed LAN server on a phone.
+**RW-11. TOFU pin for self-signed HTTPS (optional; does not block M2).** §6.5(c): `needsPin` on an untrusted certificate, the on-phone SHA-256 fingerprint prompt, pin per canonical origin (device-local, never synced), re-prompt when the certificate changes, never a silent accept. It depends on RW-8 and can land after RW-8 and RW-9. Until it lands, the failure mode is the TLS one in RW-8, and M2 is still complete for hosts with a public certificate. *Acceptance:* an untrusted certificate stops the fetch with last-good shown stale until `Trust certificate`; `Trust certificate` pins the fingerprint, and a later connection with the same certificate works; a different certificate stops fetching and shows `elements[N]: the certificate for https://ha.lan:8123 changed since you trusted it, so the widget "agent" stopped fetching. Open it to check the new fingerprint.`; **Forget** removes the pin. A pin on `https://ha.example:8123` does not apply to a different scheme or port (`http://ha.example:8123` and `https://ha.example:443` are unpinned). *Grace:* JVM with a self-signed MockWebServer; emulator. **R:** a self-signed LAN server on a phone.
 
 **RW-12. QA pass on the signed release APK.** The matrix: reboot; update over a FEATURE_LEVEL 5 APK (a card at `FL_CARDS_READOUT` or `FL_FETCH` is skipped and its cells are kept); file mode and fetch mode; offline; a rotated and a folded screen; token removed (`warn_secret_missing`, last-good stale, no further fetches); TalkBack; the §7 battery budget and no background wakeups. Known gaps listed in the release notes. *Grace:* emulator profiles on debug builds, on the current CI smoke spread (API 29, 35, 36) and any other profiles she already runs. API 31 is not in current CI smoke and is not required here. *Grace does not install release-key-signed APKs on the box.* **R:** the signed APK and hands-on spot checks on a phone and a tablet.
 
@@ -637,7 +696,7 @@ A card using any new key and `requires` below `FL_CARDS_READOUT` is an error. A 
 
 ## 13. Open product questions, and what is decided (2026-11-27)
 
-**Nothing is open on the product questions.** Q1 to Q5 and the UX questions on #353 are answered. The later review and the sticker-layer notes are folded in below as decided. (The UX audit file, [polish-audit.md](polish-audit.md), is untouched. The answers to its questions are recorded here instead.)
+**Nothing is open on the product questions.** Q1 to Q5 and the UX questions on #353 are answered. The later review and the sticker-layer notes are folded in below as decided. (The answers to the UX audit questions in [polish-audit.md](polish-audit.md) are recorded here. That file now also has item 12, the widget `Resize` action.)
 
 **Product answers**
 1. **Two steps, files first: yes.** M1 (files) ships first, then M2 (live data). §0, §12.
@@ -668,9 +727,15 @@ Moves to Settings:
 - Config folder, Choose folder, Show config location, and Use phone storage (now with a confirm, per audit item 3)
 - Ask before merging
 - Include hidden apps in apps.json
+- Include work apps in config
+- Hidden apps
+- Grid
+- Restore previous layout
+- Widget permissions (also reachable from `Review cards · N` in the menu)
 - Agent instructions (AGENTS.md)
 - Version (under About)
 - Dynamic colour (in Settings only, under Appearance)
+- The two menu toggles are mirrored here with the same state: Label backdrop (Appearance) and Open keyboard with drawer (Home & drawer)
 
 Settings sections: **Appearance, Home & drawer, Storage, Agents & widgets, About.**
 
@@ -679,7 +744,7 @@ Settings sections: **Appearance, Home & drawer, Storage, Agents & widgets, About
 **the later review, decided (2026-11-27).** These replace earlier wording where they conflict.
 
 1. **Transport.** The private-network check is http-only. Normal https with a public certificate is allowed on any resolved IP, including `10.x` and `100.64/10`. For http, the check is on the resolved address (private, link-local, loopback, CGNAT `100.64/10`) at connect time. RW-11 is optional and does not block M2. No "private IP denied" warning for https.
-2. **Layers, simplified, then the sticker controls.** A picture is an ordinary `picture` node. The scrim is a property on it, not a layer kind. `src` is a filename template, with optional `default`. Then the per-layer controls: `fit` including `fixed` + `width` 0.1–1.5, `align`, `offset` ±0.25, `opacity`. `overflow: true` draws up to 25% past any edge, decorative, no taps, clipped to the page, never into system-bar insets, **beneath neighbouring cards**. Without overflow, clip to the card's rounded shape. `scrim` is `"auto"` / `"none"` / object. Chrome (title row and stale ▲) always draws above all layers; a layer above content stays capped at 60% opacity.
+2. **Layers, simplified, then the sticker controls.** A picture is an ordinary `picture` node. The scrim is a property on it, not a layer kind. `src` is a filename template, with optional `default`. Then the per-layer controls: `fit` including `fixed` + `width` 0.1–1.5, `align`, `offset` ±0.25, `opacity`. `overflow: true` draws up to 25% past any edge (25% of width or height, as appropriate), decorative, no taps or long-presses, clipped to the home grid, and never into the dock, rail, banner, title bar, page label, page indicator or system-bar insets, **beneath neighbouring cards**. Without overflow, clip to the card's rounded shape. `scrim` is `"auto"` / `"none"` / object. Chrome (title row and stale ▲) always draws above all layers; a layer above content stays capped at 60% opacity.
 3. **Secret placement.** `auth: [{secret, as: bearer|header|query, name?}]`. Each secret stays bound to one origin. A query param is added only when declared, redacted everywhere on the never-reach list, never stored in `url`. Load error if that query name is already in the url, or if the header is `Host`, `Content-Length`, `Cookie`, `Cookie2`, or another reserved hop-by-hop name. A header or query name set more than once (case-insensitively, including `as: "bearer"` plus a raw `Authorization` header) skips only that source. The HA recipe is `as: "bearer"` with secret `ha`. This meets the idea of variables injected into URLs and headers. RW-7b stays.
 4. **Agent docs.** Recommend a separate non-admin HA user for the phone's long-lived token, with the one-line how-to in RW-6.
 5. **Data-chosen links.** `{data:blog.url}` in `ui.openUrl` is allowed. Q-D5 applies to the resolved URL at tap time. Silent only when the host matches `source`; otherwise confirm every tap, with Always allow. A file-only card with no `source` confirms every templated link unless Always allow is already ticked. Validate at tap: https or http, no userinfo, must parse; on failure use `warn_tap_scheme` / `warn_tap_userinfo` / `warn_tap_host`. A link template can't reference a secret. Links are not limited to the `source` origin, because file-only cards have no `source` and the per-tap confirm already covers other hosts.
@@ -701,12 +766,12 @@ Settings sections: **Appearance, Home & drawer, Storage, Agents & widgets, About
 
 Defaults applied without asking: weather and calendar come from agent files or URL sources, not built-in fetchers. No media widget. Digital clocks only. No phone-side style editor.
 
-**Still pending, owned by Pragma:** the `display` tier's sp values (§4.3, RW-2), and the final copy of the secret entry, http acknowledgement, fingerprint and import prompts.
+**Pragma, 2026-11-28:** the `display` tier's sp values are in §4.1 and ux.md §17.8; the secret entry, http acknowledgement, fingerprint and import prompt copy is in §6.1, §6.5 and §6.6, with string ids in ux.md §17.13. Overflow clip and hit-testing rules are tightened in §4.4.
 
 ## 14. Follow-ups outside this PR
 
 - [dynamic-widgets.md](dynamic-widgets.md) carries an "amended" note and the wording fixes in this PR (levels, secret retention, `auth` placement, and the https/http private-address rule). A fuller rewrite of its §3, §4, §8 and §9 to match §3's table here can wait until the design ships.
-- ux.md §17.9 (the header sentence) and §17.8 rule 6 (pointer to layers) are updated in this PR. Still for Pragma: §16.1 (first-party group), §16.6, §16.7.3 (`text`/`clock` rows), the `display` tier in §17.8, the Settings screen and menu rule of §13, and **§17.1** (ambient `{battery}` / `{nextAlarm[:p]}` tokens are not Phone-data prompts).
+- ux.md §17.9 (the header sentence) and §17.8 rule 6 (pointer to layers) are updated in this PR. The `display` tier is now in §17.8 (Pragma, 2026-11-28). Still for Pragma: §16.1 (first-party group), §16.6, §16.7.3 (`text`/`clock` rows), folding the Settings screen and menu rule of this doc's §13 into ux.md §8 / §13, and **§17.1** (ambient `{battery}` / `{nextAlarm[:p]}` tokens are not Phone-data prompts).
 - [native-widgets.md](native-widgets.md) §2.1 now uses the merge-order wording of C9.
 - [layout-overrides.md](layout-overrides.md) and ARCHITECTURE.md §19 use `FL_WINDOW_OVERRIDES`, `FL_CARDS_READOUT` and `FL_FETCH`, with no reserved 6 or 7.
 - research/widgets.md §5.5 points here, and the old `text`/`clock` sketch is marked historical.
