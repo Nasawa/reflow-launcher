@@ -37,8 +37,9 @@ import org.robolectric.annotation.Config
 /**
  * SD-3: opening the long-press menu or sheet buzzes once (`HapticFeedbackConstants.LONG_PRESS` through the view).
  * One buzz per gesture: if pickup already buzzed, the sheet does not add a second. A moved long-press that
- * does not open the menu (#327) keeps only the pickup buzz.
- */
+ * does not open the menu (#327) keeps only the pickup buzz. After a pickup that ends without a menu (drop,
+ * refused drop, moved back, cancel), or after a still-press whose menu consumed the mark, a later menu must buzz.
+*/
 @RunWith(AndroidJUnit4::class)
 @Config(sdk = [35], qualifiers = "w411dp-h891dp-xhdpi")
 class MenuHapticTest {
@@ -163,16 +164,107 @@ class MenuHapticTest {
         assertEquals("recomposition of an already-open sheet does not buzz again", 1, buzzes.size)
     }
 
-    private fun showElementTarget(onLong: () -> Unit, sheet: @androidx.compose.runtime.Composable () -> Unit) {
+
+    // ---- later menu after each way a pickup can end (Grace, #356 should-fix) ----
+
+    @Test fun afterASuccessfulDropALaterMenuBuzzes() {
+        val open = mutableStateOf(false)
+        showElementTarget { if (open.value) WidgetItemSheet("Weather", live = true, onAction = {}, onDismiss = {}) }
+        rule.onNodeWithTag("area").performTouchInput {
+            val start = Offset(150f * density, 150f * density)
+            down(start); advanceEventTime(viewConfiguration.longPressTimeoutMillis + 100)
+            repeat(10) { moveBy(Offset(0f, 21f * density)) }
+            up()
+        }
+        rule.waitForIdle()
+        assertEquals(1, buzzes.size)
+        laterMenu(open)
+    }
+
+    @Test fun afterARefusedDropALaterMenuBuzzes() {
+        val open = mutableStateOf(false)
+        showElementTarget(canDrop = { _, _, _ -> false }) { if (open.value) WidgetItemSheet("Weather", live = true, onAction = {}, onDismiss = {}) }
+        rule.onNodeWithTag("area").performTouchInput {
+            val start = Offset(150f * density, 150f * density)
+            down(start); advanceEventTime(viewConfiguration.longPressTimeoutMillis + 100)
+            repeat(10) { moveBy(Offset(0f, 21f * density)) }
+            up()
+        }
+        rule.waitForIdle()
+        assertEquals(1, buzzes.size)
+        laterMenu(open)
+    }
+
+    @Test fun afterAMovedLongPressBackToOriginALaterMenuBuzzes() {
+        val open = mutableStateOf(false)
+        showElementTarget { if (open.value) WidgetItemSheet("Weather", live = true, onAction = {}, onDismiss = {}) }
+        rule.onNodeWithTag("area").performTouchInput {
+            val start = Offset(150f * density, 150f * density)
+            down(start); advanceEventTime(viewConfiguration.longPressTimeoutMillis + 100)
+            repeat(10) { moveBy(Offset(16f * density, 0f)) }
+            repeat(10) { moveBy(Offset(-16f * density, 0f)) }
+            up()
+        }
+        rule.waitForIdle()
+        assertEquals(1, buzzes.size)
+        laterMenu(open)
+    }
+
+    @Test fun afterADragCancelALaterMenuBuzzes() {
+        val open = mutableStateOf(false)
+        showElementTarget { if (open.value) WidgetItemSheet("Weather", live = true, onAction = {}, onDismiss = {}) }
+        rule.onNodeWithTag("area").performTouchInput {
+            val start = Offset(150f * density, 150f * density)
+            down(start); advanceEventTime(viewConfiguration.longPressTimeoutMillis + 100)
+            repeat(5) { moveBy(Offset(0f, 21f * density)) }
+            cancel()
+        }
+        rule.waitForIdle()
+        assertEquals(1, buzzes.size)
+        laterMenu(open)
+    }
+
+    @Test fun afterAStillPressMenuIsConsumedALaterMenuBuzzes() {
+        var first by mutableStateOf(false)
+        val second = mutableStateOf(false)
+        showElementTarget(onLong = { first = true }) {
+            if (first && !second.value) HostedWidgetSheet(widgetTile, installed = true,
+                onEditLayout = {}, onAppInfo = {}, onRetry = {}, onDismiss = {}, onRemove = {})
+            if (second.value) WidgetItemSheet("Other", live = true, onAction = {}, onDismiss = {})
+        }
+        stillLongPress()
+        assertEquals(true, first)
+        assertEquals("pickup only for the first menu", 1, buzzes.size)
+        laterMenu(second)
+    }
+
+    /** onDragStart's beginGesture is a backup: a still-press that never opened a sheet leaves the mark set. */
+    @Test fun afterAStillPressThatDidNotOpenAMenuALaterPickupBuzzes() {
+        showElementTarget { }
+        stillLongPress()
+        assertEquals(1, buzzes.size)
+        stillLongPress()
+        assertEquals("onDragStart must clear a leftover mark before the next pickup", 2, buzzes.size)
+    }
+
+    private fun showElementTarget(onLong: () -> Unit = {}, canDrop: (String, Int, Int) -> Boolean = { _, _, _ -> true },
+                                  sheet: @androidx.compose.runtime.Composable () -> Unit) {
         rule.setContent {
             MaterialTheme {
                 Box(Modifier.size(400.dp, 500.dp).testTag("area")) {
                     ElementDragTarget(Elements.Placement("home", 1, 1, 1, 1), 100.dp, 100.dp, 0.dp, 0.dp, rtl = false, selected = false,
-                        canDrop = { _, _, _ -> true }, onDrop = { _, _, _ -> }, onLong = onLong)
+                        canDrop = canDrop, onDrop = { _, _, _ -> }, onLong = onLong)
                 }
                 sheet()
             }
         }
+    }
+
+    /** After a pickup (1 buzz), open a later menu; the leftover mark must have been cleared. */
+    private fun laterMenu(open: androidx.compose.runtime.MutableState<Boolean>) {
+        open.value = true
+        rule.waitForIdle()
+        assertEquals("a leftover mark must not swallow the next menu", 2, buzzes.size)
     }
 
     private fun stillLongPress() {
