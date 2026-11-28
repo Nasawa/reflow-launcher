@@ -1954,6 +1954,7 @@ status dots paired with words.
    | `body` (default, matches the 14 sp of §15) | 13 | 14 | 14 | 12 |
    | `title` | 14 | 16 | 16 | 13 |
    | `metric` value | 18 | 22 | 28 (tall: 32) | 16 |
+   | `display` (clock or large status word) | 22 | 28 | 36 (tall: 44) | 18 |
 
    With the system scale on top, the combined size never goes above 2× base and never below the floor.
 4. **Responsive layouts, chosen not stretched.** A widget may declare up to 3 `layouts` keyed by minimum span (e.g.
@@ -1979,7 +1980,7 @@ glyph for warn ▲ and error ■.
 
 | Primitive | Shows | Overflow | Empty / stale / error | TalkBack |
 |---|---|---|---|---|
-| `text` | Template text (title-bar grammar + `{data:…}`), `role` caption/body/title, `maxLines` 1–4 | Ellipsize at the end | Binding missing → `—` | As written |
+| `text` | Template text (title-bar grammar + `{data:…}`), `role` caption/body/title/`display`, `maxLines` 1–4 | Ellipsize at the end | Binding missing → `—` | As written |
 | `metric` | Label (caption), value (metric tier), optional unit and status, like `Site A · up` | Label ellipsizes first, value never truncates. Too narrow → the unit is dropped, then the label | `—` | `Site A, up` |
 | `list` | Rows from a data array: leading dot/icon, primary text, trailing caption (`down`). `maxItems` or `auto` (as many as fit) | `auto` shows what fits plus `+2 more` | Empty → `emptyText` (default `Nothing to show`) | `Unhealthy monitors, list, 1 item. Label Printer, down` |
 | `icon` | Material symbol or app icon, `icon`/`icon.l` | Dropped by priority | — | Its `label`, or skipped if decorative |
@@ -2227,7 +2228,7 @@ builds S3-C from it.
 | `cap_private_note` | `%1$s is on your local network. Only allow this if you know what it is and trust it. You're responsible for this choice.` | 1 = origin | R · S5 | Under a private-IP / local origin (Q-C3) |
 | `cap_tofu_note` | `%1$s uses a certificate Android doesn't trust. Reflow Launcher will remember this certificate and ask again if it ever changes. Only allow this if you trust this server.` | 1 = origin | R · S5 | Under a self-signed origin (Q-C7 TOFU, pin on approve) |
 | `tofu_changed_title` | `Certificate changed for %1$s` | 1 = origin | R · S5 | Re-pin prompt title (fetch is paused until answered) |
-| `tofu_changed_body` | `This can be normal, like a renewed certificate, or someone could be intercepting the connection. Only trust it if you expected this change.` | — | R · S5 | Re-pin prompt body |
+| `tofu_changed_body` | `The certificate no longer matches the one you trusted. This can be normal, like a renewed certificate, or someone could be intercepting the connection. Check that this new fingerprint matches your server before you trust it.` | — | R · S5 / M2 | Re-pin prompt body; the sheet also shows the new SHA-256 fingerprint (reflow-widgets.md §6.5) |
 | `tofu_trust` / `tofu_keep_off` | `Trust new certificate` / `Keep off` | — | R · S5 | Re-pin prompt buttons |
 | `cert_paused_status` | `Paused: certificate changed` | — | R · S5 | Detail-page line status for that origin; also the tap-on-▲ hint on the card header |
 | `cert_paused_a11y` | `stale, paused because the certificate for %1$s changed` | 1 = origin | A · S5 | Replaces `card_stale_a11y` while the re-pin prompt is unanswered |
@@ -2326,6 +2327,41 @@ gap left behind.
 **Christopher's Q-D answers.** Q-D1, Q-D2, Q-D4, Q-D6 and Q-D7 were accepted as recommended, so no string is
 provisional any more. Q-D5 was answered with the `source` rule (§17.9); its strings above are final. The `source`
 field and the bare `ui.openUrl` are confirmed by Archimedes in [#146](https://github.com/Nasawa/reflow-launcher/pull/146).
+
+**Secrets, http acknowledgement, certificate pin and import (M2; Pragma, 2026-11-28).** Final user-facing copy for the sheets in reflow-widgets.md §6.1, §6.5 and §6.6. Existing `status.json` warning sentences in that doc stay as written.
+
+| Resource | English | Placeholders | Where · stage | Used in |
+|---|---|---|---|---|
+| `secret_need` | `This widget needs the secret "%1$s" for %2$s.` | 1 = secret name, 2 = origin | R · M2 | Allow sheet, one block per listed secret |
+| `secret_stays` | `The value stays on this phone. It isn't written to your layout file.` | — | R · M2 | Under `secret_need` |
+| `secret_field` | `Value for "%1$s"` | 1 = secret name | R · M2 | Password field label |
+| `secret_field_a11y` | `Value for %1$s, password field, hidden` | 1 = secret name | A · M2 | TalkBack for the field |
+| `secret_enter_title` | `Enter "%1$s"` | 1 = secret name | R · M2 | Re-enter sheet title (missing or rejected) |
+| `secret_enter_for` | `For %1$s, used by "%2$s".` | 1 = origin, 2 = widget title or element id | R · M2 | Line under the title |
+| `secret_enter_missing` | `"%1$s" needs this secret on this phone before it can update.` | 1 = widget title or element id | R · M2 | Body when no value is stored |
+| `secret_enter_rejected` | `%1$s rejected "%2$s". Enter a new value to try again.` | 1 = origin, 2 = secret name | R · M2 | Body when the server rejected the secret |
+| `secret_save` / `secret_not_now` | `Save` / `Not now` | — | R · M2 | Re-enter buttons |
+| `http_secret_title` | `Send "%1$s" unencrypted?` | 1 = secret name | R · M2 | One-time http acknowledgement title |
+| `http_secret_body` | `"%1$s" wants to send the secret "%2$s" to %3$s. The connection isn't private. Others on your network could see or change it. Only allow this if you trust this network. You're choosing a less secure connection.` | 1 = widget title or element id, 2 = secret name, 3 = origin (`http://…`) | R · M2 | Acknowledgement body |
+| `http_secret_send` / `http_secret_cancel` | `Send unencrypted` / `Cancel` | — | R · M2 | Buttons; `Cancel` is the initial focus |
+| `pin_title` | `Trust this certificate?` | — | R · M2 | First-pin sheet title (RW-11) |
+| `pin_body` | `%1$s uses a certificate Android doesn't trust. Check that this fingerprint matches your server before you trust it.` | 1 = origin | R · M2 | First-pin body |
+| `pin_sha_label` | `SHA-256` | — | R · M2 | Label above the fingerprint |
+| `pin_trust` / `pin_cancel` | `Trust` / `Cancel` | — | R · M2 | First-pin buttons; `Cancel` is the initial focus |
+| `pin_a11y` | `Trust this certificate for %1$s? SHA-256: %2$s. Check it matches your server before you tap Trust.` | 1 = origin, 2 = fingerprint read in pairs | A · M2 | First-pin TalkBack |
+| `tofu_changed_title` | `Certificate changed for %1$s` | 1 = origin | R · M2 | Re-pin title (same id as the earlier draft) |
+| `tofu_changed_body` | `The certificate no longer matches the one you trusted. This can be normal, like a renewed certificate, or someone could be intercepting the connection. Check that this new fingerprint matches your server before you trust it.` | — | R · M2 | Re-pin body; replaces the earlier draft that didn't show the fingerprint |
+| `tofu_trust` / `tofu_keep_off` | `Trust new certificate` / `Keep off` | — | R · M2 | Re-pin buttons; `Keep off` is the initial focus |
+| `import_title` | `Import secrets?` | — | R · M2 | `secrets.import.json` sheet title |
+| `import_body` | `A file in your config folder wants to add these secrets to this phone. The values stay on the phone, and the file will be deleted.` | — | R · M2 | Intro |
+| `import_row` | `%1$s · %2$s` | 1 = secret name, 2 = origin | R · M2 | A new entry |
+| `import_row_replace` | `Already on this phone. Importing will replace it.` | — | R · M2 | Secondary line under an entry that would overwrite a stored value |
+| `import_row_a11y` | `%1$s, %2$s` | 1 = secret name, 2 = origin | A · M2 | TalkBack for a new row |
+| `import_row_replace_a11y` | `%1$s, %2$s, already on this phone, will be replaced` | 1 = secret name, 2 = origin | A · M2 | TalkBack for a replace row |
+| `import_footnote` | `If this folder is synced, a copy of the file may still exist elsewhere.` | — | R · M2 | Footnote |
+| `import_ok` | `Import and delete file` | — | R · M2 | Primary button |
+| `import_delete` | `Delete file without importing` | — | R · M2 | Secondary button |
+| `import_not_now` | `Not now` | — | R · M2 | Dismiss; the file stays and the prompt returns on the next load, reload or resume |
 
 ## Open questions for Christopher
 
