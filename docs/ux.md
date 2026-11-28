@@ -1970,7 +1970,7 @@ status dots paired with words.
    with a §15-style warning** (`status.json` + Warnings section, no banner). `surface: "none"` (text right on the
    wallpaper, always with the header row, §17.9) gets the label shadow, plus the 60 % scrim behind each text run when `Label backdrop` is on (§1.1). It
    isn't measured.
-6. **No images with baked-in text, no background images in v1.** Icons are named Material symbols or an installed app's
+6. **No images with baked-in text. Pictures only as local `layers` behind a scrim (reflow-widgets.md §4.4); no remote images.** Icons are named Material symbols or an installed app's
    icon. (A mascot under the text, as in the KWGT example, is what makes contrast impossible to guarantee.)
 
 ### 17.9 Primitives
@@ -1990,7 +1990,7 @@ glyph for warn ▲ and error ■.
 **Card chrome (automatic, always drawn; Claw #4).** Every config widget gets a header row with the title (`title` role)
 and its source: `as of 08:38` (caption) when the data has `updatedAt`, otherwise a 12 dp `dashboard` glyph that marks it as
 a widget. The header never shows `author`. It turns `as of 08:38 · stale` with ▲ after the widget's `staleAfter` (default 2× the agent's declared
-interval, else 30 min). **The header can't be turned off.** At `short` heights (h = 1) it collapses to a leading title
+interval, else 30 min). **The header can't be turned off,** except with `header: false` on a card that opens no links and needs no consent (see reflow-widgets.md §4.5). At `short` heights (h = 1) it collapses to a leading title
 caption on the same row, ellipsized before the content, so even a 1-row card says what it is. This way a live card
 (even a Show-only one, which needs no prompt) can't pass for a system dialog, a notification or the status bar.
 - `title` is optional (Archimedes, the S3-A validator). Missing or empty → the header shows the element `id` in the

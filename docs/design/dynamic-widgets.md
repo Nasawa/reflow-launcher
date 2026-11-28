@@ -1,5 +1,7 @@
 # Dynamic widgets: AI-assisted dashboard cards
 
+> **Amended 2026-11-27 by [reflow-widgets.md](reflow-widgets.md).** Readout widgets are an evolution of these cards, not a parallel system. Follow-ups on this document: `net.fetch` is pulled forward as `data.sources[]` (M2); secrets are generic named secrets (`${secret:NAME}` in `headers` and `query`); **keeping a secret after its last widget leaves the config is an intentional change from the earlier design** (§3 and the row in §6 deleted it); plain http to LAN hosts and pinned self-signed https are planned (reflow-widgets.md §6.5); and feature levels are symbolic and fixed in merge order, not "likely 6 / 7". A fuller rewrite of §3, §4, §8 and §9 can wait until the design ships. Where this document and reflow-widgets.md differ, reflow-widgets.md wins.
+
 **Status:** on main via [#117](https://github.com/Nasawa/reflow-launcher/pull/117) (`971c2eb`); Archimedes follow-ups below.  
 **Christopher settled Q-C1–C5, Q-C7** (2026-10-19); **Q-C6 already decided**.  
 **Q-A9 (Pragma #116 / Claw):** http allowed when approved by name; approval ceiling = cumulative union. **Claw review folded in** (PR #117): structural `data.file`, tap example, Q-C7/Q-C3, `ui.reload` + relative time, narrowing ceiling model. *(The exact-host `ui.openUrl.hosts` allowlist from #117 is superseded by Q-D5 below.)*  
@@ -92,7 +94,7 @@ Responsive: up to 3 `layouts` keyed by `"WxH"` with a **lowercase** `x` (e.g. `"
 - **`ui.openUrl` tap `url` MAY use `{data:…}`** (Outer Shell needs this for "latest post"). At tap time resolve the template, reject `userinfo` / non-http(s) schemes, normalise scheme + host (IDNA/punycode/lowercase), then (Q-D5): if scheme+host **exactly** matches the card's `source` (no subdomain inference), open **silently**; if it matches a device-local **Always allow** entry for this element, open silently; otherwise show a **per-tap confirm** naming the destination (with **Always allow this site**). There is **no `hosts` allowlist** on the capability. See §4 *card.source and ui.openUrl taps*. `ui.openUrl` only hands the URL to the browser/intent — it is **not** a fetch.
 - **Connect-time IP check:** on every connection, resolve and refuse RFC1918 / link-local / metadata addresses unless that exact origin was approved under the private-origin allow flow. **DNS rebinding:** re-check the connected IP on each request, not only at approval time.
 - **Cleartext / LAN (decided — Q-C3 / Q-C7, Christopher 2026-10-19):** users own what they knowingly approve. `http://` is allowed when the user knowingly approves it by name — an `http://…` card `source`, an **Always allow** for an `http://` site, or an `http://…` `net.fetch` origin — show `http://` in the prompt; **no silent https→http downgrade**. Disclosure / consent copy must say that **http is less secure**, that some local setups make https difficult for little gain, and that **the user is responsible for what they approve**. Self-signed: **TOFU certificate pinning per origin** (pin on first approve / explicit re-pin if the cert changes; stern copy about remembering the pin) — not disabling TLS validation. **Certificate changed (stage 5):** while a re-pin / "certificate changed" prompt is unanswered, **pause `net.fetch`** for that origin (and that widget's fetches that need it); keep showing **last-good data marked stale**. **Never** silently accept the new cert. Private IPs still need an explicit approved origin; agent-written local JSON remains the simplest LAN path.
-- **Secrets:** never in synced files. Device Keystore / encrypted prefs, entered on phone, scoped to `(elementId, origin)`. Agents declare that a secret slot exists; user fills it. **When the pinned origin set changes, delete secrets for origins that were removed** before any new fetch runs.
+- **Secrets:** never in synced files. Device Keystore / encrypted prefs, entered on phone, scoped to `(elementId, origin)`. Agents declare that a secret slot exists; user fills it. **When the pinned origin set changes, delete secrets for origins that were removed** before any new fetch runs. **Amended 2026-11-27 (reflow-widgets.md §6):** secrets are named, keyed by `(name, canonical origin)` and shared across widgets, and are **kept** after the last widget leaves the file unless the user chooses Forget secret. Generic `${secret:NAME}` in headers or query only, never the URL.
 
 ### What stays out of the synced folder
 
@@ -240,7 +242,7 @@ APK-level `INTERNET` is coarse (see §7). Capability approval is the real contro
 | **SSRF to LAN** (homelab monitors) | Default **deny** RFC1918, link-local, metadata IPs for `net.fetch` unless user enables a stern "allow private origin" pin per origin; document that agent-written **local** JSON is the preferred path for LAN data |
 | **DNS rebinding** (public name → LAN IP later) | Re-validate the connected peer IP on **every** connection, not only when the origin was approved |
 | **TOFU cert change / MITM** (stage 5) | Pin on approve; on change show re-pin prompt — **pause `net.fetch`** for that origin until answered; show last-good data **stale**; never silently accept the new cert |
-| **Stale secret after origin edit** | Delete Keystore entries for origins removed from the capability before the next fetch |
+| **Stale secret after origin edit** | **Amended 2026-11-27:** the fetch binding and snapshot are dropped, but the secret is **kept** until the user taps Forget secret (reflow-widgets.md §6.4). It still can't be sent to another origin, because it is bound to `(name, origin)`. *(Original rule: delete Keystore entries for removed origins before the next fetch.)* |
 | Cross-widget data read | File path derived from element id only — no `path` field to misuse |
 | Secret leakage across widgets | Keystore entries keyed by element id + origin |
 | OpenURL phishing | Card `source` in fingerprint (consent + re-prompt on change); silent open only for exact `source` match; every off-source tap confirms showing the destination, with device-local **Always allow this site**; no `userinfo`, http(s) only |
@@ -280,10 +282,10 @@ Honest holes in "local files + opt-in URL fetch + per-widget manifest":
 | 2 | `appWidget` host + tap-to-bind | **5** (3 is retired, never used; native-widgets.md §2.1, #298) |
 | 3 | `card` + local `data.file` + consent UX (§17) | 4 |
 | 4 | Richer primitives if needed (parity with Outer Shell) | 4 |
-| 5 | `net.fetch` + Keystore + INTERNET permission | next free level, likely **7** (5 is `appWidget`; `windowOverrides`, #186, likely 6) |
+| 5 | `net.fetch` + Keystore + INTERNET permission | next free level in merge order (`FL_FETCH` in reflow-widgets.md; `appWidget` took 5, and `windowOverrides` takes its own symbolic level) |
 | 6 | Optional path pins, private-origin allow, phone.* | later |
 
-**Hard gates:** Stage 0 before any skip of grid elements (met). Consent tile before any `card` renders data. Local data before fetch (**Q-C2 decided:** ship stage 3 local-data-only first; fetch is a later release). Feature levels are fixed in merge order (native-widgets.md §2.1): `appWidget` took **5** (#298), `windowOverrides` (#186) and `net.fetch` take the next free numbers when they land (likely 6 and 7).
+**Hard gates:** Stage 0 before any skip of grid elements (met). Consent tile before any `card` renders data. Local data before fetch (**Q-C2 decided:** ship stage 3 local-data-only first; fetch is a later release). Feature levels are fixed in merge order (native-widgets.md §2.1): `appWidget` took **5** (#298), `windowOverrides` (#186) and `net.fetch` take the next free numbers in merge order when they land, named `FL_WINDOW_OVERRIDES` and `FL_FETCH` (reflow-widgets.md C9); none is reserved.
 
 ## 10. Open questions
 

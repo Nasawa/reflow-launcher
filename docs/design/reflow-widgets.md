@@ -1,6 +1,6 @@
 # Reflow readout widgets: agent-authored cards, live data, and a small built-in set
 
-**Status:** proposal, 2026-11-27. Author: Archimedes. **Docs only.** It creates no issues and changes no code.
+**Status:** proposal, revised 2026-11-27 with Christopher's answers to Q1–Q5 and Pragma's questions (§13). Author: Archimedes. **Docs only.** It creates no issues and changes no code.
 **Baseline:** main `86b9ab2` (1.1.0 dev builds; feature level 5).
 **Pairs with:** Pragma's [polish-audit.md](polish-audit.md) on this same branch and PR (her 17-item ranked audit and her 4 open questions).
 **Christopher's examples have arrived** (§8): a card Claw built with Cocoon, and a KWGT widget backed by Home Assistant. More may follow, and this doc may be revised.
@@ -10,10 +10,10 @@
 ## 0. Rulings in one screen
 
 1. **Readout widgets are the evolution of dashboard cards. There is no new element type and no parallel system.** [dynamic-widgets.md](dynamic-widgets.md) already has the right shape: a `card` element, no scripts, flow layout, per-widget capabilities, device-local consent, `data.file`, `ui.reload`, `staleAfter`, `source`, and a designed (unbuilt) `net.fetch`. What changes is in §3. The `text`/`clock` element types from research §5.5 and ux §16.6 are **dropped for good**. A clock is a card.
-2. **Two milestones.** **M1: agent-written files.** Claw writes JSON (and an optional picture) into the folder and the card renders it. Both of Christopher's examples work, nothing new is asked of Android, and no secret ever reaches the phone. **M2: live fetching.** The phone reads a JSON URL itself (Home Assistant or any endpoint) with a named, device-local secret. M2 adds the `INTERNET` permission (already agreed, Q-C1) and the secret store.
-3. **Bindings are three things and nothing more:** the agent-written file, an HTTP GET of JSON, and Home Assistant as *just a JSON URL with a bearer secret* (no HA client, no HA-specific code; this keeps Q-C5 intact).
+2. **Two milestones, decided (Christopher, 2026-11-27): M1 ships first, then M2.** **M1: agent-written files.** Claw writes JSON (and pictures) into the folder and the card renders it. Both of Christopher's examples work, nothing new is asked of Android, and no secret ever reaches the phone. **M2: live fetching.** The phone reads a JSON URL itself (Home Assistant or any endpoint) with a named, device-local secret. M2 adds the `INTERNET` permission (already agreed, Q-C1) and the secret store.
+3. **Bindings are three things and nothing more:** the agent-written file, an HTTP GET of JSON, and Home Assistant as *just a JSON URL with an `Authorization: Bearer ${secret:ha}` header* (no HA client, no HA-specific code; this keeps Q-C5 intact). Transport: normal https, plain http to LAN hosts only, and self-signed https by pinned fingerprint (§6.5). **Pictures are `layers[]` (§4.4)**, not a background key.
 4. **No formula language.** Simple `{data:…}` and `{fetch:…}` bindings, a closed set of five formatters, and **thresholds** (HA gauge `severity` style) replace KWGT formulas and HA Jinja templates.
-5. **Secrets never touch the layout file.** The file names a secret (`"ha-token"`). The value is typed on the phone, kept in Keystore-wrapped device-local storage, and bound to one origin. It can only be sent to that origin, only for a widget the user approved for that origin.
+5. **Secrets never touch the layout file.** The file names a secret as `${secret:NAME}` in exactly two places: a source's `headers` values and its structured `query` object. Never in the `url` (a load error). The value is typed on the phone, kept in Keystore-wrapped device-local storage, and bound to one origin. It can only be sent to that origin, only for a widget the user approved for that origin. Secrets are generic: HA is a recipe. An optional one-shot `secrets.import.json` lets an agent hand values over without leaving them on shared storage (§6.6).
 6. **Battery:** fetch only for cards on the current page, while home is resumed and visible, the screen is on and not covered, and the keyguard is down. One ticker per visible source at `max(every, 60 s)`, paused on `onStop`. At most 60 fetches per hour per origin, and **zero work while home isn't visible**. **No JobScheduler, WorkManager, alarms or services.** Weather needs no built-in fetcher: it is a card with a source.
 
 ## 1. Research
@@ -60,7 +60,7 @@
 | Edits: Remove+Undo, `Move to…`, `Resize…`, drag-resize handles for any grid element (`model/ElementEdits.kt`, `ui/ResizeHandles.kt`, #303/#304) | Yes | Reuse: readouts get them for free |
 | Title-bar template tokenizer (`config/Template.kt`: `{time[:p]}`, `{date[:p]}`, allow-listed patterns, no seconds) | Yes | Reuse for the card token grammar |
 | Minute ticker for time tokens (title bar), foreground only | Yes | Reuse |
-| Network: `INTERNET` | **Not in the manifest** (ARCHITECTURE §1) | M2 only (Q-C1 agreed) |
+| Network: `INTERNET` | **Not in the manifest** (ARCHITECTURE §1) | M2 only (Q-C1 agreed). RW-8 also adds a `network-security-config` that permits cleartext, guarded by an app-level LAN allowlist (§6.5) |
 | Secret store | No | M2 (§6). Add `secrets/` and `cards/` to both exclusions in `data_extraction_rules.xml` |
 | `status.json` per-widget state; `apps.json` for agent discovery | Yes (`consent`, `appWidgets`) | Extend with new **display** keys and warning sentences (`warn_secret_missing`, `warn_secret_rejected`, `warn_image_bad`, the header/surface fallback warnings). Never a secret value, an `Authorization` header, or a fetch body |
 
@@ -71,15 +71,16 @@
 | # | What changes | Was | Becomes | Why |
 |---|---|---|---|---|
 | C1 | **`net.fetch` is pulled forward** as `data.sources[]` | Stage 5, "later, advanced" (Q-C2, Q-C5) | M2, right after the file milestone | Christopher wants HA and JSON URLs directly. `INTERNET` was already agreed (Q-C1). Q-C2's "local first" ordering is kept: M1 is local-only |
-| C2 | **HA is a recipe, not a feature** | §8: HA "must not be tightly coupled" | Unchanged in spirit: HA is a JSON URL plus a bearer secret. No HA client, no entity picker | Q-C5 holds. The launcher knows HTTP, not Home Assistant |
-| C3 | **Secrets: named, bound to `(name, origin)`, shared across widgets** | §3: scoped to `(elementId, origin)`; agents "declare that a secret slot exists" | The `net.fetch` line carries `secrets: ["ha-token"]`. One typed value per name and origin, usable by any approved widget for that origin only | Three cards, one token, one paste. Security is the same: the value can only go to its origin, and URLs are literals, so it can't be steered elsewhere (§6) |
+| C2 | **HA is a recipe, not a feature** | §8: HA "must not be tightly coupled" | Unchanged in spirit: HA is a JSON URL plus an `Authorization: Bearer ${secret:ha}` header. No HA client, no entity picker | Q-C5 holds. The launcher knows HTTP, not Home Assistant |
+| C3 | **Generic named secrets: `${secret:NAME}`, bound to `(name, origin)`, shared across widgets** | §3: scoped to `(elementId, origin)`; agents "declare that a secret slot exists" | The `net.fetch` line carries `secrets: ["ha"]`. A source references `${secret:ha}` in `headers` values or a `query` object, never in the `url`. One typed value per name and origin, usable by any approved widget for that origin only. Optional one-shot `secrets.import.json` (§6.6). A secret is kept after its last widget leaves the file | Three cards, one token, one paste. The value can only go to its origin, and a URL is a literal, so data can't steer it elsewhere. Not HA-specific (§6) |
 | C4 | **New token namespace** `{fetch:<source>.<path>}`, **`data.asOf`** | Only `{data:path}` | `{data:…}` = the agent file. `{fetch:…}` = a fetched source. `data.asOf` names the path of a timestamp for "as of", else the fetch time | No key collisions between file and sources. HA gives `last_updated` |
 | C5 | **Closed formatters** (5), **thresholds**, segmented progress | None (`progress` took a 0–1 value) | §4.3 | HA states are raw (`"79"`, a boot timestamp). Without formatting, every HA binding needs Claw in the middle, which defeats M2 |
-| C6 | **Images: local files only, and `background`** | ux §17.8 rule 6: "no background images in v1" | Raster files in the folder, never remote, with a **scrim** the launcher draws so launcher-drawn text keeps its contrast | Example 2 needs the lobster. A scrim restores the guarantee rule 6 was protecting. Remote images stay cut (tracking pixels) |
-| C7 | **`header: false` under a testable rule** (§4.5) | ux §17.9: "The header can't be turned off" | **Confirmed by Pragma (2026-11-27), pending Christopher Q4; if Q4 is no, drop it.** Allowed only when the card has no `ui.openUrl` and no source needing consent. A headerless card always draws its card surface, never `surface: "none"`. A 12 dp `▲` appears in the top-end corner when stale. Pending consent forces the header on silently. `ui.openApp` and `ui.reload` buttons are fine | Example 2's file-only form has no title row. A card that fetches (M2) needs consent, so it always shows the header. Amends ux §17.9 with Pragma's sentence in §4.5 |
+| C6 | **`layers[]` replaces a background picture; pictures are local files only** | ux §17.8 rule 6: "no background images in v1" | A card gets ordered `layers` (`content`, `picture`, `scrim`; at most 4). A picture is a local file, or a file chosen by a bound data value. A scrim keeps launcher-drawn text readable, and one is inserted automatically if a picture sits directly under content (§4.4) | Example 2 needs the lobster, and it must change with Claw's state. Layer order plus a scrim restores the guarantee rule 6 protected. Remote pictures stay cut (tracking pixels), so M2 changes a picture only through a bound value |
+| C7 | **`header: false` under a testable rule** (§4.5) | ux §17.9: "The header can't be turned off" | **Decided (Pragma confirmed 2026-11-27; Christopher confirmed under the file-only rule).** Allowed only when the card has no `ui.openUrl` and no source needing consent. A headerless card always draws its card surface, never `surface: "none"`. A 12 dp `▲` appears in the top-end corner when stale. Pending consent forces the header on silently. `ui.openApp` and `ui.reload` buttons are fine | Example 2's file-only form has no title row. A card that fetches (M2) needs consent, so it always shows the header. Amends ux §17.9 (sentence in §4.5, applied to ux.md in this PR) |
 | C8 | **`ui.reload` also refetches sources** | Re-reads the data file; the Claw POC drew a refresh affordance | One tap = re-read the file and refetch all sources (rate-limited). **When the header is shown,** a circular refresh control sits in it (example 1). **When the card is headerless,** there is no header control: put a `button` with `tap: { "kind": "ui.reload" }` in the layout if you want a visible refresh, and the long-press sheet offers `Reload` whenever the card declares `ui.reload` | `ui.reload` buttons are fine on a headerless card (Pragma). Example 1 keeps the header control |
 | C9 | **Card keys added at the level of M1 and M2** | Level 4 | Symbolic levels, **not reserved numbers.** M1 keys take **`FL_CARDS_READOUT`**, the next free level when RW-1 merges. `net.fetch`, `sources` and `secrets` take **`FL_FETCH`**, assigned when RW-8 merges, with **`FL_FETCH` > `FL_CARDS_READOUT`**. `windowOverrides` takes **`FL_WINDOW_OVERRIDES`**, the next free number when *it* merges. Levels are fixed in merge order (native-widgets.md §2.1); reserved numbers are proposals. If M1 lands first, windowOverrides takes the next free number after `FL_CARDS_READOUT` (and after `FL_FETCH` if that has also merged), and the other way around if windowOverrides lands first. There is no reserved 6 or 7 | Old phones skip a card whose `requires` is above their `FEATURE_LEVEL` (cells kept) instead of rejecting the file for an unknown key (B2). Root keys like `windowOverrides` still B2-reject on older apps, as layout-overrides.md §8 already says |
 | C10 | **`ui.openDrawer` tap kind** (Pragma's search bar) | None | An in-launcher action, silent, needs no consent | §9 |
+| C11 | **Transport: https, LAN http, self-signed https** | dynamic-widgets §3: cleartext and private addresses by named approval; TOFU pin as a stretch (Q-C7) | Normal https and plain http to LAN hosts only land in RW-8. A secret over http needs a one-time device-local acknowledgement. Self-signed https is pinned by SHA-256 after the user confirms the fingerprint (RW-11, required, may land after RW-8 and RW-9) | Christopher's HA is normal https, but he isn't the norm. Plain http stays LAN-only, with an app-level allowlist (§6.5) |
 
 **Not changed:** consent tiers, the approval ceiling, `author`, `source` and the Q-D5 `ui.openUrl` model, never-offered kinds, `widgets-data/` path rules for the **agent file and pictures** (the fetch snapshot is not stored there), device-local approvals, the 256 KiB cap on the agent file. **`status.json` is extended**, not replaced: it gains display states and warning sentences (`warn_secret_missing`, `warn_secret_rejected`, `warn_image_bad`, the header/surface fallback warnings). It still never holds a secret value, an `Authorization` header, or a fetch body.
 
@@ -90,14 +91,14 @@
 | Where | Key | Meaning |
 |---|---|---|
 | card | `surface` | `"auto"` (today), `"none"`, or `{ "color": <colour>, "opacity": 50-100 }`. Colours use the title-bar grammar: a token (`light`, `dark`, `onWallpaper`, `primary`, `secondary`, `onSurface`, `surface`), `#RRGGBB`, or `{light, dark}`. Contrast is measured and warned, never an error (reuses `TitleBar` contrast code) |
-| card | `background` | `{ "image": "<file>", "fit": "cover"\|"contain", "scrim": 0-70 }`. `scrim` defaults to 45 (a black overlay under launcher-drawn content). Picture rules in §4.4 |
-| card | `header` | `false` hides the title row when the §4.5 rule allows it. Default `true`. **Confirmed by Pragma (2026-11-27), pending Christopher Q4; if Q4 is no, drop this key.** |
+| card | `layers` | Optional ordered array, back to front, at most 4. Kinds `content`, `picture`, `scrim` (§4.4). Replaces the earlier `background` key, which is gone |
+| card | `header` | `false` hides the title row when the §4.5 rule allows it. Default `true`. Decided; see §4.5 |
 | card | `summary` | Optional template (≤120 chars) that TalkBack reads as **one sentence**. Default: the nodes in order. Adopts Pragma's "one sentence per widget" |
 | `text` | `role: "display"`, `align`, `font`, `status` | `display` is the large tier (sizes for Pragma, §10). `align` is `start`\|`center`\|`end`. `font` is `default`\|`mono` (the system monospace, nothing else). `status` puts a dot before the text. ux §17.9 already says every primitive takes `status`, and `Card.kt` only allows it on `metric`, so this aligns code with ux |
 | `progress` | `max`, `segments`, `thresholds`, `by` | `max` (default 1) lets `value` be `79` with `max: 100`. `segments` is 2-20 (visual only). `thresholds` and `by`: §4.2 |
 | `metric` | `thresholds` | Colours the status dot from the numeric `value` |
 | `button` | `icon` | Material symbol name. ux §17.9 already has it, and `Card.kt` doesn't |
-| `image` | new node | `{ "type": "image", "file": "<name>", "fit": … }`, same file rules as `background` |
+| ~~`image`~~ | **cut** | The inline `image` node is dropped. A `picture` layer with `align` and `fit` covers backdrops and badges, and one picture mechanism is less to validate |
 | any node | `color` | Text, icon and fill colour (the title-bar colour grammar). The `status` tones stay the fixed ones in ux §17.8, and **red is never text** (ux §17.8) |
 | text/metric | empty = not drawn | A text or metric that resolves to an empty string is not drawn. A row with nothing left disappears. This is what makes conditional parts (§1.3) cost nothing |
 
@@ -146,19 +147,55 @@ These cover `state` strings, boot timestamps and `last_updated` without a langua
 
 - Unknown token, formatter or key in a card at the right level → B2 with a plain sentence, as in the title bar. A card that needs a higher `requires` is skipped before this check.
 
-### 4.4 Pictures (local files, C6)
+### 4.4 Layers and local pictures (C6)
 
-- Live in `.configlauncher/widgets-data/<elementId>/<name>`. Like the JSON file, the folder is **derived from the element id**, so one card can't read another's pictures. Declaring `data.file` covers both. No new capability.
-- `<name>`: `^[a-z0-9][a-z0-9._-]{0,63}\.(png|jpg|jpeg|webp)$`. **No SVG**, no animated formats, no remote URLs.
-- Caps: 1 MiB per file, 2048 px on the longest side, at most 4 files read per card. The phone decodes down to the card's size, so the cap protects memory.
-- A bad or missing picture means no picture and a load warning (`warn_image_bad`, in `status.json`). The card never fails to draw. Loading a picture never writes to the config folder. The memory budget is in RW-3: after 20 reloads of a card with four max-size pictures, and a GC, the app's PSS is at most 8 MiB above the first reading.
-- **Contrast:** the scrim sits under every launcher-drawn node, and contrast is computed against the scrim colour over a worst-case picture. Text *inside* the picture (the lobster's "Brain full") is the author's artwork and is not measured.
+A card may have `layers[]`, ordered **back to front**. The card's normal content (title row and readout rows) is always exactly one layer, of kind `content`, at the position the author gives it. If no `content` layer is listed it is **implicit at the top**. A card with no `layers` draws as it does today.
+
+| Kind | Keys | Meaning |
+|---|---|---|
+| `content` | none | The title row and the layout. At most one per card (a second is a validation error) |
+| `picture` | `src`, `fit`, `align`, `opacity` | A local picture. `fit`: `cover` (default) or `contain`. `align`: one of nine anchors, `topStart` `top` `topEnd` `start` `center` `end` `bottomStart` `bottom` `bottomEnd` (start/end mirror in RTL), default `center`. `opacity`: 0 to 1, default 1 |
+| `scrim` | `color`, `opacity` | A full-card colour fill. `color` is a colour or theme token (default: the §4.4 default scrim colour). `opacity`: 0 to 1 |
+
+`src` is **a file name** or **a bound choice**:
+
+```json
+"src": "lobster.webp"
+"src": { "bind": "data:mood", "map": { "brain_full": "brain.png", "coffee": "coffee.png" }, "default": "idle.png" }
+```
+- `bind` is a data path with its namespace: `data:<path>` (the agent file) or `fetch:<source>.<path>`. The bound value is looked up in `map` (at most 8 entries, key ≤ 64 characters); `default` is optional. The same constraints apply to every file name here.
+- **Files** live in `.configlauncher/widgets-data/<elementId>/<name>`, the card's own folder. Like the JSON file, the folder is **derived from the element id** by the launcher. A card can't name a path, only a file inside its own folder.
+- `<name>`: `^[a-z0-9][a-z0-9._-]{0,63}\.(png|jpg|jpeg|webp)$`. **No SVG**, no animated formats, **no web addresses**: a remote `src` is a validation error (`elements[N].layers[K].src must be a file name in the card's pictures folder, not a web address.`).
+- **Caps:** 1 MiB per file, 2048 px on the longest side, at most **8 distinct files per card** (map entries plus `default`, across all picture layers). The phone decodes only the picture that is showing, down to the card's size, off the main thread, with a total decoded-bitmap budget of 4 MiB per card.
+- **Layer cap:** at most **4 layers per card, counting `content`**. The inserted default scrim doesn't count. More is a load warning and the extras (the last ones) are skipped: `elements[N].layers: has 6 layers, so the last 2 were skipped. A card can have at most 4.`
+- **No free positioning** (no x/y/z), **no per-layer size** beyond `fit` and `align`, **no animation**.
+
+**Default scrim.** If a `picture` layer sits **directly under `content`** (the layer immediately below it, no `scrim` between), the launcher **inserts a default scrim between them** and warns **once per card, at load**, naming the picture's real layer index:
+
+`elements[N].layers[2]: a picture is right under content, so a default scrim was added to keep text readable. Add your own scrim layer to choose it.`
+
+The default scrim is a **full-card fill, never a gradient**: the `surface` colour at **60%** in the light theme, **black at 45%** in the dark theme. An author-written `scrim` layer anywhere between the picture and content replaces it. Contrast is computed against the scrim colour over the surface, not against the picture; artwork inside the picture is not measured and is not a substitute for the stale ▲ or the TalkBack title.
+
+**Runtime rules for a bound picture:**
+- The value has a `map` entry → that file. No entry → `default`. **No entry and no `default` → skip that layer silently** and keep the other layers. (No warning: "no picture for this state" is normal.)
+- While a picture is **loading**, or after it **fails**, the **card surface is drawn behind the content**. Content is never drawn on a blank background.
+- The picture changes only when the bound value changes, so in M2 a fetched value can swap a local picture and nothing else.
+
+**Load warnings, for what can be checked statically** (listing the card's folder; each is in `status.json`):
+- A fixed `src` file is missing: `elements[N].layers[K].src: "lobster.webp" isn't in this card's pictures folder, so the layer was skipped.`
+- A `map` file is missing: `elements[N].layers[K].src.map["coffee"]: "coffee.png" isn't in this card's pictures folder, so that value falls back to the default picture.` (When there is no `default`: `…so that value shows no picture.`)
+- The `default` file is missing: `elements[N].layers[K].src.default: "idle.png" isn't in this card's pictures folder, so the default picture was skipped.`
+- A file can't be decoded or is too big (`warn_image_bad`): `elements[N].layers[K]: "lobster.webp" can't be shown (too big, or not a PNG, JPEG or WebP), so the layer was skipped.`
+
+**Chrome stays on top** (my call). The title row and the stale ▲ are launcher chrome. They are drawn above **every** layer, wherever `content` sits, so no layer can cover them (the §4.5 anti-spoof guarantee). A `picture` or `scrim` layer **above `content`** is shown at **60% opacity at most**, with the warning `elements[N].layers[K]: a layer above content is shown at 60% at most, so text stays readable.`
+
+Loading never writes to the config folder.
 
 ### 4.5 Hidden header (`header: false`)
 
-**Confirmed by Pragma (2026-11-27), pending Christopher Q4; if Q4 is no, drop it** (the key, this section, and `header: false` in the examples).
+**Decided.** Pragma confirmed the rule on 2026-11-27, and Christopher confirmed it under the file-only rule (his Q4). No pending marker remains.
 
-This amends ux.md §17.9. Replace the current "The header can't be turned off" sentence with Pragma's wording:
+This amends ux.md §17.9, and the sentence is applied there in this PR:
 
 > **The header can't be turned off,** except with `header: false` on a card that opens no links and needs no consent (see below).
 
@@ -170,7 +207,7 @@ This amends ux.md §17.9. Replace the current "The header can't be turned off" s
 
 **Stale marker.** A headerless card still shows a 12 dp ▲ in the top-end corner, mirrored in RTL, on the card surface, with no text. TalkBack reads it after the title as `stale, as of 08:38`, or just `stale` when there's no updatedAt. TalkBack always reads the title (the card's `title`, or its element id when there's no title), even when the title row is hidden. The long-press sheet title is the card's title, or its element id when there's no title, with `as of 08:38` as a caption under it.
 
-Each warning string above is an acceptance test (RW-1 and RW-2). Custom `surface.color` and a `background` image are allowed on a headerless card; the card surface and the scrim still sit under launcher-drawn content, and the stale ▲ sits on that surface. Artwork inside the picture is not measured (C6) and is not a substitute for the ▲ or the TalkBack title.
+Each warning string above is an acceptance test (RW-1 and RW-2). Custom `surface.color` and `layers` are allowed on a headerless card. The card surface sits under the layers, so it shows while a picture loads or fails (§4.4), and the stale ▲ is chrome drawn above every layer.
 
 ## 5. Data bindings
 
@@ -178,20 +215,32 @@ Each warning string above is an acceptance test (RW-1 and RW-2). Custom `surface
 |---|---|---|---|---|
 | **A. Agent file** (M1) | `capabilities: [{kind: data.file}]`, file `widgets-data/<id>.json` | nothing new | none | the agent's schedule, shown by `as of` and `stale` |
 | **B. JSON URL** (M2) | `net.fetch` with `origins`, plus `data.sources[]` | `INTERNET`, approval of the origin | none (public endpoint) | the card's `every`, §7 |
-| **C. HA entity** (M2) | Same as B, the URL is `<ha>/api/states/<entity_id>`, `auth.bearer` names a secret | as B, plus the token typed once | yes, one per HA origin | as B |
+| **C. HA entity** (M2) | Same as B: the URL is `<ha>/api/states/<entity_id>` and `headers` carries `Authorization: Bearer ${secret:ha}` | as B, plus the token typed once (or imported, §6.6) | yes, one per HA origin | as B |
 
 ```json
 "data": {
   "staleAfter": "PT15M",
   "asOf": "last_updated",
   "sources": [
-    { "name": "claw", "url": "https://ha.anigeek.com/api/states/sensor.claw_status", "every": "PT5M", "auth": { "bearer": "ha-token" } }
+    { "name": "claw",
+      "url": "https://ha.anigeek.com/api/states/sensor.claw_status",
+      "every": "PT5M",
+      "headers": { "Authorization": "Bearer ${secret:ha}" } },
+    { "name": "wx",
+      "url": "https://api.example.com/v1/current",
+      "query": { "units": "metric", "key": "${secret:wx-key}" } }
   ]
 }
 ```
-- `sources`: 1-6 per card. `name` is `^[a-z][a-z0-9]{0,15}$`. `url` is a **literal** under one of the card's approved `origins` (the validator checks this offline, after canonicalization). It can't be built from `{data:…}` or `{fetch:…}` (existing rule, and it stops data from steering a request).
+- `sources`: 1-6 per card. `name` is `^[a-z][a-z0-9]{0,15}$`. `url` is a **literal** under one of the card's approved `origins` (the validator checks this offline, after canonicalization). It can't be built from `{data:…}` or `{fetch:…}` (existing rule: data can't steer a request). **The `url` has no query string and no fragment**; every query parameter goes in `query`.
 - **Origin canonicalization** (capability `origins[]`, a source URL's origin, and the secret-store key): lowercase scheme and host, IDN to punycode, default port made explicit (`https` → `:443`, `http` → `:80`), no path, no userinfo, no trailing slash. So `https://ha.example`, `https://ha.example:443/` and `https://HA.EXAMPLE` are the same origin. A path or `userinfo` on `origins[]` is a validation error. A source `url` may have a path (that is the request path); only its origin is canonicalized for the pin and the secret key.
-- GET only (HEAD later). No request body, no cookies, no custom headers except the optional `auth`. The first release supports `auth: { "bearer": "<secret name>" }` only (a custom header name is cut).
+- **`headers`** (optional object, at most 4): names match `^[A-Za-z][A-Za-z0-9-]{0,39}$`; values are literal text or contain `${secret:NAME}`, at most 256 characters. These names are refused: `Host`, `Cookie`, `Set-Cookie`, `Content-Length`, `Transfer-Encoding`, `Connection`, `Upgrade`, `Origin`, `Referer`, `User-Agent`, and any `Proxy-*`. (Replaces the earlier bearer-only `auth` key, which is gone.)
+- **`query`** (optional object, at most 6): string values, literal or containing `${secret:NAME}`. They are added to the request **at request time**, percent-encoded, and are **redacted on every surface in the §6 never-reach list**. A request URL is only ever logged as origin plus path.
+- **`${secret:NAME}` goes in exactly two places:** a `headers` value and a `query` value. `NAME` is `^[a-z][a-z0-9-]{0,31}$`, and every name used must also be listed in the `net.fetch` capability's `secrets`. Anywhere else (the `url`, a header or query *name*, a title, a layout string, `layers`) is a **load error that names the field**:
+  - in the `url`: `elements[N].data.sources[0].url: "${secret:…}" can't be used in the url. Put it in headers or query.`
+  - elsewhere: `elements[N].<field>: "${secret:…}" can't be used here. Secrets go only in a source's headers or query values.`
+  - not declared: `elements[N].data.sources[0].headers.Authorization: secret "ha" isn't listed in the net.fetch capability's secrets.`
+- GET only (HEAD later). No request body, no cookies. HTTPS, or plain http to a LAN host (§6.5).
 - Response: UTF-8 JSON, object or array root, at most 128 KiB, 10 s timeout. Redirects stay on the same origin (existing rule). Anything else is a failed fetch.
 - **One entity per source.** If Claw wants one GET for several numbers, it makes an HA template sensor with attributes and reads `attributes.x`. This is the recommended shape (example 2). The launcher never calls `/api/states` (all states).
 - `data.asOf`: the path of an ISO-8601 timestamp, applied to the source that carries it. Default: the data file's root `updatedAt`, else the time the fetch finished.
@@ -199,32 +248,78 @@ Each warning string above is an acceptance test (RW-1 and RW-2). Custom `surface
 
 ## 6. Secrets and consent (fits #138 and the net.fetch rules)
 
-**The layout file holds only names.** `net.fetch` gains a `secrets` array of names, and a source says which one it uses:
+### 6.1 Names in the file, values on the phone
+
+`net.fetch` gains a `secrets` array of names. Sources use them as `${secret:NAME}` in headers and query values only (§5):
 
 ```json
-{ "kind": "net.fetch", "origins": ["https://ha.anigeek.com"], "secrets": ["ha-token"] }
+{ "kind": "net.fetch", "origins": ["https://ha.anigeek.com"], "secrets": ["ha"] }
 ```
-- **Fingerprint:** `net.fetch` lines are the **canonical** origin (as designed), and each secret is a line `secret ha-token @ <canonical origin>`. A new secret name, or a new origin, is a broadening → `needsApproval` / `needsApprovalAgain`. The ceiling never shrinks (Q-A9), as today.
-- **Value:** typed (or pasted) on the phone in the approval sheet for that line. It is stored **device-local, wrapped by an `AndroidKeyStore` AES-GCM key**, in `filesDir/secrets/`. The entry field is a password-type field, masked after the last character, and the sheet uses `FLAG_SECURE`. Re-entering a value for the same `(name, origin)` **overwrites the stored value atomically** (temp + rename, like `ConsentStore`) and clears a `rejected` flag.
-- **Scope:** keyed by `(name, <canonical origin>)`, not by element id (C3). The same `ha-token` entered once serves every approved widget for that canonical origin. Each widget still needs its own approval of that origin and that secret name. A widget for another origin gets *another* `ha-token`, which needs its own entry, so one origin can never receive another origin's token. The HTTP client attaches it only when the request's canonical origin equals the stored origin, and only as an `Authorization: Bearer …` header — never as a URL, query string, or cookie.
+- **Fingerprint:** `net.fetch` lines are the **canonical** origin (as designed), and each secret is a line `secret ha @ <canonical origin>`. A new secret name, or a new origin, is a broadening → `needsApproval` / `needsApprovalAgain`. The ceiling never shrinks (Q-A9), as today.
+- **Value:** typed (or pasted) on the phone in the approval sheet for that line, or imported once (§6.6). It is stored **device-local, wrapped by an `AndroidKeyStore` AES-GCM key**, in `filesDir/secrets/`. The entry field is a password-type field, masked after the last character, and the sheet uses `FLAG_SECURE`. Re-entering a value for the same `(name, origin)` **overwrites the stored value atomically** (temp + rename, like `ConsentStore`) and clears a `rejected` flag.
+- **Scope:** keyed by `(name, <canonical origin>)`, not by element id (C3). The same `ha` entered once serves every approved widget for that canonical origin. Each widget still needs its own approval of that origin and that secret name. A widget for another origin gets *another* `ha`, which needs its own entry, so one origin can never receive another origin's secret. The HTTP client attaches it only when the request's canonical origin equals the stored origin, and only in a header value or a query value as the source declares, never in the URL string.
 - **Fetch snapshot:** the last-good response body lives in app-private **`filesDir/cards/`**, never in the synced config folder. `status.json` reports only the display state and a warning sentence, **never the body**, because the body could contain secret-derived data.
 - **Backup exclusions:** add **`secrets/`** and **`cards/`** to **both** exclusions in `data_extraction_rules.xml` (the same pattern as `consent/` and `widgets/`; `allowBackup="false"` already covers older Android).
-- **Surfaces a secret value must never reach** (this is the RW-7 acceptance list):
-  - the config folder (`launcher.json`, drafts, `widgets-data/`, any other synced file)
-  - `status.json` (no value, no `Authorization` header, no response body)
-  - logs and logcat (including the HTTP client and the ReflowSave tag: `Log.d` stays behind `Log.isLoggable`, hashes only, never the value)
-  - crash reports and bugreports
-  - backups and device transfer
-  - the clipboard (the field has no copy action and the app never writes the value to the clipboard; the app does **not** clear the system clipboard after a password-manager paste)
-  - the UI after entry (masked)
-  - intents and saved instance state
-  - a WebView (cards don't use one; if one is added later, the value must not reach it)
-  - any URL or query string
-- **Why a hostile card gains little:** fetch URLs are literals, requests are GET with no body, and responses feed only the card's display (and the private snapshot). There is no path for the token, or for the HA data, to reach a third host. The card could display what the token may read at the origin the user approved. That is the exact trade of approving it, and it is shown in the prompt.
-- **401 / 403:** mark that `(name, origin)` **`rejected`**. Stop fetching with it (every card that uses it). Keep the stored value (don't auto-delete) and keep last-good data, shown stale. Long-press offers a **re-enter** prompt. `status.json` gets `warn_secret_rejected`: `elements[3]: widget "Claw" has a rejected Home Assistant token on this phone. Open it to enter a new one.` A successful re-enter overwrites atomically, clears `rejected`, and fetches resume.
-- **Removing an origin or a source from the file:** cancel any in-flight fetches for it and drop their results (a late response is not applied and not written to `filesDir/cards/`). On the next stable good load, GC that card's fetch binding and snapshot. **Keep the secret** unless the user deletes it with **Forget secret**. Re-adding the same `(name, origin)` later can reuse the stored value; the card still needs its approval ceiling to include that line. **Forget approval** of a widget does not delete a secret that other widgets, or a later re-add, might use. There is no automatic delete when the last widget leaves the file.
-- **Missing secret:** if the card is approved but no value is stored, `warn_secret_missing`: `elements[3]: widget "Claw" needs its Home Assistant token on this phone.` Last-good (if any) is shown stale; no fetches until the user enters one.
-- **Cleartext and LAN (Q-C3, Q-C7, unchanged):** `http://` and private addresses (HA at `homeassistant.local`) need the explicit named approval with the "less secure" disclosure. A bearer token over `http://` is sent in clear on the LAN, and **the prompt says so on the secret line**. Self-signed HTTPS needs TOFU pinning (**RW-11**, only if Christopher needs it in Q2). If RW-11 is skipped, a self-signed origin is a TLS failure: last-good data is shown stale, and the new certificate is never accepted silently. Prefer M1's file mode when HA is reachable only over plain http.
+
+### 6.2 Surfaces a secret value must never reach
+
+This is the RW-7 acceptance list:
+- the config folder (`launcher.json`, drafts, `widgets-data/`, any other synced file), except the transient `secrets.import.json` of §6.6, which the launcher consumes and deletes
+- `status.json` (no value, no header, no query value, no response body)
+- logs and logcat (including the HTTP client and the ReflowSave tag: `Log.d` stays behind `Log.isLoggable`, hashes only, never the value; a request URL is logged as origin plus path)
+- crash reports and bugreports
+- backups and device transfer
+- the clipboard (the field has no copy action and the app never writes the value to the clipboard; the app does **not** clear the system clipboard after a password-manager paste)
+- the UI after entry (masked)
+- **autofill**: the Autofill framework, IME suggestions and personalized learning, and password-manager save prompts on the entry field. Implementation notes: `importantForAutofill="no"` (use `noExcludeDescendants` on the sheet), no `autofillHints`, and `noPersonalizedLearning` in the IME options
+- intents and saved instance state
+- a WebView (cards don't use one; if one is added later, the value must not reach it)
+- any URL or query string **as logged, stored or displayed**. The query value is sent on the wire at request time and is redacted everywhere else
+
+### 6.3 Failure states
+
+- **Why a hostile card gains little:** fetch URLs are literals, requests are GET with no body, and responses feed only the card's display (and the private snapshot). There is no path for a secret, or for the data it unlocks, to reach a third host. The card could display what the secret may read at the origin the user approved. That is the exact trade of approving it, and it is shown in the prompt.
+- **401 / 403:** mark that `(name, origin)` **`rejected`**. Stop fetching with it (every card that uses it). Keep the stored value (don't auto-delete) and keep last-good data, shown stale. Long-press offers a **re-enter** prompt. `status.json` gets `warn_secret_rejected`: `elements[3]: widget "Claw" has a rejected secret "ha" on this phone. Open it to enter a new one.` A successful re-enter overwrites atomically, clears `rejected`, and fetches resume.
+- **Missing secret:** if the card is approved but no value is stored, `warn_secret_missing`: `elements[3]: widget "Claw" needs the secret "ha" on this phone.` Last-good (if any) is shown stale; no fetches until the user enters one.
+
+### 6.4 Retention and removal
+
+**Removing an origin or a source from the file:** cancel any in-flight fetches for it and drop their results (a late response is not applied and not written to `filesDir/cards/`). On the next stable good load, GC that card's fetch binding and snapshot. **Keep the secret** unless the user deletes it with **Forget secret**. Re-adding the same `(name, origin)` later can reuse the stored value; the card still needs its approval ceiling to include that line. **Forget approval** of a widget does not delete a secret that other widgets, or a later re-add, might use. There is no automatic delete when the last widget leaves the file. This is an intentional change from the earlier design in dynamic-widgets.md §3 and §6, which deleted secrets for removed origins.
+
+### 6.5 Transport: https, LAN http, self-signed https (C11)
+
+Christopher's Home Assistant uses https with a normal certificate, but the design doesn't assume everyone does. All three are planned, in this order.
+
+**(a) Normal https (RW-8).** The system trust store. Nothing extra.
+
+**(b) Plain http to LAN hosts only (RW-8).**
+- **Allowed hosts:** RFC 1918 (`10/8`, `172.16/12`, `192.168/16`), link-local (`169.254/16`, `fe80::/10`), loopback (`127/8`, `::1`, `localhost`), IPv6 unique-local (`fc00::/7`, my call: it is RFC 1918's IPv6 twin), and the names `*.local`, `*.lan`, `*.home.arpa`. Not allowed: public hosts, and the carrier-grade range `100.64/10` (Tailscale addresses use https or M1).
+- **Two guards.** (1) `network-security-config` permits cleartext (`cleartextTrafficPermitted="true"` in the base config), because that file can't express IP ranges. (2) **The app-level allowlist is the real guard.** It runs **before any request**, on the literal host, and **again on the connected address** (so a `.lan` name that resolves to a public address is refused, the rebinding check). The single per-card HTTP client is the only networking code; there is no WebView.
+- **A public host over http is refused** with a load warning, and the source never fetches: `elements[N].data.sources[0]: "http://example.com" is a public address, so http isn't allowed there. Use https, or a host on your own network.`
+- The origin still needs the existing **named approval** for a private address (dynamic-widgets §3, Q-C7).
+- **A source that attaches a secret over http** shows a **one-time, device-local acknowledgement**, per `(secret name, origin)`: `This sends ha unencrypted on your network.` with `Send unencrypted` and `Cancel`. It is never synced, and **Forget secret** also forgets it. Until it is given there is **no fetch**: `elements[N]: widget "Claw" is waiting for your OK to send ha unencrypted on your network.`
+
+**(c) Self-signed https (RW-11, required; can land after RW-8 and RW-9).**
+- A certificate the system doesn't trust makes the fetch fail with `needsPin`. The user is shown the certificate's **SHA-256 fingerprint on the phone** and must confirm it matches their server: `Trust this certificate for https://ha.lan:8123? SHA-256: 3A:9F:… Check it matches your server before you tap Trust.`
+- On Trust, the launcher **pins that fingerprint for the canonical origin** (device-local, never synced). Later connections must present that certificate.
+- **If the certificate changes, re-prompt.** Fetching stops, last-good shows stale, and `elements[N]: the certificate for https://ha.lan:8123 changed since you trusted it, so the widget "Claw" stopped fetching. Open it to check the new fingerprint.` It is never accepted silently.
+- Any approved origin can be pinned this way (my call), since the user confirms the fingerprint by hand. The pin follows the same `(canonical origin)` rule as secrets.
+
+### 6.6 Optional one-shot `secrets.import.json`
+
+An agent managing the phone's setup shouldn't have to leave tokens in a permanent synced file, and the user shouldn't have to paste on a phone keyboard. So the launcher supports an **optional one-shot import**:
+
+```json
+{ "secrets": [ { "name": "ha", "origin": "https://ha.anigeek.com", "value": "…" } ] }
+```
+- **Where:** `secrets.import.json` in the config folder root, next to `launcher.json`. At most 16 entries and 4 KiB. `name` follows the secret-name rule, `origin` is canonicalized (§5).
+- **When it is looked for:** on load, on `RELOAD`, and when home resumes (not on the 2 s poll).
+- **Never a live source.** It is not part of `launcher.json`, never read twice, never logged, and never mentioned in `status.json` except by the warnings below.
+- **The phone prompts first.** A sheet lists the **names and origins, never the values**, and marks an entry that would replace a stored one. Buttons: `Import and delete file`, `Delete file without importing`, `Not now`. (Pragma writes the final copy.)
+- **On OK:** the launcher writes each value to the encrypted store (atomically), then **deletes the file**.
+- **If it can't delete the file, it warns loudly** (a top notice until the file is gone, plus `warn_secret_import_left`): `secrets.import.json is still in your config folder and holds secret values. Delete it now. If this folder is synced or in git, change those secrets.` An unreadable file: `secrets.import.json can't be read, so nothing was imported. Delete it, because it may still hold secret values.`
+- **What this does and doesn't buy.** The file never persists as live configuration, and the values end up only in the phone's Keystore-wrapped store. The values are on shared storage from the moment the agent writes it until the phone consumes it, so a synced or git-tracked folder can keep a copy elsewhere. The agent kit says: write it just before asking, add `secrets.import.json` to `.gitignore`, and rotate a token if it was synced. It is a convenience, not a vault. Submitted by a hostile agent, it can only add or replace values the user sees listed by name and origin.
+- Implemented as a separate small issue, **RW-7b**, after RW-7.
 
 ## 7. Refresh, battery and limits
 
@@ -258,9 +353,11 @@ Each warning string above is an acceptance test (RW-1 and RW-2). Custom `surface
 
 **Redraw only on change:** a source that returns an identical body doesn't recompose. Time tokens share the existing minute ticker. Battery recomposes only when the displayed `%` or state changes.
 
+**A source that is waiting does not fetch:** no value for a secret it needs (`warn_secret_missing`), a `rejected` secret, an unacknowledged secret over http, or a certificate waiting for the user to trust or re-trust it (§6).
+
 **Hard caps:** 6 sources per card, 12 sources across all cards, 128 KiB per response, 10 s timeout.
 
-**Honest limit, to put in the user docs:** with home hidden, the screen off, or the keyguard up, nothing updates. The first glance after a while shows the cached last-good values and refreshes in a second. A readout that must update with the screen off is outside this design. That is a notification or an `appWidget`.
+**Honest limit, to put in the user docs:** with home hidden, the screen off, or the keyguard up, nothing updates. The first glance after a while shows the cached last-good values, and a fetch starts at once (the measurable bar is RW-9's: a fetch within 1 s of `ui.reload`, a redraw within 1 s of the response). A readout that must update with the screen off is outside this design. That is a notification or an `appWidget`.
 
 ## 8. Worked examples
 
@@ -318,53 +415,72 @@ Data file `.configlauncher/widgets-data/w-anigeek.json` (Claw writes it):
 ```
 M2 variant: the three monitors come from an unauthenticated JSON endpoint. Add `{ "kind": "net.fetch", "origins": ["https://status.anigeek.com"] }`, `"sources": [{ "name": "mon", "url": "https://status.anigeek.com/summary.json", "every": "PT5M" }]`, set `requires` to `FL_FETCH`, and swap `{data:picspin.value}` for `{fetch:mon.picspin.value}`. The blog tap stays a `source` tap (Q-D5). Because this variant has `ui.openUrl`, `header: false` would be ignored (warning in §4.5); example 1 already shows the header.
 
-### 8.2 Example 2: the KWGT "Brain full" widget, backed by Home Assistant, M2
+### 8.2 Example 2: the KWGT "Brain full" widget, M1 file form first, M2 as a delta
 
-Screenshot → schema: teal rounded card (`surface.color`), the lobster picture behind (`background.image` + `scrim`), `up 9h 3m` in monospace at top right (a `text` with `font: "mono"`, `align: "end"`, formatter `since`), three labelled **segmented** bars with percentages (`progress` with `segments: 10`, `max: 100`), the `ctx` fill turning yellow-orange near the end (`by: "position"` with a `warn` threshold at 75), and `status: idle` in monospace at bottom right.
+Screenshot → schema: a teal rounded card (`surface.color`) over a lobster picture that **swaps with Claw's state** ("Brain full" vs "Coffee recharged"): a `picture` layer whose `src` is bound to `mood`, then a teal `scrim`, then `content`. `up 13m` in monospace at top right (a `text` with `font: "mono"`, `align: "end"`, formatter `since`), three labelled **segmented** bars with percentages (`progress` with `segments: 10`, `max: 100`; the `ctx` fill turns yellow-orange near the end through a `warn` threshold at 75 and `by: "position"`), and `status: idle` in monospace at bottom right.
 
-**Header:** the KWGT original has no title row. Under §4.5, `header: false` is honoured only on the **M1 (file-only) form**, which has no `ui.openUrl` and no `net.fetch`. The **M2 form below has `net.fetch`, which needs consent**, so `header: false` is ignored: the header is shown, and the load warning is `elements[N].header: false is ignored because this card opens links or needs your OK, so the header is shown.` The JSON still includes `"header": false` so the fallback is testable. A live Home Assistant card always has a title row. The lobster look without a title is the M1 form.
-
-HA side (Claw does this in HA, once): one template sensor `sensor.claw_status` with state `idle` and attributes `ctx`, `five_hour`, `seven_day`, `started_at`. If the numbers are separate entities instead, list one source per entity (up to 6).
+**M1 form (file only).** Claw writes the JSON file and three pictures. This card has no `ui.openUrl` and no source needing consent, so under §4.5 **`header: false` is honoured**, which is what matches the KWGT screenshot. It always draws its card surface, and a ▲ appears top-end when the data is stale. The `scrim` is written out, so there is no default-scrim warning. Refresh is a layout `button` or the long-press `Reload` action (`ui.reload` is declared).
 
 ```json
 {
-  "id": "w-claw", "type": "card", "requires": "FL_FETCH",
+  "id": "w-claw", "type": "card", "requires": "FL_CARDS_READOUT",
   "page": "home", "x": 0, "y": 8, "w": 4, "h": 3,
   "title": "Claw", "author": "Claw",
   "header": false,
   "surface": { "color": "#0F6E6E" },
-  "background": { "image": "lobster.webp", "fit": "cover", "scrim": 35 },
-  "summary": "Claw, {fetch:claw.state}. Context {fetch:claw.attributes.ctx|round} percent",
-  "capabilities": [
-    { "kind": "data.file" },
-    { "kind": "ui.reload" },
-    { "kind": "net.fetch", "origins": ["https://ha.anigeek.com"], "secrets": ["ha-token"] }
+  "layers": [
+    { "kind": "picture",
+      "src": { "bind": "data:mood",
+               "map": { "brain_full": "brain.png", "coffee": "coffee.png" },
+               "default": "idle.png" },
+      "fit": "cover", "align": "center" },
+    { "kind": "scrim", "color": "#0F6E6E", "opacity": 0.5 },
+    { "kind": "content" }
   ],
-  "data": {
-    "staleAfter": "PT15M",
-    "asOf": "last_updated",
-    "sources": [
-      { "name": "claw", "url": "https://ha.anigeek.com/api/states/sensor.claw_status", "every": "PT5M", "auth": { "bearer": "ha-token" } }
-    ]
-  },
+  "summary": "Claw, {data:state}. Context {data:ctx|round} percent",
+  "capabilities": [ { "kind": "data.file" }, { "kind": "ui.reload" } ],
+  "data": { "staleAfter": "PT15M" },
   "layouts": {
     "4x3": [
-      { "type": "text", "role": "caption", "font": "mono", "align": "end", "text": "up {fetch:claw.attributes.started_at|since}" },
-      { "type": "progress", "label": "ctx", "value": "{fetch:claw.attributes.ctx}", "max": 100, "segments": 10, "by": "position",
+      { "type": "text", "role": "caption", "font": "mono", "align": "end", "text": "up {data:started_at|since}" },
+      { "type": "progress", "label": "ctx", "value": "{data:ctx}", "max": 100, "segments": 10, "by": "position",
         "thresholds": [ { "from": 0, "tone": "accent" }, { "from": 75, "tone": "warn" } ] },
-      { "type": "progress", "label": "5h", "value": "{fetch:claw.attributes.five_hour}", "max": 100, "segments": 10, "by": "position",
+      { "type": "progress", "label": "5h", "value": "{data:five_hour}", "max": 100, "segments": 10, "by": "position",
         "thresholds": [ { "from": 0, "tone": "accent" }, { "from": 75, "tone": "warn" } ] },
-      { "type": "progress", "label": "7d", "value": "{fetch:claw.attributes.seven_day}", "max": 100, "segments": 10, "by": "position",
+      { "type": "progress", "label": "7d", "value": "{data:seven_day}", "max": 100, "segments": 10, "by": "position",
         "thresholds": [ { "from": 0, "tone": "accent" }, { "from": 75, "tone": "warn" } ] },
-      { "type": "text", "role": "caption", "font": "mono", "align": "end", "text": "status: {fetch:claw.state|default:unknown}" }
+      { "type": "text", "role": "caption", "font": "mono", "align": "end", "text": "status: {data:state|default:unknown}" }
     ]
   }
 }
 ```
-- The lobster is a file at `.configlauncher/widgets-data/w-claw/lobster.webp` (hence `data.file`). Claw writes it once.
-- **M1 form of the same card:** drop `net.fetch`, `sources`, `asOf` and `secrets`. Claw writes `widgets-data/w-claw.json` with `{ "updatedAt": …, "ctx": 79, "five_hour": 31, "seven_day": 8, "since": "9h 3m", "state": "idle" }`, and the tokens become `{data:ctx}` and so on. The token never reaches the phone. Set `requires` to `FL_CARDS_READOUT`. Here `header: false` is honoured (no links, no consent source), so this is the form that matches the KWGT screenshot. Refresh, if wanted, is a layout `button` or the long-press `Reload` action (`ui.reload` stays in `capabilities`).
-- Because `{fetch:…}` is read with `by: "position"` and thresholds on `0-100`, the 79% bar fills 7 accent segments and the 8th in `warn`. 31% and 8% stay `accent`.
-- First load shows the consent tile, asking for `data.file`, `ui.reload`, `net.fetch https://ha.anigeek.com` and the secret `ha-token`. Approve, paste the token once, and the card goes live.
+- **Files** in `.configlauncher/widgets-data/w-claw/`: `brain.png`, `coffee.png`, `idle.png` (written once). **Data** `widgets-data/w-claw.json`: `{ "updatedAt": "2026-11-27T21:06:00-07:00", "mood": "coffee", "ctx": 79, "five_hour": 31, "seven_day": 8, "started_at": "2026-11-27T20:53:00-07:00", "state": "idle" }`. The token never reaches the phone.
+- **Swapping the picture:** Claw changes `mood` in the data file, and the picture follows. `mood: "brain_full"` shows `brain.png`. An unmapped value shows `idle.png` (the `default`). With no `default`, that layer would be skipped silently and the card would show its surface and scrim.
+- The 79% bar fills 7 accent segments and the 8th in `warn` (`by: "position"`, threshold at 75). 31% and 8% stay `accent`.
+- Removing the `scrim` layer would trigger the default scrim and this load warning: `elements[N].layers[0]: a picture is right under content, so a default scrim was added to keep text readable. Add your own scrim layer to choose it.`
+
+**M2 form (live Home Assistant data).** Claw makes one HA template sensor, `sensor.claw_status`, with state `idle` and attributes `ctx`, `five_hour`, `seven_day`, `started_at`, `mood` (or one source per entity, up to 6). Changes from the M1 card, at `requires: "FL_FETCH"`:
+
+```json
+"capabilities": [
+  { "kind": "data.file" },
+  { "kind": "ui.reload" },
+  { "kind": "net.fetch", "origins": ["https://ha.anigeek.com"], "secrets": ["ha"] }
+],
+"data": {
+  "staleAfter": "PT15M",
+  "asOf": "last_updated",
+  "sources": [
+    { "name": "claw",
+      "url": "https://ha.anigeek.com/api/states/sensor.claw_status",
+      "every": "PT5M",
+      "headers": { "Authorization": "Bearer ${secret:ha}" } }
+  ]
+}
+```
+- Tokens become `{fetch:claw.attributes.ctx}`, `{fetch:claw.attributes.started_at|since}`, `{fetch:claw.state|default:unknown}` and so on, and the picture binding becomes `"bind": "fetch:claw.attributes.mood"`. **The pictures stay local files** in `widgets-data/w-claw/`. Only the choice among them comes from HA.
+- **Header:** `net.fetch` needs consent, so `"header": false` is **ignored**: the header is shown, with the warning `elements[N].header: false is ignored because this card opens links or needs your OK, so the header is shown.` The JSON can keep `"header": false` so the fallback is testable. A live HA card always has a title row. The lobster look without a title is the M1 form.
+- **First load** shows the consent tile, asking for `data.file`, `ui.reload`, `net.fetch https://ha.anigeek.com` and the secret `ha`. Approve, then either type the token once or let Claw hand it over with `secrets.import.json` (§6.6), and the card goes live. If HA were on plain http on the LAN, the same card would also need the one-time "This sends ha unencrypted on your network." acknowledgement.
 
 ## 9. Built-in readouts and Pragma's opinions (secondary)
 
@@ -393,11 +509,12 @@ Christopher's priority is §8. The first-party set is therefore **recipes: ready
 - **Work apps can't be placed or launched (item 2): shapes one rule.** A card `ui.openApp` and `button` target a **personal-profile** package only, until item 2 is fixed. A `ui.openApp` for a work package behaves like a work app on home does today. Cards that mention work apps are out of scope here, as `appWidget` work widgets were (D3). It does not block.
 - **No restore or undo (item 3): shapes the recommended order.** Readouts raise the stakes, because an agent can now write a layout that loads fine but looks wrong (a covering background, a card in the way). The recovery path today is Undo for Remove plus the last-good layout. **I recommend 3(c) `Restore previous layout` (ux §8, 10 snapshots) lands before M1 is announced** (not before it is built). 3(a) and 3(b) are unrelated. Device-local approvals and secrets are **not** part of a snapshot, by design, so restoring a layout never revives an approval or leaks a secret.
 - **#258 (rotate resets sheets, item 8)** shapes one detail: the secret-entry sheet must not put the typed token in saved instance state. Rotating loses the half-typed token, which is acceptable.
-- **Q-T7 (dynamic colour)** is compatible: `surface: "auto"` follows the home theme, tones are fixed.
+- **Q-T7 (dynamic colour)** is compatible: `surface: "auto"` follows the home theme, tones are fixed. Decided: opt-in, in Settings only (§13).
+- **Layers and the ▲/title chrome** (§4.4) mean a picture can never cover the title row or the stale marker, so none of Pragma's top items change the layer design.
 
 ## 11. What is explicitly cut
 
-Formulas, expressions, `$if()$`, Jinja, flows, globals, komponents, scripts of any kind; absolute layout; remote images, SVG, GIF; WebView, HTML, JS; any HA client, entity picker or WebSocket; `/api/states`, POST fetches, custom request headers (bearer only); background wakeups, jobs, alarms, services, push, real-time sockets; built-in weather fetch, provider choice and location permission; media (notification listener); calendar permission (for now); analog or other clock styles; per-widget theme galleries and a phone-side style editor; per-widget secrets (shared by name and origin instead); widget stacks and pop-ups; RSS and news; text/clock/battery as element types.
+Formulas, expressions, `$if()$`, Jinja, flows, globals, komponents, scripts of any kind; absolute layout; remote pictures, SVG, GIF; the inline `image` node; free x/y/z positioning, per-layer sizing beyond `fit` and `align`, picture animation, more than 4 layers per card; WebView, HTML, JS; any HA client, entity picker or WebSocket; `/api/states`, POST fetches, request bodies, cookies, denied header names (`Host`, `Cookie`, …); secrets in the URL; secrets in a permanent synced file; background wakeups, jobs, alarms, services, push, real-time sockets; built-in weather fetch, provider choice and location permission; media (notification listener); calendar permission (for now); analog or other clock styles; per-widget theme galleries and a phone-side style editor; per-widget secrets (shared by name and origin instead); widget stacks and pop-ups; RSS and news; text/clock/battery as element types.
 
 ## 12. Proposed issue breakdown (build order)
 
@@ -406,14 +523,16 @@ Checks marked **R** are hands-on spot checks by Christopher, coordinated by Grok
 
 **M1: agent-written readouts**
 
-**RW-1. Schema at `FL_CARDS_READOUT`: M1 keys.** `surface` object, `background`, `header`, `summary`, text `display/align/font/status`, `progress` `max/segments/thresholds/by`, `metric.thresholds`, `button.icon`, `image` node, `color`; the empty-is-not-drawn rule; codec canonical order, `validate.py`, schema, `FEATURE_LEVEL = FL_CARDS_READOUT` (the next free integer when this merges) and docs. *Acceptance:* the example in §8.1 and the M1 form of §8.2 validate in Kotlin and Python with the same messages, once `requires` is the assigned integer. Each §4.5 warning is an exact-string test:
+**RW-1. Schema at `FL_CARDS_READOUT`: M1 keys.** `surface` object, `layers` (kinds, caps, the default scrim), `header`, `summary`, text `display/align/font/status`, `progress` `max/segments/thresholds/by`, `metric.thresholds`, `button.icon`, `color`; the empty-is-not-drawn rule; codec canonical order, `validate.py`, schema, `FEATURE_LEVEL = FL_CARDS_READOUT` (the next free integer when this merges) and docs. *Acceptance:* the example in §8.1 and the M1 form of §8.2 validate in Kotlin and Python with the same messages, once `requires` is the assigned integer. Each §4.4 and §4.5 warning is an exact-string test:
 - A card with `header: false` and `ui.openUrl` (or `net.fetch`) is **valid**, the header is **shown**, and the warning is `elements[N].header: false is ignored because this card opens links or needs your OK, so the header is shown.`
 - A card with `header: false` and `surface: "none"` is **valid**, the default card surface is **kept**, the header is **dropped** (if otherwise allowed), and the warning is `elements[N].surface: "none" can't be used with header: false, so the default card surface was used.`
+- A card whose `picture` layer sits directly under `content` with no `scrim` between is **valid**, a full-card default scrim is inserted, and the single load warning is `elements[N].layers[K]: a picture is right under content, so a default scrim was added to keep text readable. Add your own scrim layer to choose it.` with the real index of the picture layer in place of K. With a `scrim` between them, there is no warning.
+- More than 4 layers, a second `content` layer, a remote `src`, a layer above `content` with opacity over 0.6, and each missing-file case (fixed `src`, a `map` file, the `default` file) give the §4.4 sentences. A bound picture with no map match and no `default` gives **no** load warning.
 A card using any new key and `requires` below `FL_CARDS_READOUT` is an error. A FEATURE_LEVEL 5 APK skips a card with `requires` at `FL_CARDS_READOUT`, keeps its cells and shows the "Update" tile. *Grace:* JVM + `scripts/test_validate.py` for each key, invalid fixtures for each cap, the skip case on a FEATURE_LEVEL 5 APK in the emulator.
 
-**RW-2. Renderer additions (extends #140).** Segmented progress with thresholds and `by`, monospace, `display` tier, `align`, status dot on text, the §4.5 header rules, `surface` colours and scrim, TalkBack `summary` and title. *Acceptance:* both §8 examples render in the screen matrix points (including font scale 2.0 and the small A51-shaped width). Overflow follows ux §17.8: drop by `priority`, then ellipsize — there is no "no clipped text" bar. The `display` tier's sp values are unmeasurable until Pragma sets them; until then, tests use a temporary 22 / 28 / 32 and are re-run when she sets the numbers. Each §4.5 warning string is an acceptance test (same sentences as RW-1). Pending consent forces the header on silently, with no warning. The stale marker is a 12 dp ▲ in the **top-end** corner, mirrored in RTL, on the card surface, with no text; TalkBack reads it after the title as `stale, as of 08:38`, or `stale` when there's no `updatedAt`. The long-press sheet title is the card's title, or its element id when there's no title, with `as of 08:38` as a caption under it. `ui.openApp` and `ui.reload` buttons work on a headerless card; the long-press sheet offers `Reload` when `ui.reload` is declared. Contrast warnings appear in `status.json` for a custom colour below 4.5:1 and are measured over the scrim. *Grace:* Compose tests, screenshot matrix, TalkBack read-through. **R:** a phone (A51, A53 or S25 Ultra) for density and legibility over a real wallpaper, and the onn tablet for large cells.
+**RW-2. Renderer additions (extends #140).** Segmented progress with thresholds and `by`, monospace, `display` tier, `align`, status dot on text, the §4.5 header rules, `surface` colours, `layers` drawing (picture `fit`, `align`, `opacity`; scrim; the default scrim at 60% `surface` in light and 45% black in dark, a full-card fill, never a gradient; chrome above every layer), TalkBack `summary` and title. *Acceptance:* both §8 examples render in the screen matrix points (including font scale 2.0 and the small A51-shaped width). Overflow follows ux §17.8: drop by `priority`, then ellipsize — there is no "no clipped text" bar. The `display` tier's sp values are unmeasurable until Pragma sets them; until then, tests use a temporary 22 / 28 / 32 and are re-run when she sets the numbers. Each §4.5 warning string is an acceptance test (same sentences as RW-1). Pending consent forces the header on silently, with no warning. The stale marker is a 12 dp ▲ in the **top-end** corner, mirrored in RTL, on the card surface, with no text; TalkBack reads it after the title as `stale, as of 08:38`, or `stale` when there's no `updatedAt`. The long-press sheet title is the card's title, or its element id when there's no title, with `as of 08:38` as a caption under it. `ui.openApp` and `ui.reload` buttons work on a headerless card; the long-press sheet offers `Reload` when `ui.reload` is declared. While a picture is loading or after it fails, the card surface is drawn behind the content, never a blank background. A bound picture with no map match and no `default` is skipped at runtime, silently, and the other layers still draw. Contrast warnings appear in `status.json` for a custom colour below 4.5:1 and are measured over the scrim colour. *Grace:* Compose tests, screenshot matrix, TalkBack read-through. **R:** a phone (A51, A53 or S25 Ultra) for density and legibility over a real wallpaper, and the onn tablet for large cells.
 
-**RW-3. Local pictures.** `widgets-data/<id>/` reader, caps, decode-to-size, `warn_image_bad`. Loading never writes to the config folder. *Acceptance:* a 5 MiB or 4000 px file is refused with the warning, a PNG, JPEG and WebP of valid size draw, an SVG is refused, an id's folder can't read another's file (`../`, symlinks). No file write from loading. After 20 reloads of a card with four max-size pictures, and a GC, `dumpsys meminfo` shows the app's PSS at most **8 MiB** above the first reading. *Grace:* JVM for path and size rules, emulator for decode and the memory budget.
+**RW-3. Layers and local pictures.** `widgets-data/<id>/` reader, caps, decode-to-size, `layers[]` pipeline (picture sources fixed or bound through `bind` / `map` / `default`, re-evaluated when the bound value changes, silent skip when nothing matches, card surface while loading or failed), the static load warnings, `warn_image_bad`. Loading never writes to the config folder. *Acceptance:* a 5 MiB or 4000 px file is refused with the warning, a PNG, JPEG and WebP of valid size draw, an SVG is refused, an id's folder can't read another's file (`../`, symlinks). Changing `mood` in the data file swaps the picture (map hit, default, and no-default skip) with no recompose of unrelated cards. No file write from loading. After 20 reloads of a card with four max-size pictures, and a GC, `dumpsys meminfo` shows the app's PSS at most **8 MiB** above the first reading. *Grace:* JVM for path, size, map and layer rules; emulator for decode, loading/failed states and the memory budget.
 
 **RW-4. Tokens, formatters, thresholds engine.** `{fetch:…}` grammar (parse only in M1), the five formatters, `default`, threshold evaluation, `data.asOf`. Pure Kotlin, mirrored in `validate.py`. *Acceptance:* table tests for each formatter at the edges (negative, null, a missing path, a bad timestamp, DST, a 12 vs 24 h locale), **`round` with no argument → n = 0**, two formatters applied left to right, the missing-path (`—` / `default`) vs empty-string (not drawn) row in §4.3, `{batteryFraction}`, threshold boundaries (74/75/76), the same strings in Kotlin and Python. *Grace:* JVM only.
 
@@ -423,39 +542,85 @@ A card using any new key and `requires` below `FL_CARDS_READOUT` is an error. A 
 
 **M2: live data**
 
-**RW-7. Secret store.** Keystore-wrapped store keyed by `(name, canonical origin)`, atomic overwrite on re-enter, backup exclusion of `secrets/` **and** `cards/` in **both** `data_extraction_rules.xml` lists, entry and forget flows (Pragma writes the copy), `FLAG_SECURE`, masked field, `status.json` display states only. *Acceptance:* the secret value never appears on any surface listed in §6. Re-entering the same `(name, origin)` overwrites atomically and clears `rejected`. Removing an origin or source cancels in-flight fetches, drops their results, and GCs the binding and snapshot on the next stable load; the secret is kept unless the user chooses **Forget secret**. A rotation mid-entry leaves nothing in saved instance state. *Grace:* JVM for the keying, canonicalization, overwrite and GC rules; instrumented test on the emulator for the Keystore wrap and the surface list. **R:** a phone (Keystore on a Samsung device) and the onn tablet.
+**RW-7. Secret store.** Keystore-wrapped store keyed by `(name, canonical origin)`, `${secret:NAME}` resolution in `headers` values and `query` values only (a placeholder in the `url` or any other field is a load error naming the field, §5), the query-value redaction, atomic overwrite on re-enter, backup exclusion of `secrets/` **and** `cards/` in **both** `data_extraction_rules.xml` lists, entry and forget flows (Pragma writes the copy), `FLAG_SECURE`, masked field, `status.json` display states only. *Acceptance:* the secret value never appears on any surface listed in §6.2, including autofill (`importantForAutofill=no`, `noPersonalizedLearning`: no autofill dropdown, no IME suggestion, no password-manager save prompt) and the request URL as logged. Re-entering the same `(name, origin)` overwrites atomically and clears `rejected`. Removing an origin or source cancels in-flight fetches, drops their results, and GCs the binding and snapshot on the next stable load; the secret is kept unless the user chooses **Forget secret**. A rotation mid-entry leaves nothing in saved instance state. *Grace:* JVM for the keying, canonicalization, overwrite and GC rules; instrumented test on the emulator for the Keystore wrap and the surface list. **R:** a phone (Keystore on a Samsung device) and the onn tablet.
 
-**RW-8. `net.fetch` runtime (stage 5).** `INTERNET`, the per-element isolated client, origin pin, same-origin redirects, private/link-local/metadata IP deny unless approved, rebinding re-check, cleartext only by name, caps. *Acceptance:* the existing dynamic-widgets §3 and §6 table, each row with a test, plus origin canonicalization (trailing slash, default port, host case, IDN) so `https://ha.example`, `https://ha.example:443/` and `https://HA.EXAMPLE` are treated as one origin. A request to an unapproved origin never leaves the phone. A redirect to another origin fails. The token is attached only when the request's canonical origin equals the stored origin, and only as the `Authorization` header, never as a URL or query string. If RW-11 is skipped, a self-signed origin is a TLS failure, last-good data is stale, and the new certificate is never accepted silently. *Grace:* JVM with a local test server (MockWebServer), emulator tests against a LAN-style host.
+**RW-7b. One-shot `secrets.import.json` import.** §6.6: detect on load, `RELOAD` and home resume; parse (16 entries, 4 KiB, canonical origins); the phone prompt lists names and origins, never values; on OK write to the RW-7 store atomically and delete the file; warn loudly if the delete fails. *Acceptance:* values never appear in any §6.2 surface, including `status.json` and logs, and the file is never read twice or treated as a live source. A file that can't be deleted shows the loud warning until it is gone. `Delete file without importing` stores nothing. An entry that would replace a stored value is marked in the prompt. An invalid file imports nothing and warns. The agent kit tells Claw to write it just before asking and to gitignore it. *Grace:* JVM for the parser and the delete-failure path; emulator for the prompt and the SAF delete. **R:** one real import on a phone.
 
-**RW-9. Refresh scheduler.** §7, with the numbers in the acceptance. *Acceptance:* with a fake clock and a test server: glance; tickers at `max(every, 60 s)` per visible source, paused on `onStop`; jitter ±10%; `every` floor `PT1M` (clamp + warning); backoff ×2 / ×4 / ×8 then hold or `PT1H`, reset on success or manual refresh; 2 in flight **per origin**; 4-connection pool **global**; 5 s gap per origin; at most 60 fetches per hour per origin (a 61st is refused). Only current-page cards fetch; an off-page card fetches when that page settles. Zero requests when the keyguard is up, when the drawer or a sheet covers home, when the screen is off, or when home is not resumed (0 work while home isn't visible). Airplane mode means zero attempts and no backoff-ladder growth. `dumpsys alarm` and `dumpsys jobscheduler` show no Reflow wakeup. *Grace:* JVM with a fake clock and server, emulator with `svc wifi disable` and a keyguard/screen-off case. **R:** a phone for a battery check (`dumpsys batterystats`, `dumpsys alarm`, `dumpsys jobscheduler`) after a session with home not visible, showing 0 fetch-related work and no background wakeups.
+**RW-8. `net.fetch` runtime (stage 5).** `INTERNET`, the per-element isolated client, origin pin, same-origin redirects, private/link-local/metadata IP deny unless approved, rebinding re-check, caps, **normal https and plain http to LAN hosts** (§6.5): `network-security-config` permitting cleartext, the app-level LAN allowlist before every request and again on the connected address, the refusal of a public http host, and the one-time device-local acknowledgement before a secret goes over http. `headers` (with the deny-list) and `query` objects, and the no-query-in-`url` rule, are enforced here. *Acceptance:* the existing dynamic-widgets §3 and §6 table, each row with a test, plus origin canonicalization (trailing slash, default port, host case, IDN) so `https://ha.example`, `https://ha.example:443/` and `https://HA.EXAMPLE` are treated as one origin. A request to an unapproved origin never leaves the phone. A redirect to another origin fails. A secret is attached only when the request's canonical origin equals the stored origin, and only in a header value or a `query` value as declared, never in the logged or displayed URL. The LAN-http cases are exact-string tests: public `http://example.com` is refused with `elements[N].data.sources[0]: "http://example.com" is a public address, so http isn't allowed there. Use https, or a host on your own network.`; `http://192.168.1.5:8123`, `http://ha.local`, `http://[fe80::1]` and `http://127.0.0.1` pass the allowlist; a `.lan` name that resolves to a public address is refused on the connected address; no fetch happens until the acknowledgement `This sends ha unencrypted on your network.` is given. Until RW-11 lands, a self-signed origin is a TLS failure, last-good data is stale, and the certificate is never accepted silently. *Grace:* JVM with a local test server (MockWebServer), emulator tests against a LAN-style host.
 
-**RW-10. Consent UX for `net.fetch` and secrets (extends #142).** Prompt lines, the private-origin note, the `http://` clear-token warning, **Forget secret**, **re-enter** after `rejected`. *Acceptance:* a broadened line prompts only for the new lines, and the approved secret *name* (never the value) appears in the fingerprint. 401/403 marks the secret `rejected`, stops fetching, keeps last-good stale, offers re-enter on long-press, and does not auto-delete. After **Forget secret** (token removed): `warn_secret_missing`, last-good stale, no further fetches until a value is entered. *Grace:* Compose tests. **R:** one end-to-end approval on a phone, plus a 401 and a Forget-secret check.
+**RW-9. Refresh scheduler.** §7, with the numbers in the acceptance. *Acceptance:* with a fake clock and a test server: glance; tickers at `max(every, 60 s)` per visible source, paused on `onStop`; jitter ±10%; `every` floor `PT1M` (clamp + warning); backoff ×2 / ×4 / ×8 then hold or `PT1H`, reset on success or manual refresh; 2 in flight **per origin**; 4-connection pool **global**; 5 s gap per origin; at most 60 fetches per hour per origin (a 61st is refused). Only current-page cards fetch; an off-page card fetches when that page settles. Zero requests when the keyguard is up, when the drawer or a sheet covers home, when the screen is off, or when home is not resumed (0 work while home isn't visible). Airplane mode means zero attempts and no backoff-ladder growth. `dumpsys alarm` and `dumpsys jobscheduler` show no Reflow wakeup. **Manual refresh is measurable:** after `ui.reload` (not rate-limited), a fetch starts within **1 s** and the card redraws within **1 s** of the response, with a fake clock and server. A source that is waiting (§7) does not fetch. *Grace:* JVM with a fake clock and server, emulator with `svc wifi disable` and a keyguard/screen-off case. **R:** a phone for a battery check (`dumpsys batterystats`, `dumpsys alarm`, `dumpsys jobscheduler`) after a session with home not visible, showing 0 fetch-related work and no background wakeups.
 
-**RW-11 (only if Christopher needs it). TOFU pin for self-signed HTTPS** (Q-C7 stern copy, re-pin pause, last-good stale, never a silent accept). Depends on question Q2 in §13. If this issue is skipped, the failure mode is the TLS one in RW-8.
+**RW-10. Consent UX for `net.fetch` and secrets (extends #142).** Prompt lines, the private-origin note, the `http://` acknowledgement (`This sends ha unencrypted on your network.`), **Forget secret**, **re-enter** after `rejected`. *Acceptance:* a broadened line prompts only for the new lines, and the approved secret *name* (never the value) appears in the fingerprint. the acknowledgement is per `(secret name, origin)`, device-local, and cleared by **Forget secret**. 401/403 marks the secret `rejected`, stops fetching, keeps last-good stale, offers re-enter on long-press, and does not auto-delete. After **Forget secret** (token removed): `warn_secret_missing`, last-good stale, no further fetches until a value is entered. *Grace:* Compose tests. **R:** one end-to-end approval on a phone, plus a 401 and a Forget-secret check.
+
+**RW-11. TOFU pin for self-signed HTTPS (required).** §6.5(c): `needsPin` on an untrusted certificate, the on-phone SHA-256 fingerprint prompt, pin per canonical origin (device-local, never synced), re-prompt when the certificate changes, never a silent accept. It depends on RW-8 and **can land after RW-8 and RW-9**, but M2 isn't complete without it. Until it lands, the failure mode is the TLS one in RW-8. *Acceptance:* an untrusted certificate stops the fetch with last-good shown stale until Trust; Trust pins the fingerprint, and a later connection with the same certificate works; a different certificate stops fetching and shows `elements[N]: the certificate for https://ha.lan:8123 changed since you trusted it, so the widget "Claw" stopped fetching. Open it to check the new fingerprint.`; **Forget** removes the pin. *Grace:* JVM with a self-signed MockWebServer; emulator. **R:** a self-signed LAN server on a phone.
 
 **RW-12. QA pass on the signed release APK.** The matrix: reboot; update over a FEATURE_LEVEL 5 APK (a card at `FL_CARDS_READOUT` or `FL_FETCH` is skipped and its cells are kept); file mode and fetch mode; offline; a rotated and a folded screen; token removed (`warn_secret_missing`, last-good stale, no further fetches); TalkBack; the §7 battery budget and no background wakeups. Known gaps listed in the release notes. *Grace:* emulator profiles on debug builds, on the current CI smoke spread (API 29, 35, 36) and any other profiles she already runs. API 31 is not in current CI smoke and is not required here. *Grace does not install release-key-signed APKs on the box.* **R:** the signed APK and hands-on spot checks by Christopher on a phone (A51, A53 or S25 Ultra) and the onn tablet.
 
-**Order:** #140 → #141 → RW-1 → RW-2 → RW-3 → RW-4 → RW-6 *(M1 ready for Claw; RW-5 can run in parallel)* → RW-7 → RW-8 → RW-9 → RW-10 → (RW-11) → RW-12. Edits (#303/#304) already exist.
+**Order:** #140 → #141 → RW-1 → RW-2 → RW-3 → RW-4 → RW-6 *(M1 ready for Claw; RW-5 can run in parallel)* → RW-7 → RW-7b → RW-8 → RW-9 → RW-10 → RW-11 *(may land after RW-8 and RW-9, but is required)* → RW-12. Edits (#303/#304) already exist. `Restore previous layout` (audit item 3) still lands before the M1 announcement, and folder editing is sequenced with element edits (§10).
 
-## 13. Open product questions for Christopher
+## 13. Open product questions for Christopher, and what is decided (2026-11-27)
 
-(Pragma's four are in [polish-audit.md](polish-audit.md), starting with Q-T7.)
+**Nothing is open for Christopher.** He answered Q1 to Q5 and Pragma's questions on #353. Each answer is written into the design as decided, with the section that holds it. (Pragma's file, [polish-audit.md](polish-audit.md), is untouched. The answers to her questions are recorded here instead.)
 
-1. **Two steps: files first, then live data?** Step one: Claw writes the readout file and picture to your folder, and the card shows them (both of your examples work, nothing new asked of Android, no token on the phone). Step two: the phone fetches from Home Assistant or a web address itself (needs the Internet permission and a token typed on the phone). *Recommended: yes, files first.* Why: step one gets Claw building widgets soonest and is the low-risk part.
-2. **How does your Home Assistant answer: plain `http` on your home network, `https` with a normal certificate, or `https` with a self-signed one?** *Recommended: assume the first two, and only build the extra self-signed-certificate check (RW-11) if you say self-signed.* Why: that check is the biggest piece of step two, and a token sent over plain `http` can be read on your Wi-Fi, which the prompt will say.
-3. **Allow a background picture like the lobster, from a file in your folder?** The phone darkens it automatically so text stays readable, and pictures can't be loaded from the internet. *Recommended: yes.* Why: it's the look of your KWGT widget, and local-only pictures can't track you.
-4. **Allow a card to hide its small title row?** Today every card shows one, so a card can't pass for a system message. Your lobster card has none. **Confirmed by Pragma (2026-11-27), pending this answer; if you say no, we drop it.** The rule she confirmed: `header: false` only when the card opens no links and needs no consent; it always draws a card surface (never `surface: "none"`); a 12 dp ▲ sits in the top-end corner when the data is stale; TalkBack still reads the title. A card that fetches from Home Assistant always shows the title row, because that fetch needs your OK — the lobster look without a title is the file-only form. *Recommended: yes, under that rule.* Why: the picture reproduces only without a title row, and without links or a consent source a card can't lure you anywhere.
-5. **Enter the Home Assistant token once for all widgets?** You paste it once on the phone, and every widget you approve for that Home Assistant address can use it. It can't be sent to any other address. *Recommended: yes.* Why: three cards shouldn't mean three pastes, and the token still can't go anywhere else.
+**Christopher's answers**
+1. **Two steps, files first: yes.** M1 (files) ships first, then M2 (live data). §0, §12.
+2. **Home Assistant transport: plan for all three.** (a) Normal https and (b) plain http to LAN hosts only, both in RW-8; (c) self-signed https by pinned fingerprint in RW-11, required but free to land after RW-8 and RW-9. §6.5.
+3. **Background picture: replaced by layers.** `layers[]` of `content`, `picture` (a local file, or a file chosen by a bound value) and `scrim`; at most 4; a default scrim if a picture is directly under content. RW-3 is "layers and local pictures". §4.4, §8.2.
+4. **`header: false`: yes,** under the file-only rule. §4.5.
+5. **Generic named secrets: yes.** `${secret:NAME}` in `headers` values and a structured `query` object, never the URL; HA is a recipe; an optional one-shot `secrets.import.json` (RW-7b). §5, §6.
 
-Defaults applied without asking, because Christopher's new scope settles them: weather and calendar come from agent files or URL sources, not built-in fetchers. No media widget. Digital clocks only. No phone-side style editor.
+**Pragma's questions: all confirmed**
+- **Dynamic colour (Q-T7): opt-in, yes.** It lives in Settings only, under Appearance.
+- **The phone handles everyday edits: yes.** Folder editing is sequenced with element edits (§10).
+- **Search: apps-only, plus a `Search the web` row: yes.**
+- **A real Settings screen: yes,** with the menu rule below. This **closes the open item that was owned by Pragma**.
+
+**The ⋮ menu versus Settings (Pragma's answer 9).** The ⋮ menu keeps actions and on-the-fly toggles, **7 items or fewer**. Setup, storage and agent settings go to Settings. Any toggle in the menu is **mirrored in Settings with the same state**.
+
+The ⋮ menu, in this order:
+1. `+ Widget` and `+ Page` (edit mode only)
+2. `Review cards · N` with its dot (only when cards are live)
+3. `Reload layout`
+4. `Label backdrop` (toggle with a trailing check)
+5. `Open keyboard with drawer` (toggle with a trailing check)
+6. `Settings` (new)
+7. `Set as home app` (only when Reflow isn't home)
+
+Moves to Settings:
+- Title bar…
+- Config folder, Choose folder, Show config location, and Use phone storage (now with a confirm, per audit item 3)
+- Ask before merging
+- Include hidden apps in apps.json
+- Agent instructions (AGENTS.md)
+- Version (under About)
+- Dynamic colour (in Settings only, under Appearance)
+
+Settings sections: **Appearance, Home & drawer, Storage, Agents & widgets, About.**
+
+**Pragma's answer 3, layers** is §4.4: the default scrim is a full-card fill (`surface` at 60% in light, black at 45% in dark), the warning text is exact, a bound picture with no match and no default is skipped silently at runtime, static missing files keep their load warnings, and the card surface shows while a picture loads or fails.
+
+**Ordering notes kept** (§10): `Restore previous layout` before the M1 announcement; folder editing sequenced with element edits.
+
+**Calls I made that nobody specified** (each is flagged where it appears):
+- Pictures stay in the card's own folder, `widgets-data/<id>/`, not a shared pictures area (§4.4).
+- The title row and the stale ▲ are drawn above every layer, and layers above `content` cap at 60% opacity (§4.4).
+- The inline `image` node is cut. A `picture` layer replaces it (§4.1).
+- The 4-layer cap counts `content`, and the default scrim doesn't count (§4.4).
+- IPv6 unique-local (`fc00::/7`) counts as LAN; `100.64/10` doesn't (§6.5). Self-signed pins are allowed for any approved origin (§6.5).
+- A source `url` can't carry a query string; every parameter goes in `query` (§5). The header deny-list is in §5.
+- `secrets.import.json` has three buttons, including `Delete file without importing`, and is only looked for on load, `RELOAD` and resume (§6.6).
+
+Defaults applied without asking: weather and calendar come from agent files or URL sources, not built-in fetchers. No media widget. Digital clocks only. No phone-side style editor.
+
+**Still pending, owned by Pragma:** the `display` tier's sp values (§4.3, RW-2), and the final copy of the secret entry, http acknowledgement, fingerprint and import prompts.
 
 ## 14. Follow-ups outside this PR
 
-- Update [dynamic-widgets.md](dynamic-widgets.md) §3, §4, §8, §9 (including the staged-plan "likely 6 / 7" row) to match §3's table when the design is accepted.
-- ux.md, when Pragma takes it: §16.1 (first-party group), §16.6, §16.7.3 (`text`/`clock` rows), §17.8/§17.9 (images, `display`, and the §4.5 header sentence), and **§17.1** (ambient `{battery}` / `{nextAlarm[:p]}` tokens are not Phone-data prompts).
-- [native-widgets.md](native-widgets.md) §2.1 still says windowOverrides and `net.fetch` are "likely 6 and 7"; update it to the same merge-order wording as C9 so it doesn't re-reserve those numbers.
-- [layout-overrides.md](layout-overrides.md) and ARCHITECTURE.md §19 are updated in this PR to use `FL_WINDOW_OVERRIDES`, `FL_CARDS_READOUT` and `FL_FETCH`, with no reserved 6 or 7.
-- research/widgets.md §5.5 now points here, and the old `text`/`clock` sketch is marked historical.
+- [dynamic-widgets.md](dynamic-widgets.md) carries an "amended" note and the two wording fixes (levels, secret retention) in this PR. A fuller rewrite of its §3, §4, §8 and §9 to match §3's table here can wait until the design ships.
+- ux.md §17.9 (the header sentence) and §17.8 rule 6 (pointer to layers) are updated in this PR. Still for Pragma: §16.1 (first-party group), §16.6, §16.7.3 (`text`/`clock` rows), the `display` tier in §17.8, the Settings screen and menu rule of §13, and **§17.1** (ambient `{battery}` / `{nextAlarm[:p]}` tokens are not Phone-data prompts).
+- [native-widgets.md](native-widgets.md) §2.1 now uses the merge-order wording of C9.
+- [layout-overrides.md](layout-overrides.md) and ARCHITECTURE.md §19 use `FL_WINDOW_OVERRIDES`, `FL_CARDS_READOUT` and `FL_FETCH`, with no reserved 6 or 7.
+- research/widgets.md §5.5 points here, and the old `text`/`clock` sketch is marked historical.
 - Native-widgets milestone (#298–#305) is unaffected. 1.1.0 (#305) still comes first.
 
 ## 15. Sources

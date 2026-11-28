@@ -46,8 +46,9 @@ A feature level means "this app understands everything up to N". v1.0.0 shipped 
 `requires: 3` would pass the level check on v1.0 and then fall to "unknown type". Worse, an agent reading level 4
 would wrongly assume widgets work. **Ruling:** a level number is fixed when the feature *merges*, in merge order.
 Reserved numbers are proposals. **3 is retired, never used.** `appWidget` = **5**. `windowOverrides` and `net.fetch`
-(designed, not built) take the next free numbers when they land, likely 6 and 7. No shipped app knows 5 or 6, so
-renumbering them costs nothing. NW-1 (#298) updates `Elements.kt`, `validate.py`, the schema description, and the level
+(designed, not built) take the next free numbers **in merge order** when they land. They are named symbolically (`FL_WINDOW_OVERRIDES`,
+`FL_CARDS_READOUT`, `FL_FETCH`, see reflow-widgets.md C9), and no number is reserved. No shipped app knows 5 or above, so
+renumbering costs nothing. NW-1 (#298) updates `Elements.kt`, `validate.py`, the schema description, and the level
 mentions in ARCHITECTURE §19, layout-overrides.md §4.1/§8, dynamic-widgets.md §9 and ux.md Q-A6.
 
 **Release gate:** don't tag a release at level 5 until NW-4 (#301) (tap-to-set-up) is merged. Otherwise a level-5 phone
