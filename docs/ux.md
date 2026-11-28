@@ -1970,8 +1970,7 @@ status dots paired with words.
    with a §15-style warning** (`status.json` + Warnings section, no banner). `surface: "none"` (text right on the
    wallpaper, always with the header row, §17.9) gets the label shadow, plus the 60 % scrim behind each text run when `Label backdrop` is on (§1.1). It
    isn't measured.
-6. **No images with baked-in text. Pictures only as local `layers` behind a scrim (reflow-widgets.md §4.4); no remote images.** Icons are named Material symbols or an installed app's
-   icon. (A mascot under the text, as in a decorative-sticker layout, is what makes contrast impossible to guarantee.)
+6. **No images with baked-in text. Pictures only as local `layers` (reflow-widgets.md §4.4); no remote images.** Each picture layer's `scrim` is `"auto"` (the default: a full-card scrim is added when the picture sits directly under content), `"none"` (an explicit choice: no scrim, and contrast is measured against the card surface, not the picture), or a custom `{color, opacity}`. Icons are named Material symbols or an installed app's icon. (A mascot under the text with `scrim: "none"` is the author's choice; contrast is measured against the card surface, not the picture.)
 
 ### 17.9 Primitives
 Six content primitives plus three containers (`column`, `row`, `tile`). Every primitive takes `priority` (0–9, default
