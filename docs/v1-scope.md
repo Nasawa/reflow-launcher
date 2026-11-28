@@ -60,7 +60,7 @@ This scope is based on main `d37afdb` (6 commits after the `v0.0.1-dev9` tag at 
 | Issue | Status |
 |---|---|
 | [#76](https://github.com/Nasawa/reflow-launcher/issues/76) agent onboarding | **Closed as done.** #84 (`155f6af`), `b58c93a`, `d7a329b`, `eb96935`, `ca35718` and #236. The one leftover is #91. |
-| [#188](https://github.com/Nasawa/reflow-launcher/issues/188) window changes restore by index | **Closed with the pager fix; leftovers move to [#258](https://github.com/Nasawa/reflow-launcher/issues/258).** #214 (`39323d6`, dev8) keeps the page by id, and Claw confirmed it on the onn tablet. #214 says it's only "Part of #188": ux.md §1.5 also asks that edit mode, the drawer (search and scroll), an open folder and the Pages and item sheets survive recreation. Those still reset on a rotate. #258 is a nice-to-have (section 3), never gating. |
+| [#188](https://github.com/Nasawa/reflow-launcher/issues/188) window changes restore by index | **Closed with the pager fix; leftovers move to [#258](https://github.com/Nasawa/reflow-launcher/issues/258).** #214 (`39323d6`, dev8) keeps the page by id, and it was confirmed on a tablet. #214 says it's only "Part of #188": ux.md §1.5 also asks that edit mode, the drawer (search and scroll), an open folder and the Pages and item sheets survive recreation. Those still reset on a rotate. #258 is a nice-to-have (section 3), never gating. |
 | [#137](https://github.com/Nasawa/reflow-launcher/issues/137) S3-A card schema | Merged as #147. It stays open as an S3 tracker until 1.1. |
 
 #79 is in section 4 as the post-1.0 title-bar tracker.

@@ -1617,7 +1617,7 @@ The `Undo` button is the existing one; its window is the one above (10 s or long
 ## 17. Dashboard widgets: consent and components (later, after §16)
 (References to "§17 AQ-…" or "§17 Q…" elsewhere in this doc point to ARCHITECTURE §17, not to this section.)
 Christopher's new framing: **make your home screen into an AI-assisted dashboard.** Widgets defined in the config, like
-Claw's "Anigeek LLC" card (blog post, three uptime metrics, an unhealthy-monitor list, "as of 08:38"), are now the core
+A status card (a latest-post tile, a few site metrics, a monitors row, and an "as of" time) is now the core
 feature. Hosted AppWidgets (§16) sit next to them. This section covers the UX of (1) the **per-widget capability and
 consent model** Archimedes is designing and (2) the **component system** these widgets are drawn with.
 
@@ -1640,7 +1640,7 @@ Assumptions A1–A5, all **✅ resolved** in the [#116 comment](https://github.c
   `ui.openUrl` have none), plus the canonical card `source` (Q-D5, confirmed by Archimedes in [#146](https://github.com/Nasawa/reflow-launcher/pull/146)), sorted. Always-allow sites
   aren't in the fingerprint. Layout, text, style, span and `author` are left
   out, so editing them never prompts (Q-A2). It's compared against the widget's **approved set**, which never shrinks
-  (§17.2, Claw #3).
+  (§17.2, agent review #3).
 - ✅ **A3** Capabilities are **enforced, not just shown**: a widget can't use anything it didn't declare, because the
   runtime grants only the APIs in the element's **approved** manifest (Q-A7). The prompt lists everything a widget can do,
   not a best guess.
@@ -1656,13 +1656,13 @@ The prompt groups capabilities by what they mean to a person, not by API. Each t
 
 | Tier | v1 kind (field) | Examples | Prompt line (exact shape) | Needs OK? |
 |---|---|---|---|---|
-| **Show** | `data.file` (no fields: the file is always `.configlauncher/widgets-data/<elementId>.json`, from the element `id`, so a card can't point at another card's file) | Static text, `{time}`/`{date}`/`{page}`, the widget's own data file | `Show data from widgets-data/w-anigeek.json in your config folder` | **No.** It's listed in the review screen, but on its own it never prompts (Q-D1). The folder is already yours, and displaying data can't reach anything |
+| **Show** | `data.file` (no fields: the file is always `.configlauncher/widgets-data/<elementId>.json`, from the element `id`, so a card can't point at another card's file) | Static text, `{time}`/`{date}`/`{page}`, the widget's own data file | `Show data from widgets-data/w-status.json in your config folder` | **No.** It's listed in the review screen, but on its own it never prompts (Q-D1). The folder is already yours, and displaying data can't reach anything |
 | **Show** | `ui.reload` (no fields) | A tap or button that re-reads this widget's own data file now | `Reload its data when you tap it` | **No** (#117: Show tier, silent). It only re-reads a file the card can already show (§17.9) |
 | **Open** | `ui.openApp` (`packages`) | Tap to open an app, or a launcher target (drawer, page list) | `Open Signal when you tap it` (the app label; the package if it isn't installed) | **No**, same rule as title-bar tap targets |
-| **Open** | `ui.openUrl` (bare, no fields) + the card's **`source`** (its data source site: `"https://blog.anigeek.com"`, `"http://nas.lan"`, or a bare host = https; exact match, IDNA, no subdomains, no port, path or user info). Both **confirmed by Archimedes** in [#146](https://github.com/Nasawa/reflow-launcher/pull/146) (Q-D5) | Tap to open a link in the browser | `Open links to its source, blog.anigeek.com, when you tap it` + `Links to other sites ask you each time.` An http source is written in full (`http://nas.lan`) with `cap_http_note_link` under it. Without `source`: `Open links when you tap it, asking you each time` (review list and detail, and in the prompt when another line makes the widget prompt; on its own it never prompts) | **Yes, when it has a `source`** (approve the source once; a new or changed `source` → `Needs your OK again`). Without `source` there's nothing to pre-approve, so `ui.openUrl` needs no Allow prompt and every tap confirms (§17.9). Removing `source` likewise needs no prompt (no `needsApprovalAgain`), since every tap then confirms. Both matches [#146](https://github.com/Nasawa/reflow-launcher/pull/146) (3237674). Taps to any host other than the approved source **always** show the confirm sheet, unless the user ticked `Always allow` for that host on this phone (Q-D5) |
-| **Internet** (a later feature level, likely 7, and a later release: Christopher's Q-C1/Q-C2, #117) | `net.fetch` (`origins`: full `https://host[:port]` or `http://host[:port]`, approved by name; literal URLs only) | Fetch from named origins | `Connect to status.anigeek.com and blog.anigeek.com` (https hosts shown without `https://`, with `:port` only when it isn't 443; more than 3 → `and 2 more`, expandable). An http origin is always written in full, `Connect to http://nas.lan:3001`, followed by `cap_http_note`: `The connection to http://nas.lan:3001 isn't private. Others on your network could see or change it. Only allow this if you trust this network. You're choosing a less secure connection.` Private-network origins get `cap_private_note` and self-signed ones `cap_tofu_note` (§17.13) | **Yes** |
+| **Open** | `ui.openUrl` (bare, no fields) + the card's **`source`** (its data source site: `"https://status.example.com"`, `"http://nas.example"`, or a bare host = https; exact match, IDNA, no subdomains, no port, path or user info). Both **confirmed by Archimedes** in [#146](https://github.com/Nasawa/reflow-launcher/pull/146) (Q-D5) | Tap to open a link in the browser | `Open links to its source, status.example.com, when you tap it` + `Links to other sites ask you each time.` An http source is written in full (`http://nas.example`) with `cap_http_note_link` under it. Without `source`: `Open links when you tap it, asking you each time` (review list and detail, and in the prompt when another line makes the widget prompt; on its own it never prompts) | **Yes, when it has a `source`** (approve the source once; a new or changed `source` → `Needs your OK again`). Without `source` there's nothing to pre-approve, so `ui.openUrl` needs no Allow prompt and every tap confirms (§17.9). Removing `source` likewise needs no prompt (no `needsApprovalAgain`), since every tap then confirms. Both matches [#146](https://github.com/Nasawa/reflow-launcher/pull/146) (3237674). Taps to any host other than the approved source **always** show the confirm sheet, unless the user ticked `Always allow` for that host on this phone (Q-D5) |
+| **Internet** (a later feature level, likely 7, and a later release: Christopher's Q-C1/Q-C2, #117) | `net.fetch` (`origins`: full `https://host[:port]` or `http://host[:port]`, approved by name; literal URLs only) | Fetch from named origins | `Connect to status.example.com and status.example.com` (https hosts shown without `https://`, with `:port` only when it isn't 443; more than 3 → `and 2 more`, expandable). An http origin is always written in full, `Connect to http://nas.example:3001`, followed by `cap_http_note`: `The connection to http://nas.example:3001 isn't private. Others on your network could see or change it. Only allow this if you trust this network. You're choosing a less secure connection.` Private-network origins get `cap_private_note` and self-signed ones `cap_tofu_note` (§17.13) | **Yes** |
 | **Phone data** (later, no v1 kinds) | — (future `phone.*`) | Calendar, next alarm, battery, notification counts | `Read your calendar` · `See notification counts` | **Yes.** After `Allow`, Android may ask for its own permission too |
-| **Act** (later, no v1 kinds) | — | Write back to the data file, toggles, webhooks. In v1 buttons only Open | `Change values in widgets-data/w-anigeek.json` | **Yes** |
+| **Act** (later, no v1 kinds) | — | Write back to the data file, toggles, webhooks. In v1 buttons only Open | `Change values in widgets-data/w-status.json` | **Yes** |
 | **Never offered** | — (not in the schema) | Send SMS, place calls, read contacts or messages, mic, camera, location, VPN or tunnel control, run code | — | The schema has no kind for these (the iappyx lesson: one bridge for every widget). One written anyway is an unknown kind: the phone skips that element (§17.3), and `validate.py` reports it |
 
 **Hosts and schemes (Christopher: guardrails and information, not blocks; decided as Q-C3/Q-C7 in #117).** http and
@@ -1671,22 +1671,22 @@ with the user (`Only allow this if you trust this network. You're choosing a les
 colours and no extra confirm step. https is the default. Plain http is
 allowed only for a source, host or origin the user approves **by name** (the prompt, or the tap confirm sheet), shown
 literally as `http://…` with the not-private note, so the choice is visible. There's **no silent downgrade**:
-approving `anigeek.com` (https) doesn't cover `http://anigeek.com` (a tap there gets the confirm sheet with the note),
+approving `example.com` (https) doesn't cover `http://example.com` (a tap there gets the confirm sheet with the note),
 and a widget that switches its `source` or an origin to http is broadened (`Needs your OK again`). Hosts match
 **exactly**, after normalising (IDNA → lowercase ASCII / punycode, #117). There are no implied subdomains:
-`anigeek.com` doesn't cover `blog.anigeek.com` (list both), `blog.anigeek.com` doesn't cover `anigeek.com`, and neither
-covers `anigeek.com.evil.net`. `source` and always-allowed hosts carry no port or path (ports only via a full
+`example.com` doesn't cover `status.example.com` (list both), `status.example.com` doesn't cover `example.com`, and neither
+covers `example.com.evil.net`. `source` and always-allowed hosts carry no port or path (ports only via a full
 `net.fetch` origin). The prompt and
 the detail show the normalised punycode form (`xn--…`) the phone enforces, so lookalikes are visible. A user name or password in a URL
-(`https://anigeek.com@evil.net`) is never allowed.
+(`https://example.com@evil.net`) is never allowed.
 
 **Combination line (later).** When a widget asks for **Phone data** *and* **Internet**, the prompt adds a final line in
 bold: `It could send what it reads from your phone to these sites.` It can't happen in v1, because there are no `phone.*`
 kinds. (There's no line like this for Show + Internet: the widget's data file is already the agent's.) When phone
-data kinds arrive, phone data must never be put into a link or an Act target (Claw #1). That's a rule for Archimedes'
+data kinds arrive, phone data must never be put into a link or an Act target (agent review #1). That's a rule for Archimedes'
 schema, and until it exists that pair gets this line too.
 
-**Write-back is input to the agent (later, threat note; Claw #5).** An Act kind that writes values (e.g. a toggle into
+**Write-back is input to the agent (later, threat note; agent review #5).** An Act kind that writes values (e.g. a toggle into
 the widget's data file) creates a channel back into what the agent reads. What the phone writes is **untrusted input to
 the agent**, because someone holding the phone, or a bug, can put anything there. It's bounded to the keys and value
 types the widget declares (e.g. `lights.on: boolean`), and nothing else is written. Agents should treat it as **data,
@@ -1697,7 +1697,7 @@ will say so when write-back ships.
 Rule inherited from §16 (research §5.3): **a file load never opens a dialog.** A file change only *marks* a widget, and
 the prompt opens from a tap.
 
-**One approval model (Claw #3; adopted by Archimedes as the approval *ceiling*, Q-A9).** Each widget `id` has one
+**One approval model (agent review #3; adopted by Archimedes as the approval *ceiling*, Q-A9).** Each widget `id` has one
 stored **approved set** on this phone, a **cumulative union** that approvals at different times add to: every capability line
 (each kind with each of its `packages` / `origins` entries, plus the approved `source`; `data.file` and `ui.reload`
 are a line each) the user has allowed for it, plus the silent lines (no OK needed) recorded while it was live. `Allow`
@@ -1725,14 +1725,14 @@ and the next `Allow` asks fresh, with every line listed as new.
 | **Added on this phone** (picker, §16.1, a template or a first-party type) | The add action | Placed and live once allowed | **Inline, before placing**, only if it needs OK (a Show/Open-only widget is placed straight away). `Keep off` cancels the add, so nothing is written |
 | **Added in the file** (by an agent, a sync, a PC edit) | Reload | Disabled tile `Needs your OK` (§17.3) | From a tap on the tile, or the review screen (§17.4) |
 | **Broadened** (a new kind, or a new entry inside one: a new origin or package, a new or changed `source` outside the set, or https → http) | Reload: a line outside the approved set → `needsApprovalAgain` | **Disabled** with `Needs your OK again`. The old version isn't kept running (its definition is gone) | `"<Title>" wants more access` (§17.5), new lines first |
-| **Narrowed, or back to an earlier version** (everything still within the approved set) | Reload | Stays (or becomes) live. No dot, no badge. The approved set is unchanged | None. A quiet history entry in the widget detail (`10:42 · No longer asks to connect to status.anigeek.com`) |
+| **Narrowed, or back to an earlier version** (everything still within the approved set) | Reload | Stays (or becomes) live. No dot, no badge. The approved set is unchanged | None. A quiet history entry in the widget detail (`10:42 · No longer asks to connect to status.example.com`) |
 | **Cosmetic change** (text, style, layout, `{data:…}` bindings, span or `author`; same capabilities) | Reload | Stays live. No dot, no badge, no `Changed` (not consent-relevant, since none of it is in the fingerprint) | None. Only a quiet history entry (`10:42 · Layout changed in launcher.json`; one per reload at most) |
 | **Element `id` changed** | Reload | Treated as a new widget: `Needs your OK`. Its data file changes too, because the path comes from the `id` (`widgets-data/<newId>.json`), so the agent must rename it | As "Added in the file". The old approval is dropped at the next GC (like widget bindings) |
 | **Same file, another device** (tablet) | First load there | `Needs your OK` (approvals don't sync, A1) | As "Added in the file" (Q-D6) |
 
 **Who changed it.** The launcher can't know who edited the file, so it never claims to. It only knows **"on this
 phone"** (its own write, history-tracked) vs **"in launcher.json"** (anything else). If the element has the optional
-`author` field (string, max 40, bidi and zero-width characters stripped; Q-A4), it's shown as a quote: `Changed in launcher.json · says "Claw"`. It is never a trust signal: an agent and a
+`author` field (string, max 40, bidi and zero-width characters stripped; Q-A4), it's shown as a quote: `Changed in launcher.json · says "agent"`. It is never a trust signal: an agent and a
 person editing on a PC get the same prompt, and no author is ever auto-approved (Q-D7).
 
 **The name shown for a widget (Archimedes: `title` stays optional).** A `card`'s `title` is optional, as the S3-A
@@ -1742,7 +1742,7 @@ and zero-width characters, §13), or, when that's missing or empty, the element 
 broadened titles, the review list rows, the detail header, the Turn off snackbar, the Forget dialog, the link confirm
 sheet's `From "…"`, the card header, `card_a11y` and the `status.json` warnings. There's no separate untitled copy, and
 a missing title is never a reason to skip a card. Agents should still set a `title`. It's recommended, because a person
-recognises `Anigeek LLC` far faster than `w-anigeek`. **Neither name is trusted.** The agent writes both the title and
+recognises `Example Co` far faster than `w-status`. **Neither name is trusted.** The agent writes both the title and
 the id, so either one can imitate another widget or a system message (`Allow "Android System"?`). That's why no
 decision rests on the name: the prompt always lists the real capability lines with the real file path, app labels and
 hosts (§17.5), and the link confirm sheet always shows the real resolved address (§17.9).
@@ -1796,7 +1796,7 @@ Long-press: the item sheet with the title, `Widget · from launcher.json`, then 
 
 **Review list** (`Widget permissions`, full screen, from all of the above). Sections, each hidden when empty:
 1. `Needs your OK (2)`: one row per widget with the title, `Page 2 · 4 × 3`, a one-line summary (`New: Internet,
-   links`) and the source (`in launcher.json · 10:42`, with ` · says "Claw"` only when `author` is present). Tap → prompt.
+   links`) and the source (`in launcher.json · 10:42`, with ` · says "agent"` only when `author` is present). Tap → prompt.
 2. `Allowed (5)`: title and capability chips (`Show`, `Open`, `Internet`). Tap → detail.
 3. `Turned off (1)`.
 4. `Android widgets (3)`: hosted AppWidgets, read-only, `Allowed by Android` (A5). Tap → App info.
@@ -1809,19 +1809,19 @@ A bottom sheet (not a dialog, so it can scroll and show a preview), opened only 
 **New widget**
 ```
 ┌──────────────────────────────────────┐
-│ Allow "Anigeek LLC"?                 │
+│ Allow "Example Co"?                 │
 │ Added in launcher.json · 10:42       │
-│ says "Claw"                          │
+│ says "agent"                          │
 │ ┌──────────────────────────────────┐ │
 │ │ [preview: layout with — for data]│ │
 │ └──────────────────────────────────┘ │
 │ This widget can:                     │
 │  · Show data from widgets-data/      │
-│    w-anigeek.json in your config     │
+│    w-status.json in your config     │
 │    folder                            │
-│  · Connect to status.anigeek.com     │
+│  · Connect to status.example.com     │
 │  · Open links to its source,         │
-│    blog.anigeek.com, when you tap it │
+│    status.example.com, when you tap it │
 │    Links to other sites ask you each │
 │    time.                             │
 │                                      │
@@ -1851,7 +1851,7 @@ A bottom sheet (not a dialog, so it can scroll and show a preview), opened only 
   lines recorded while it was live), `needsApproval` when the ceiling is empty, `off` if turned off (e.g. after
   `Forget approval`). So the UI can't approve lines the user never saw, even by accident. Whenever a fingerprint
   mismatch ends the sheet without a decision (the store refuses `Allow`, or the sheet closes on its own because the
-  card changed or left the file), the snackbar `consent_changed_snack` says so: `"Anigeek LLC" changed. Review it
+  card changed or left the file), the snackbar `consent_changed_snack` says so: `"Example Co" changed. Review it
   again.` (§17.13). It has no action, and TalkBack announces it.
 - After `Allow`, Android runtime permissions follow if needed, one system dialog per permission, but only those that
   are missing. If one is denied, the widget is live, the affected bindings show `—`, and the detail shows `Android
@@ -1867,17 +1867,17 @@ prompt (§17.2).
 `off` | `allowed`) and an optional `warning` in the §15.1 style. **Confirmed by Archimedes** (shape and the `warn_consent_*` / `warn_data_missing` names in §17.13). It never holds the
 approval secret or the approved set itself:
 ```json
-"consent": { "w-anigeek": { "state": "needsApproval", "warning": "elements[4]: widget \"Anigeek LLC\" is waiting for approval on this phone. It isn't shown until then." } }
+"consent": { "w-status": { "state": "needsApproval", "warning": "elements[4]: widget \"Example Co\" is waiting for approval on this phone. It isn't shown until then." } }
 ```
 An agent can see it's blocked and tell the person to look at the phone, and it can't do anything about it itself.
 
 ### 17.6 Manage and revoke (per widget)
 Widget detail (from the review list, or item sheet → `Review` / `Permissions`):
-- Header: title, `Page 2 · 4 × 3`, source and last change (`Changed in launcher.json · 10:42`, plus ` · says "Claw"`
+- Header: title, `Page 2 · 4 × 3`, source and last change (`Changed in launcher.json · 10:42`, plus ` · says "agent"`
   only when `author` is present).
 - `This widget can:` with the same lines as the prompt, each with a status (`Allowed`, `Android permission off`).
 - **History** (last 5 consent-relevant changes on this phone, quiet: never a badge or dot): `10:42 · No longer asks to
-  connect to status.anigeek.com`, `10:15 · Always allowed news.example.org`, `Yesterday · Allowed`.
+  connect to status.example.com`, `10:15 · Always allowed news.example.org`, `Yesterday · Allowed`.
 - `Approved on this phone:` the full approved set, including lines the current version no longer uses (secondary
   text, `not used now`).
 - **`Always allowed sites`** (shown only when there's at least one): each host the user ticked `Always allow` for, in
@@ -1892,7 +1892,7 @@ Widget detail (from the review list, or item sheet → `Review` / `Permissions`)
   while `Forget approval` **clears the ceiling** and leaves the widget **off** (a live widget turns off first). It
   can't be undone, so it confirms first:
   ```
-  Forget approval for "Anigeek LLC"?
+  Forget approval for "Example Co"?
   It stays off. Next time you allow it, you'll be asked about everything again.
                                             [Cancel]  [Forget]
   ```
@@ -1922,10 +1922,10 @@ Widget detail (from the review list, or item sheet → `Review` / `Permissions`)
 - **Colour:** status is never colour-only. A dot is always paired with a word or glyph (`up`, `down`, ▲, ■).
 
 ### 17.8 Component system: cell-relative layout
-**Anti-example (KWGT, `kwgt-handmade-widget.jpg`):** hand-placed absolute positions and pixel font sizes (`ctx`/`5h`/`7d`
+**Anti-example (absolute layout):** hand-placed absolute positions and pixel font sizes
 bars, `up 8h 44m`, `status: idle`, a mascot image under the text). It looks right on one phone and breaks on another
 screen: elements overlap or float, text doesn't scale, and the card's height has no relation to the icon grid around it.
-**Target (Claw card):** one surface, nested tiles, a clear title / source / value / label hierarchy, a small `as of`, and
+**Target (sample card):** one surface, nested tiles, a clear title / source / value / label hierarchy, a small `as of`, and
 status dots paired with words.
 
 **Rules.**
@@ -1941,7 +1941,7 @@ status dots paired with words.
    | `pad.tile` | 8 dp | Tile inner padding |
    | `gap` | 8 dp | Between siblings (`gap.s` 4, `gap.l` 12) |
    | `radius.card` | 16 dp | Card corners (clamped 12–24) |
-   | `radius.tile` | `radius.card − pad.card / 2`, min 6 | Nested corners stay concentric (Claw look) |
+   | `radius.tile` | `radius.card − pad.card / 2`, min 6 | Nested corners stay concentric (the target look) |
    | `icon` | 16 dp (`icon.l` 24) | Glyphs, app icons inside a widget |
    | `dot` | 6 dp | Status dot |
 3. **Text tiers by size class, not device.** The size class comes from the widget's span: width **compact** (w ≤ 2),
@@ -1962,7 +1962,7 @@ status dots paired with words.
    single layout reflows by the same rules.
 5. **Surface and contrast over wallpaper** (extends §12). The default `surface: "auto"` follows the home theme (§12.1):
    in the dark theme it's a dark card, `#121218` at
-   **≥ 85 %** opacity, which is the floor (Claw's feel). Worst case over pure white wallpaper (computed like
+   **≥ 85 %** opacity, which is the floor (the target feel). Worst case over pure white wallpaper (computed like
    `tools/contrast.py`): white text **12.1:1**, secondary white 70 % **6.8:1**, inside a 6 % white tile **10.1:1** /
    **5.9:1**; status dots green `#4CD964` **5.5:1**, amber `#FFC400` **6.3:1**, red `#FF6363` **3.4:1** (all ≥ 3:1 as
    non-text graphics). Red is never used for text: `down` is white with a red dot and ■. `surface: "light"` mirrors
@@ -1971,7 +1971,7 @@ status dots paired with words.
    wallpaper, always with the header row, §17.9) gets the label shadow, plus the 60 % scrim behind each text run when `Label backdrop` is on (§1.1). It
    isn't measured.
 6. **No images with baked-in text. Pictures only as local `layers` behind a scrim (reflow-widgets.md §4.4); no remote images.** Icons are named Material symbols or an installed app's
-   icon. (A mascot under the text, as in the KWGT example, is what makes contrast impossible to guarantee.)
+   icon. (A mascot under the text, as in a decorative-sticker layout, is what makes contrast impossible to guarantee.)
 
 ### 17.9 Primitives
 Six content primitives plus three containers (`column`, `row`, `tile`). Every primitive takes `priority` (0–9, default
@@ -1981,13 +1981,13 @@ glyph for warn ▲ and error ■.
 | Primitive | Shows | Overflow | Empty / stale / error | TalkBack |
 |---|---|---|---|---|
 | `text` | Template text (title-bar grammar + `{data:…}`), `role` caption/body/title, `maxLines` 1–4 | Ellipsize at the end | Binding missing → `—` | As written |
-| `metric` | Label (caption), value (metric tier), optional unit and status, like `PicSpin site · up · 96 ms` | Label ellipsizes first, value never truncates. Too narrow → the unit is dropped, then the label | `—` | `PicSpin site, up, 96 milliseconds` |
+| `metric` | Label (caption), value (metric tier), optional unit and status, like `Site A · up` | Label ellipsizes first, value never truncates. Too narrow → the unit is dropped, then the label | `—` | `Site A, up` |
 | `list` | Rows from a data array: leading dot/icon, primary text, trailing caption (`down`). `maxItems` or `auto` (as many as fit) | `auto` shows what fits plus `+2 more` | Empty → `emptyText` (default `Nothing to show`) | `Unhealthy monitors, list, 1 item. Label Printer, down` |
 | `icon` | Material symbol or app icon, `icon`/`icon.l` | Dropped by priority | — | Its `label`, or skipped if decorative |
 | `progress` | Bar (or ring at 1×1), value 0–1, label + percentage (the ctx/5h/7d case, done right) | Label drops before the bar | `—` and an empty track | `ctx, 18 percent` |
 | `button` | Label (+ icon), runs a declared action (`ui.openApp` / `ui.openUrl` / `ui.reload`; Act kinds later) | Icon-only at compact, label kept in TalkBack | Action not allowed → hidden, never greyed-and-tappable | `<Label>, button` |
 
-**Card chrome (automatic, always drawn; Claw #4).** Every config widget gets a header row with the title (`title` role)
+**Card chrome (automatic, always drawn; agent review #4).** Every config widget gets a header row with the title (`title` role)
 and its source: `as of 08:38` (caption) when the data has `updatedAt`, otherwise a 12 dp `dashboard` glyph that marks it as
 a widget. The header never shows `author`. It turns `as of 08:38 · stale` with ▲ after the widget's `staleAfter` (default 2× the agent's declared
 interval, else 30 min). **The header can't be turned off,** except with `header: false` on a card that opens no links and needs no consent (see reflow-widgets.md §4.5). At `short` heights (h = 1) it collapses to a leading title
@@ -2008,7 +2008,7 @@ first ever load shows `—`. A data file that's missing or unreadable keeps the 
 **Link taps (`ui.openUrl`, Q-D5).** A tap `url` may contain `{data:…}` (e.g. the latest blog post). At tap time the
 launcher resolves it and checks the **resolved** URL, in this order:
 1. **Blocked** (nothing opens): a scheme other than `https` / `http` (`intent:`, `javascript:`, `file:`, `content:`, …),
-   or a user name or password in the URL (`https://anigeek.com@evil.net`). Snackbar (4 s, no action, TalkBack says the
+   or a user name or password in the URL (`https://example.com@evil.net`). Snackbar (4 s, no action, TalkBack says the
    same) `This link isn't allowed for this widget.`, never a dialog and no "open anyway", plus a `status.json` warning
    (`warn_tap_scheme` / `warn_tap_userinfo`). These are the only cases that say "not allowed".
 2. **Empty** binding: nothing opens. Snackbar `This link has no address yet.` and `warn_tap_empty`. A value that isn't a
@@ -2018,7 +2018,7 @@ launcher resolves it and checks the **resolved** URL, in this order:
 4. **Anything else → confirm sheet, every time**, showing the real resolved address:
    ```
    Open news.example.org?
-   From "Anigeek LLC"
+   From "Example Co"
    https://news.example.org/2026/10/a-ver…/post?id=42
    ☐ Always allow news.example.org
                          [Cancel]  [Open]
@@ -2033,8 +2033,8 @@ launcher resolves it and checks the **resolved** URL, in this order:
      `Always allowed <host>`. The unticked `Always allow <host>` checkbox copy matches [#146](https://github.com/Nasawa/reflow-launcher/pull/146) (3237674). It's a choice
      made on the phone: no field in `launcher.json` or the data file can pre-tick it or add a host, and `author` never
      changes that.
-   - **http**: the same sheet, with the URL in full (`http://nas.lan/status`) and `cap_http_note_link` under it; the
-     checkbox reads `Always allow http://nas.lan`. An http link to a host approved for https only is "anything else":
+   - **http**: the same sheet, with the URL in full (`http://nas.example/status`) and `cap_http_note_link` under it; the
+     checkbox reads `Always allow http://nas.example`. An http link to a host approved for https only is "anything else":
      it gets this sheet, never a silent downgrade.
    - One sheet at a time; a second tap while it's open does nothing.
 - No `status.json` warning for a confirm-sheet tap or a `Cancel`; it's normal use, not a mistake. This, and keeping
@@ -2069,14 +2069,14 @@ The same `launcher.json` syncs to a tablet. Cells are bigger there, up to the §
 ### 17.11 Sample declaration (UX terms only; **Archimedes owns the schema**)
 ```json
 {
-  "id": "w-anigeek",
+  "id": "w-status",
   "type": "card",
   "requires": 4,
   "page": "home", "x": 0, "y": 4, "w": 4, "h": 3,
   "minSpan": { "w": 3, "h": 2 },
-  "title": "Anigeek LLC",
-  "author": "Claw",
-  "source": "https://blog.anigeek.com",
+  "title": "Example Co",
+  "author": "agent",
+  "source": "https://status.example.com",
   "surface": "auto",
   "capabilities": [
     { "kind": "data.file" },
@@ -2088,16 +2088,16 @@ The same `launcher.json` syncs to a tablet. Cells are bigger there, up to the §
     "2x1": [ { "type": "metric", "label": "Monitors", "value": "{data:monitors.summary}", "status": "{data:monitors.status}" } ],
     "4x3": [
       { "type": "tile", "children": [
-        { "type": "text", "role": "caption", "text": "Latest on blog.anigeek.com" },
+        { "type": "text", "role": "caption", "text": "Latest on status.example.com" },
         { "type": "text", "role": "body", "text": "{data:blog.title}", "maxLines": 2 }
       ], "tap": { "kind": "ui.openUrl", "url": "{data:blog.url}" } },
       { "type": "row", "children": [
-        { "type": "metric", "label": "PicSpin site", "value": "{data:picspin.value}", "status": "{data:picspin.status}" },
-        { "type": "metric", "label": "letmeaithatforyou", "value": "{data:lmaitfy.value}", "status": "{data:lmaitfy.status}", "priority": 4 },
-        { "type": "metric", "label": "Homelab monitors", "value": "{data:monitors.summary}", "status": "{data:monitors.status}" }
+        { "type": "metric", "label": "Site A", "value": "{data:site_a.value}", "status": "{data:site_a.status}" },
+        { "type": "metric", "label": "Site B", "value": "{data:site_b.value}", "status": "{data:site_b.status}", "priority": 4 },
+        { "type": "metric", "label": "Monitors", "value": "{data:monitors.summary}", "status": "{data:monitors.status}" }
       ] },
       { "type": "list", "label": "Unhealthy monitors", "items": "{data:unhealthy}", "maxItems": "auto", "emptyText": "All monitors up",
-        "tap": { "kind": "ui.openUrl", "url": "http://nas.lan/status" } },
+        "tap": { "kind": "ui.openUrl", "url": "http://nas.example/status" } },
       { "type": "button", "label": "Reload", "icon": "refresh", "priority": 2, "tap": { "kind": "ui.reload" } }
     ]
   }
@@ -2113,11 +2113,11 @@ Normative names from the [#116 comment](https://github.com/Nasawa/reflow-launche
 user always-allowed) opens without the confirm sheet (§17.9). `source` is the card's data source site, on the element
 (not inside `capabilities[]`), **confirmed by Archimedes** in [#146](https://github.com/Nasawa/reflow-launcher/pull/146): `https://host` or `http://host`, or a bare host
 (= https), with no port, path, query or user info. It isn't a fetch origin and doesn't imply `net.fetch`. `data.file` has no `path`: the file comes from the element `id`, so this card reads
-`.configlauncher/widgets-data/w-anigeek.json`, which the agent writes, e.g.
-`{ "updatedAt": "2026-10-19T08:38:00-06:00", "picspin": { "value": "up · 96 ms", "status": "ok" }, "unhealthy": [ … ] }`.
-Prompt: `ui.openUrl` only (`Open links to its source, blog.anigeek.com, when you tap it` / `Links to other sites ask you
-each time.`). The blog tap opens straight away. The `http://nas.lan/status` list tap shows the confirm sheet every
-time, with the not-private note, until the user ticks `Always allow http://nas.lan`. `data.file` and `ui.reload` are Show-tier lines and don't prompt. Without the
+`.configlauncher/widgets-data/w-status.json`, which the agent writes, e.g.
+`{ "updatedAt": "2026-10-19T08:38:00-06:00", "site_a": { "value": "up", "status": "ok" }, "unhealthy": [ … ] }`.
+Prompt: `ui.openUrl` only (`Open links to its source, status.example.com, when you tap it` / `Links to other sites ask you
+each time.`). The blog tap opens straight away. The `http://nas.example/status` list tap shows the confirm sheet every
+time, with the not-private note, until the user ticks `Always allow http://nas.example`. `data.file` and `ui.reload` are Show-tier lines and don't prompt. Without the
 `ui.openUrl` capability, the card would be Show-only and go live with no prompt (Q-D1). `requires: 4` is the card + local-data level. Adding
 `net.fetch` would make it 6.
 
@@ -2351,8 +2351,8 @@ Dashboard widgets (§17). All answered by Christopher; the original recommendati
   INTERNET with `net.fetch` in a later release (stage 5). Original question kept for the record: The schema now has `net.fetch` (exact origins, https by default, feature level 6; was proposed as 5 before #186 took level 5 for `windowOverrides`). Should the launcher ship it? It
   means adding the **INTERNET permission to the whole app**, for every user and every widget, which breaks the README's
   "no network access" promise even for people who never allow a fetch. [Ship level 4 first: your agent fetches on its
-  own machine and writes `.configlauncher/widgets-data/<id>.json`, as the Claw card's numbers already could. Turn on
-  level 6 only if you want cards that work with no agent running, and update the README promise then. Claw, the agent
+  own machine and writes `.configlauncher/widgets-data/<id>.json`, as a file-fed status card already could. Turn on
+  level 6 only if you want cards that work with no agent running, and update the README promise then. An agent
   whose card this is, notes that no-fetch-first costs the dashboard nothing: it already fetches on its own machine.]
   **Note:** this differs from Grok Bot's earlier direction ("the launcher fetches from approved sites only"). Pick
   either. If you choose fetch, http to hosts you approve by name is allowed (§17.1).
@@ -2366,7 +2366,7 @@ Dashboard widgets (§17). All answered by Christopher; the original recommendati
   `Always allow <host>` checkbox only the user can tick on the phone (§17.9).
 - ✅ **Q-D6** (accepted as recommended) Should an approval on your phone carry over to your tablet? [No: each device asks once per widget. Syncing
   approvals through the folder would let anything that can write the folder approve itself.]
-- ✅ **Q-D7** (accepted as recommended) Should any author (e.g. Claw) ever be trusted to add widgets without asking? [No, not in this release. The
+- ✅ **Q-D7** (accepted as recommended) Should any author (e.g. an agent) ever be trusted to add widgets without asking? [No, not in this release. The
   author is quoted, never verified.]
 
 Title bar and home theme (§12.1, §15):
@@ -2414,7 +2414,7 @@ Dashboard capability model (§17): all eight are answered in the [#116 comment](
 | Q | Resolution |
 |---|---|
 | ~~Q-A1~~ | ✅ Closed kinds: `data.file` and `ui.reload` (Show, no fields; the data file comes from the element `id`), `ui.openApp` / `ui.openUrl` (Open), `net.fetch` (Internet). No `phone.*` or Act kinds in v1. Never-offered kinds aren't in the schema |
-| ~~Q-A2~~ | ✅ Fingerprint = each `kind` + its field (`packages` / `hosts` / `origins`; none for `data.file` / `ui.reload`) only, sorted. Refined by Claw #3 and Q-A9 (§17.2): compared against a per-widget approval ceiling (a cumulative union that never shrinks); anything within it is silent, anything beyond → `needsApprovalAgain` |
+| ~~Q-A2~~ | ✅ Fingerprint = each `kind` + its field (`packages` / `hosts` / `origins`; none for `data.file` / `ui.reload`) only, sorted. Refined by agent review #3 and Q-A9 (§17.2): compared against a per-widget approval ceiling (a cumulative union that never shrinks); anything within it is silent, anything beyond → `needsApprovalAgain` |
 | ~~Q-A3~~ | ✅ `status.json` `consent` map keyed by element id: `state` (`needsApproval` / `needsApprovalAgain` / `off` / `allowed`) + optional `warning`. No approval secret in it |
 | ~~Q-A4~~ | ✅ Real optional field `author` (string, max 40). Quoted, never trusted |
 | ~~Q-A5~~ | ✅ `{data:…}` with dots + `[index]` only, `list` binds to an array, `updatedAt` at the data file root, `staleAfter` on the element. One file per widget: `.configlauncher/widgets-data/<elementId>.json` |

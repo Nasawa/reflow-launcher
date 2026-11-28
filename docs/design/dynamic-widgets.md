@@ -1,10 +1,10 @@
 # Dynamic widgets: AI-assisted dashboard cards
 
-> **Amended 2026-11-27 by [reflow-widgets.md](reflow-widgets.md).** Readout widgets are an evolution of these cards, not a parallel system. Follow-ups on this document: `net.fetch` is pulled forward as `data.sources[]` (M2); secrets are generic named secrets (`${secret:NAME}` in `headers` and `query`); **keeping a secret after its last widget leaves the config is an intentional change from the earlier design** (§3 and the row in §6 deleted it); plain http to LAN hosts and pinned self-signed https are planned (reflow-widgets.md §6.5); and feature levels are symbolic and fixed in merge order, not "likely 6 / 7". A fuller rewrite of §3, §4, §8 and §9 can wait until the design ships. Where this document and reflow-widgets.md differ, reflow-widgets.md wins.
+> **Amended 2026-11-27 by [reflow-widgets.md](reflow-widgets.md).** Readout widgets are an evolution of these cards, not a parallel system. Follow-ups on this document: `net.fetch` is pulled forward as `data.sources[]` (M2); secrets are generic named secrets declared in a source's `auth` (`bearer`, a named header, or a named query param); **keeping a secret after its last widget leaves the config is an intentional change from the earlier design** (§3 and the row in §6 deleted it); plain http is limited to LAN addresses checked at connect time, while https with a publicly trusted certificate is allowed whatever IP it resolves to, including a private or CGNAT address; self-signed https is optional (reflow-widgets.md §6.5); and feature levels are symbolic and fixed in merge order, not "likely 6 / 7". A fuller rewrite of §3, §4, §8 and §9 can wait until the design ships. Where this document and reflow-widgets.md differ, reflow-widgets.md wins.
 
 **Status:** on main via [#117](https://github.com/Nasawa/reflow-launcher/pull/117) (`971c2eb`); Archimedes follow-ups below.  
 **Christopher settled Q-C1–C5, Q-C7** (2026-10-19); **Q-C6 already decided**.  
-**Q-A9 (Pragma #116 / Claw):** http allowed when approved by name; approval ceiling = cumulative union. **Claw review folded in** (PR #117): structural `data.file`, tap example, Q-C7/Q-C3, `ui.reload` + relative time, narrowing ceiling model. *(The exact-host `ui.openUrl.hosts` allowlist from #117 is superseded by Q-D5 below.)*  
+**Q-A9 (Pragma #116 / agent review):** http allowed when approved by name; approval ceiling = cumulative union. **An outside review folded in** (PR #117): structural `data.file`, tap example, Q-C7/Q-C3, `ui.reload` + relative time, narrowing ceiling model. *(The exact-host `ui.openUrl.hosts` allowlist from #117 is superseded by Q-D5 below.)*  
 **Q-D5 settled (Christopher via Pragma, 2026-10-19):** optional card-level **`source`**; capability `ui.openUrl` is **bare** (no `hosts`); taps to `source` open **silently**; taps anywhere else **confirm every time** with **Always allow this site** (device-local, per element id). `source` is part of the capability fingerprint. Supersedes the hosts-based `ui.openUrl` design.  
 **Archimedes (this revision):** **Turn off** keeps the approval ceiling; **Forget approval** (widget detail) clears it; stage-5 TOFU **certificate changed** pauses `net.fetch` and shows last-good data stale.  
 **Pragma S3-C:** consent strings settled at [#116](https://github.com/Nasawa/reflow-launcher/pull/116) tip / §17.13 — Sprite may build from that branch. C3 http disclosure + C4 hide-author applied.
@@ -25,9 +25,9 @@ Apps, folders, and direct user control stay. Widgets come in two kinds; **(b) is
 
 ### Reference inputs (research only)
 
-1. **Outer Shell (target).** `claw-outer-shell-widget.jpg` — Claw's POC card: title "Anigeek LLC", `as of 08:38`, refresh affordance, latest-post tile, status chips (`up · 96 ms`, `119/120 up`), unhealthy-monitors list. Full-width on a 5-column home grid.
-2. **KWGT (anti-example).** `kwgt-handmade-widget.jpg` — hand-built absolute layout; **sizing broke on a tablet**. Absolute px/sp inside the card is forbidden.
-3. **iappyx (anti-example).** `claw-iappyx-review.jpg` — every widget got a full JS bridge (SMS, contacts, SSH, ~40 permissions) with **no per-widget capability list**. We must not repeat that: **no scripts, no code execution, no shared bridge.**
+1. **A status card (target).** A sample status card: title "Example Co", `as of 08:38`, refresh affordance, latest-post tile, status chips (`up`, `All up`), unhealthy-monitors list. Full-width on a 5-column home grid.
+2. **Absolute layout (anti-example).** A hand-built absolute layout; **sizing broke on a tablet**. Absolute px/sp inside the card is forbidden. (This is the class of layout a tool such as KWGT makes easy.)
+3. **A scripted-bridge anti-example.** Every widget got a full JS bridge (SMS, contacts, SSH, ~40 permissions) with **no per-widget capability list**. We must not repeat that: **no scripts, no code execution, no shared bridge.**
 
 ## 1. Declarative component vocabulary (no scripts, ever)
 
@@ -92,9 +92,9 @@ Responsive: up to 3 `layouts` keyed by `"WxH"` with a **lowercase** `x` (e.g. `"
 - **Redirects:** follow only if the next hop stays on the **same pinned origin**; otherwise fail the fetch.
 - **`net.fetch` request URLs are literals** in the element (fixed under a pinned origin). They must **not** be built from `{data:…}`.
 - **`ui.openUrl` tap `url` MAY use `{data:…}`** (Outer Shell needs this for "latest post"). At tap time resolve the template, reject `userinfo` / non-http(s) schemes, normalise scheme + host (IDNA/punycode/lowercase), then (Q-D5): if scheme+host **exactly** matches the card's `source` (no subdomain inference), open **silently**; if it matches a device-local **Always allow** entry for this element, open silently; otherwise show a **per-tap confirm** naming the destination (with **Always allow this site**). There is **no `hosts` allowlist** on the capability. See §4 *card.source and ui.openUrl taps*. `ui.openUrl` only hands the URL to the browser/intent — it is **not** a fetch.
-- **Connect-time IP check:** on every connection, resolve and refuse RFC1918 / link-local / metadata addresses unless that exact origin was approved under the private-origin allow flow. **DNS rebinding:** re-check the connected IP on each request, not only at approval time.
-- **Cleartext / LAN (decided — Q-C3 / Q-C7, Christopher 2026-10-19):** users own what they knowingly approve. `http://` is allowed when the user knowingly approves it by name — an `http://…` card `source`, an **Always allow** for an `http://` site, or an `http://…` `net.fetch` origin — show `http://` in the prompt; **no silent https→http downgrade**. Disclosure / consent copy must say that **http is less secure**, that some local setups make https difficult for little gain, and that **the user is responsible for what they approve**. Self-signed: **TOFU certificate pinning per origin** (pin on first approve / explicit re-pin if the cert changes; stern copy about remembering the pin) — not disabling TLS validation. **Certificate changed (stage 5):** while a re-pin / "certificate changed" prompt is unanswered, **pause `net.fetch`** for that origin (and that widget's fetches that need it); keep showing **last-good data marked stale**. **Never** silently accept the new cert. Private IPs still need an explicit approved origin; agent-written local JSON remains the simplest LAN path.
-- **Secrets:** never in synced files. Device Keystore / encrypted prefs, entered on phone, scoped to `(elementId, origin)`. Agents declare that a secret slot exists; user fills it. **When the pinned origin set changes, delete secrets for origins that were removed** before any new fetch runs. **Amended 2026-11-27 (reflow-widgets.md §6):** secrets are named, keyed by `(name, canonical origin)` and shared across widgets, and are **kept** after the last widget leaves the file unless the user chooses Forget secret. Generic `${secret:NAME}` in headers or query only, never the URL.
+- **Connect-time IP check (http only, reflow-widgets.md §6.5):** the private-network check applies only to plain http, never to https. For http, check the **resolved / connected address** at connect time (RFC1918, link-local, loopback, and CGNAT `100.64/10`). A public http address is refused. **HTTPS** with a publicly trusted certificate is allowed whatever IP it resolves to, including a private or CGNAT address; no warning may say "private IP denied" for https. **DNS rebinding:** re-check the connected IP on each http request, not only at approval time.
+- **Cleartext / LAN (decided — Q-C3 / Q-C7, Christopher 2026-10-19):** users own what they knowingly approve. `http://` is allowed when the user knowingly approves it by name — an `http://…` card `source`, an **Always allow** for an `http://` site, or an `http://…` `net.fetch` origin — show `http://` in the prompt; **no silent https→http downgrade**. Disclosure / consent copy must say that **http is less secure**, that some local setups make https difficult for little gain, and that **the user is responsible for what they approve**. Self-signed: **TOFU certificate pinning per origin** (pin on first approve / explicit re-pin if the cert changes; stern copy about remembering the pin) — not disabling TLS validation. **Certificate changed (stage 5):** while a re-pin / "certificate changed" prompt is unanswered, **pause `net.fetch`** for that origin (and that widget's fetches that need it); keep showing **last-good data marked stale**. **Never** silently accept the new cert. An http origin still needs the named approval and the "less secure" disclosure. Agent-written local JSON remains the simplest LAN path. Self-signed https pinning (RW-11) is optional and does not block M2.
+- **Secrets:** never in synced files. Device Keystore / encrypted prefs, entered on phone, scoped to `(elementId, origin)`. Agents declare that a secret slot exists; user fills it. **When the pinned origin set changes, delete secrets for origins that were removed** before any new fetch runs. **Amended 2026-11-27 (reflow-widgets.md §6):** secrets are named, keyed by `(name, canonical origin)` and shared across widgets, and are **kept** after the last widget leaves the file unless the user chooses Forget secret. A source declares placement in `auth`; the value is injected at request time and is never stored in the `url`.
 
 ### What stays out of the synced folder
 
@@ -128,7 +128,7 @@ Prefer **kind-specific keys**, not a generic `targets` array (easier for schema 
 | `ui.openUrl` | *(no fields)* — `{ "kind": "ui.openUrl" }` only; **no `hosts`** (Q-D5) |
 | `net.fetch` | `origins` (exact `https://host[:port]` or `http://host[:port]`) |
 
-**Card-level `source`** (optional string, on the card element — **not** inside `capabilities[]`): the widget's origin, either scheme-qualified (`https://blog.anigeek.com`, `http://nas.lan`) or a bare host (= `https://`). It decides which `ui.openUrl` taps open silently. It is **not** a fetch origin and does **not** imply `net.fetch`.
+**Card-level `source`** (optional string, on the card element — **not** inside `capabilities[]`): the widget's origin, either scheme-qualified (`https://status.example.com`, `http://nas.example`) or a bare host (= `https://`). It decides which `ui.openUrl` taps open silently. It is **not** a fetch origin and does **not** imply `net.fetch`.
 
 Fingerprint serializes `kind` + those fields (sorted), plus the canonical `source` (see *Fingerprint and prompts*). Pragma's illustrative `targets` is **not** the schema shape.
 
@@ -141,11 +141,11 @@ Decided by Christopher (via Pragma, 2026-10-19). Replaces the #117 `ui.openUrl.h
 
 | Form of `source` | Canonical |
 |---|---|
-| bare host (`blog.anigeek.com`) | `https://blog.anigeek.com` |
-| scheme-qualified (`https://nas.lan`, `http://nas.lan`) | that **scheme + host** |
+| bare host (`status.example.com`) | `https://status.example.com` |
+| scheme-qualified (`https://nas.example`, `http://nas.example`) | that **scheme + host** |
 
 - Unicode → lowercase / **punycode** (IDNA). v1: host only, default ports (no path, query, or `userinfo` in `source`; reject if present).
-- **No implied subdomains:** `anigeek.com` ≠ `blog.anigeek.com`.
+- **No implied subdomains:** `example.com` ≠ `status.example.com`.
 - **No silent https→http downgrade:** an `https://` (or bare) `source` never silently opens `http://`. An `http://` `source` is shown with **`http://` visible** in consent and carries the Q-C3/C7 http disclosure.
 - Default for agents: prefer scheme-qualified `https://…` (or bare). Use `http://…` only when cleartext is knowingly needed (homelab).
 
@@ -174,13 +174,13 @@ Decided by Christopher (via Pragma, 2026-10-19). Replaces the #117 `ui.openUrl.h
 - Fingerprint = canonical sorted **capabilities + their fields**, plus the canonical card **`source`** (Q-D5) — not layout/style/`author`/span. Changing `source` (add, remove, or different scheme/host) is a fingerprint change → `needsApprovalAgain` / re-prompt like any other broaden. Device-local Always-allow entries are **not** part of the fingerprint.
 - File load **never** opens a dialog (Pragma §17.2). Broadened → dashed consent tile `Needs your OK` / `Needs your OK again`, content not rendered, cells kept.
 - See **Approval ceiling** below (union set; never shrinks).
-- Cosmetic / layout / data-shape changes with capabilities unchanged → **stay live, no prompt, no info dot**. A quiet history entry only (Pragma §17 / Claw #3).
+- Cosmetic / layout / data-shape changes with capabilities unchanged → **stay live, no prompt, no info dot**. A quiet history entry only (Pragma §17 / agent review #3).
 
-### Approval ceiling (Claw #3 / Q-A9) — one set per widget, never shrinks
+### Approval ceiling (agent review #3 / Q-A9) — one set per widget, never shrinks
 
 The device stores one **approved capability set** per element id: a union of every `(kind, target)` line the user has ever approved for that widget on this phone.
 
-- Approvals at **different times combine** (union). Approving bare `ui.openUrl` (card `source` `https://blog.anigeek.com`) today and `data.file` tomorrow yields both in the ceiling. The approved `source` is recorded with the ceiling; a different `source` later is outside it and re-prompts. Per-site **Always allow** taps are a **separate** device-local store, not ceiling lines.
+- Approvals at **different times combine** (union). Approving bare `ui.openUrl` (card `source` `https://status.example.com`) today and `data.file` tomorrow yields both in the ceiling. The approved `source` is recorded with the ceiling; a different `source` later is outside it and re-prompts. Per-site **Always allow** taps are a **separate** device-local store, not ceiling lines.
 - The stored set **never shrinks** on file edits (narrowing does not delete lines).
 - **File is live with no prompt** iff every declared `(kind, target)` in the file is ∈ the stored set (file ⊆ ceiling).
 - **Anything outside the ceiling** → prompt only for the **new** lines (`needsApproval` / `needsApprovalAgain`); on approve, union them into the ceiling.
@@ -193,7 +193,7 @@ The device stores one **approved capability set** per element id: a union of eve
 This replaces a single “fingerprint equality / subset of last fingerprint” model: the ceiling is cumulative across prompts.
 
 - Approvals **device-local**, keyed by `elementId + capabilityFingerprint`.
-- Optional / **recommended** `author` string (≤40): quoted in UI (`says "Claw"`), **never** trusted for auto-approve (Q-C4). If omitted, **hide** the author chrome — do not crash and do not show empty quote UI.
+- Optional / **recommended** `author` string (≤40): quoted in UI (`says "agent"`), **never** trusted for auto-approve (Q-C4). If omitted, **hide** the author chrome — do not crash and do not show empty quote UI.
 
 ### `status.json`
 
@@ -255,7 +255,7 @@ Honest holes in "local files + opt-in URL fetch + per-widget manifest":
 
 1. **APK `INTERNET` is all-or-nothing.** Once granted, a launcher bug or future capability mistake is higher stakes. Mitigation: keep fetch code tiny, origin-pin in one module, default deny private IPs, feature-flag fetch behind `requires`.
 2. **Path/query on taps:** `{data:…}` openUrl is checked at tap time against `source` / Always-allow, else per-tap confirm (Q-D5, §3–§4). Path/query are not pinned — the confirm shows the destination host. Fetch URLs stay literal. Secret-bearing fetches should still avoid query strings; path prefix pins remain a later option.
-3. **LAN allow prompts will be tempting to click through** for homelab users. Prefer agent → local file for HA/Uptime Kuma data; treat private `net.fetch` as advanced.
+3. **LAN allow prompts will be tempting to click through** for homelab users. Prefer agent → local file for Home Assistant or status-page data; treat private `net.fetch` as advanced.
 4. **Shared refresh schedules** can still DDoS a Pi. Enforce global and per-origin rate limits, not only per-widget.
 5. **Approvals don't sync** (correct for security) → every tablet re-consents (Pragma). Accept the friction.
 6. **"Phone data" tier** without v1 kinds: keep the UX tier for later; don't invent battery/SMS "just in case."
@@ -271,7 +271,7 @@ Honest holes in "local files + opt-in URL fetch + per-widget manifest":
 | Agent writes HA-shaped JSON into `widgets-data/<id>.json` | Kind (b) v1 — **recommended** for Outer Shell–class cards |
 | `net.fetch` to HA URL + Keystore token | Kind (b) later / **advanced** — pinned origin, stern private-IP rules |
 
-**Confirmed:** companion AppWidgets + agent-written local JSON are enough for v1 of kind (b). HA must **not** be tightly coupled to the launcher. Building your own HA-reading card (agent JSON or later `net.fetch`) is an advanced usage. Distant future: optional first-class widgets shipped in the app is OK as a far goal, not v1. Still **against** a built-in HA API client with broad rights. Claw (or any agent) owns the integration glue; the launcher owns safe display + consent.
+**Confirmed:** companion AppWidgets + agent-written local JSON are enough for v1 of kind (b). HA must **not** be tightly coupled to the launcher. Building your own HA-reading card (agent JSON or later `net.fetch`) is an advanced usage. Distant future: optional first-class widgets shipped in the app is OK as a far goal, not v1. Still **against** a built-in HA API client with broad rights. the agent (or any agent) owns the integration glue; the launcher owns safe display + consent.
 
 ## 9. Staged plan (schemaVersion 1 throughout)
 
@@ -289,7 +289,7 @@ Honest holes in "local files + opt-in URL fetch + per-widget manifest":
 
 ## 10. Open questions
 
-### For Christopher / Claw — product answers landed (2026-10-19)
+### Product answers — product answers landed (2026-10-19)
 
 - **Q-C1:** *(decided)* **Yes** — APK `INTERNET` for stage 5, gated by per-widget `net.fetch` approval; assumed necessary for fetch.
 - **Q-C2:** *(decided)* **Yes** — ship dynamic widgets **local-data-only** first (stage 3); fetch in a later release.
@@ -314,15 +314,15 @@ See answers on [#116](https://github.com/Nasawa/reflow-launcher/pull/116#issueco
 
 ```json
 {
-  "id": "w-anigeek",
+  "id": "w-status",
   "type": "card",
   "requires": 4,
   "page": "home", "x": 0, "y": 4, "w": 4, "h": 3,
   "minSpan": { "w": 3, "h": 2 },
-  "title": "Anigeek LLC",
-  "author": "Claw",
+  "title": "Example Co",
+  "author": "agent",
   "surface": "auto",
-  "source": "https://blog.anigeek.com",
+  "source": "https://status.example.com",
   "capabilities": [
     { "kind": "data.file" },
     { "kind": "ui.openUrl" }
@@ -334,13 +334,13 @@ See answers on [#116](https://github.com/Nasawa/reflow-launcher/pull/116#issueco
     ],
     "4x3": [
       { "type": "tile", "children": [
-        { "type": "text", "role": "caption", "text": "Latest on blog.anigeek.com" },
+        { "type": "text", "role": "caption", "text": "Latest on status.example.com" },
         { "type": "text", "role": "body", "text": "{data:blog.title}", "maxLines": 2 }
       ], "tap": { "kind": "ui.openUrl", "url": "{data:blog.url}" } },
       { "type": "row", "children": [
-        { "type": "metric", "label": "PicSpin site", "value": "{data:picspin.value}", "status": "{data:picspin.status}" },
-        { "type": "metric", "label": "letmeaithatforyou", "value": "{data:lmaitfy.value}", "status": "{data:lmaitfy.status}", "priority": 4 },
-        { "type": "metric", "label": "Homelab monitors", "value": "{data:monitors.summary}", "status": "{data:monitors.status}" }
+        { "type": "metric", "label": "Site A", "value": "{data:site_a.value}", "status": "{data:site_a.status}" },
+        { "type": "metric", "label": "Site B", "value": "{data:site_b.value}", "status": "{data:site_b.status}", "priority": 4 },
+        { "type": "metric", "label": "Monitors", "value": "{data:monitors.summary}", "status": "{data:monitors.status}" }
       ] },
       { "type": "list", "label": "Unhealthy monitors", "items": "{data:unhealthy}", "maxItems": "auto", "emptyText": "All monitors up" }
     ]
@@ -348,4 +348,4 @@ See answers on [#116](https://github.com/Nasawa/reflow-launcher/pull/116#issueco
 }
 ```
 
-Data file: `.configlauncher/widgets-data/w-anigeek.json` (agent-written). First load prompts because the card declares `ui.openUrl` (consent for that kind, showing `source` `https://blog.anigeek.com`); Show-only cards with just `data.file` go live with no prompt. The sample tap uses `{data:blog.url}` only (no redundant `host` field): if it resolves to `https://blog.anigeek.com/…` it opens **silently**; a link to `anigeek.com` or any other site gets the per-tap confirm (with **Always allow this site**). Changing `source` later re-prompts.
+Data file: `.configlauncher/widgets-data/w-status.json` (agent-written). First load prompts because the card declares `ui.openUrl` (consent for that kind, showing `source` `https://status.example.com`); Show-only cards with just `data.file` go live with no prompt. The sample tap uses `{data:blog.url}` only (no redundant `host` field): if it resolves to `https://status.example.com/…` it opens **silently**; a link to `example.com` or any other site gets the per-tap confirm (with **Always allow this site**). Changing `source` later re-prompts.

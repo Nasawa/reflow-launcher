@@ -173,7 +173,7 @@ Uninstalling or reinstalling the provider flips the state live. Long-press alway
 own click. A horizontal swipe on a non-scrolling widget changes page. Placeholders announce
 `<Label>, widget, <reason>` in TalkBack (`<Label>, widget, Work widgets come later` for a work widget).
 Grace: emulator with AOSP Clock/Calendar widgets plus the screen matrix (phone, t7, t10, land). **R** (Christopher, via Grok Bot) on
-a phone (A51, A53 or S25 Ultra) and the onn tablet: Google Calendar (scrolling list), Samsung Weather or Google weather, a KWGT widget, HA companion if installed.
+a phone and a tablet: Google Calendar (scrolling list), a weather widget, a third-party widget host such as KWGT, and a Home Assistant companion widget if installed.
 Check long-press vs tap vs swipe, and rotation.
 
 **NW-4 (#301). Tap to set up: bind and configure (incl. D1 silent bind).**
