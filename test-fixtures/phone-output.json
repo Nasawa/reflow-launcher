@@ -111,12 +111,28 @@
   },
   "invalid/card-secret-url.json": {
     "errors": [
-      "elements[0].layouts.1x1[0].tap.url: a link can't use a secret."
+      "elements[0].layouts.1x1[0].tap.url: a link can't use a secret.",
+      "elements[0].layouts.1x1[1].tap.url: a link can't use a secret."
+    ]
+  },
+  "invalid/card-segments-21.json": {
+    "errors": [
+      "elements[0].layouts.1x1[0].segments: 21 is out of range 2..20"
+    ]
+  },
+  "invalid/card-summary-121.json": {
+    "errors": [
+      "elements[0].summary: longer than 120 characters"
     ]
   },
   "invalid/card-tap-undeclared.json": {
     "errors": [
       "elements[0].layouts.1x1[0].tap: ui.openApp isn't in this card's capabilities"
+    ]
+  },
+  "invalid/card-thresholds-6.json": {
+    "errors": [
+      "elements[0].layouts.1x1[0].thresholds: needs 1 to 5 entries"
     ]
   },
   "invalid/card-thresholds-from.json": {

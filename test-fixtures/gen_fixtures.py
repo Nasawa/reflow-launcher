@@ -261,8 +261,17 @@ add(V,'card-auto-scrim.json',m(els(_card(requires=6, layers=[{'kind':'picture','
 add(I,'card-readout-requires-4.json',m(els(_card(requires=4, header=False))),'invalid, B2: readout keys need requires 6','kotlin','reflow-widgets.md §12','#360')
 add(I,'card-second-content.json',m(els(_card(requires=6, layers=[{'kind':'content'},{'kind':'content'}]))),'invalid, B2: only one content layer','both','reflow-widgets.md §4.4','#360')
 add(I,'card-remote-src.json',m(els(_card(requires=6, layers=[{'kind':'picture','src':'https://example.com/x.webp'}]))),'invalid, B2: picture src cannot be a web address','both','reflow-widgets.md §4.4','#360')
-add(I,'card-secret-url.json',m(els(_card(requires=6, capabilities=[{'kind':'ui.openUrl'}], layouts={'1x1':[{'type':'text','text':'go','tap':{'kind':'ui.openUrl','url':'https://example.com/${secret:ha}'}}]}))),
-    'invalid, B2: a leftover ${secret:…} in a tap url is a load error','both','reflow-widgets.md §5.1','#360')
+add(I,'card-secret-url.json',m(els(_card(requires=6, capabilities=[{'kind':'ui.openUrl'}], layouts={'1x1':[
+    {'type':'text','text':'go','tap':{'kind':'ui.openUrl','url':'https://example.com/${secret:ha}'}},
+    {'type':'text','text':'go2','tap':{'kind':'ui.openUrl','url':'https://example.com/{secret:ha}'}}]}))),
+    'invalid, B2: leftover ${secret:…} and {secret:…} in tap urls are load errors','both','reflow-widgets.md §5.1','#360')
+add(I,'card-segments-21.json',m(els(_card(requires=6, layouts={'1x1':[{'type':'progress','value':0.5,'segments':21}]}))),
+    'invalid, B2: progress segments is at most 20','both','reflow-widgets.md §4.2','#360')
+add(I,'card-summary-121.json',m(els(_card(requires=6, summary='x'*121))),
+    'invalid, B2: summary is at most 120 characters','both','reflow-widgets.md §4','#360')
+add(I,'card-thresholds-6.json',m(els(_card(requires=6, layouts={'1x1':[{'type':'progress','value':1,'thresholds':[
+    {'from':0,'tone':'accent'},{'from':10,'tone':'ok'},{'from':20,'tone':'warn'},{'from':30,'tone':'error'},{'from':40,'tone':'muted'},{'from':50,'tone':'accent'}]}]}))),
+    'invalid, B2: thresholds allows at most 5 entries','both','reflow-widgets.md §4.2','#360')
 add(I,'card-thresholds-from.json',m(els(_card(requires=6, layouts={'1x1':[{'type':'progress','value':1,'thresholds':[{'from':75,'tone':'warn'}]}]}))),
     'invalid, B2: the first thresholds from must be 0','kotlin','reflow-widgets.md §4.2','#360')
 

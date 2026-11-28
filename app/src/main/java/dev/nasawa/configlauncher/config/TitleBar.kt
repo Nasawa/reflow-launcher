@@ -90,12 +90,12 @@ object TitleBar : Elements.ElementType {
         }
     }
 
-    /** Token, `#RRGGBB`, or `{light, dark}`. Shared with card surface / scrim / node color (#360). */
+    /** Token, `#RRGGBB`, or one level of `{light, dark}`. Shared with card surface / scrim / node color (#360). */
     fun checkColor(v: JsonElement, path: String, c: Validator.Checks) {
         if (v is JsonObject) {
             c.keys(v, path, setOf("light", "dark"), emptySet(), xKeys = false)
             if (v.isEmpty()) c.err("", "$path needs light or dark.")
-            for (k in listOf("light", "dark")) v[k]?.let { checkColor(it, "$path.$k", c) }
+            for (k in listOf("light", "dark")) v[k]?.let { color(it, "$path.$k", c) }
         } else color(v, path, c)
     }
 

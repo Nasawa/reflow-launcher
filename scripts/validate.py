@@ -990,7 +990,7 @@ class Card:
                 r.err("", f"{path} needs light or dark.")
             for k in ("light", "dark"):
                 if k in v:
-                    Card._color(r, v[k], f"{path}.{k}")
+                    TitleBar._color(r, v[k], f"{path}.{k}")
         else:
             TitleBar._color(r, v, path)
 

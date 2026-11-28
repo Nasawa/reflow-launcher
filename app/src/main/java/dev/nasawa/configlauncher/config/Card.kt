@@ -59,7 +59,7 @@ object Card : Elements.ElementType {
     private val HEX = Regex("^#[0-9A-Fa-f]{6}$")
     /** Leftover secret-reference syntax (reflow-widgets.md §5 / §5.1). Auth-based checks are #366. */
     private val SECRET_REF = Regex("\\\$\\{secret:|\\{secret:")
-    private val TOKEN = Regex("\\{(data|fetch):[^}]*}")
+    private val TOKEN = Regex("\\{(data|fetch):[^}]*\\}")
 
     const val MIN_REQUIRES = 4
     const val MAX_CAPABILITIES = 8

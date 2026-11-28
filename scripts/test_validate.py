@@ -350,6 +350,9 @@ class CardReadout(unittest.TestCase):
         bad = {**base, "layouts": {"1x1": [{"type": "text", "text": "go", "tap": {"kind": "ui.openUrl", "url": "https://example.com/${secret:ha}"}}]}}
         _, errs = V.validate(self._raw(bad), use_schema=False)
         self.assertIn("elements[0].layouts.1x1[0].tap.url: a link can't use a secret.", errs)
+        brace = {**base, "layouts": {"1x1": [{"type": "text", "text": "go", "tap": {"kind": "ui.openUrl", "url": "https://example.com/{secret:ha}"}}]}}
+        _, errs = V.validate(self._raw(brace), use_schema=False)
+        self.assertIn("elements[0].layouts.1x1[0].tap.url: a link can't use a secret.", errs)
 
     def test_from_75_accepted(self):
         card = {"id": "w-1", "type": "card", "requires": 6, "page": "home", "x": 0, "y": 1, "w": 2, "h": 2,
@@ -398,6 +401,59 @@ class CardReadout(unittest.TestCase):
         tree, errs = V.validate(self._raw(above), use_schema=False)
         self.assertEqual([], errs)
         self.assertEqual(["elements[0].layers[1].opacity is above 0.6 on a layer above content, so it's shown at 0.6 to keep text readable. Use 0.6 or less, or move the layer under the content."], V.warnings(tree))
+
+    def test_default_scrim_uses_real_index(self):
+        card = {"id": "w-1", "type": "card", "requires": 6, "page": "home", "x": 0, "y": 1, "w": 2, "h": 2,
+                "layers": [{"kind": "picture", "src": "photo.webp"}, {"kind": "content"}],
+                "layouts": {"1x1": [{"type": "text", "text": "hi"}]}}
+        tree, errs = V.validate(self._raw(card), use_schema=False)
+        self.assertEqual([], errs)
+        self.assertEqual([
+            'elements[0].layers[0]: a picture is right under content, so a default scrim was added to keep text readable. Set this layer\'s scrim to choose it, or "none" to turn it off.'
+        ], V.warnings(tree))
+        not_under = {"id": "w-1", "type": "card", "requires": 6, "page": "home", "x": 0, "y": 1, "w": 2, "h": 2,
+                     "layers": [{"kind": "picture", "src": "a.webp"}, {"kind": "picture", "src": "b.webp", "scrim": "auto"}, {"kind": "content"}],
+                     "layouts": {"1x1": [{"type": "text", "text": "hi"}]}}
+        tree, errs = V.validate(self._raw(not_under), use_schema=False)
+        self.assertEqual([], errs)
+        self.assertEqual([
+            'elements[0].layers[1]: a picture is right under content, so a default scrim was added to keep text readable. Set this layer\'s scrim to choose it, or "none" to turn it off.'
+        ], V.warnings(tree))
+
+    def test_extra_layers_and_above_content_opacity(self):
+        layers = [{"kind": "picture", "src": f"p{i}.webp"} for i in range(1, 6)] + [{"kind": "content"}]
+        card = {"id": "w-1", "type": "card", "requires": 6, "page": "home", "x": 0, "y": 1, "w": 2, "h": 2,
+                "layers": layers, "layouts": {"1x1": [{"type": "text", "text": "hi"}]}}
+        tree, errs = V.validate(self._raw(card), use_schema=False)
+        self.assertEqual([], errs)
+        ws = V.warnings(tree)
+        self.assertEqual("elements[0].layers: has 6 layers, so the last 2 were skipped. A card can have at most 4.", ws[0])
+        self.assertIn(
+            'elements[0].layers[3]: a picture is right under content, so a default scrim was added to keep text readable. Set this layer\'s scrim to choose it, or "none" to turn it off.',
+            ws,
+        )
+        above = {"id": "w-1", "type": "card", "requires": 6, "page": "home", "x": 0, "y": 1, "w": 2, "h": 2,
+                 "layers": [{"kind": "content"}, {"kind": "picture", "src": "over.webp", "opacity": 0.9}],
+                 "layouts": {"1x1": [{"type": "text", "text": "hi"}]}}
+        tree, errs = V.validate(self._raw(above), use_schema=False)
+        self.assertEqual([], errs)
+        self.assertEqual([
+            "elements[0].layers[1].opacity is above 0.6 on a layer above content, so it's shown at 0.6 to keep text readable. Use 0.6 or less, or move the layer under the content."
+        ], V.warnings(tree))
+        above_ok = {"id": "w-1", "type": "card", "requires": 6, "page": "home", "x": 0, "y": 1, "w": 2, "h": 2,
+                    "layers": [{"kind": "content"}, {"kind": "picture", "src": "over.webp", "opacity": 0.5}],
+                    "layouts": {"1x1": [{"type": "text", "text": "hi"}]}}
+        tree, errs = V.validate(self._raw(above_ok), use_schema=False)
+        self.assertEqual([], errs)
+        self.assertEqual([], V.warnings(tree))
+
+    def test_nested_light_dark_color_is_rejected(self):
+        raw = json.dumps({"schemaVersion": 1, "pages": [{"id": "home", "items": []}],
+                          "elements": [{"id": "t-main", "type": "titleBar",
+                                        "style": {"color": {"light": {"light": "primary", "dark": "dark"}, "dark": "dark"},
+                                                  "backdrop": "scrim"}}]}).encode()
+        _, errs = V.validate(raw, use_schema=False)
+        self.assertIn("elements[0].style.color.light must be #RRGGBB or one of light, dark, onWallpaper, primary, secondary, onSurface, surface.", errs)
 
     def test_missing_file_sentences(self):
         card = {"id": "w-1", "type": "card", "requires": 6, "page": "home", "x": 0, "y": 1, "w": 2, "h": 2,

@@ -274,4 +274,9 @@ class TitleBarTest {
         // Repro 2: the same text on black is nearly invisible, so it's warned.
         assertEquals(1, Elements.phoneWarnings(bar("#000000"), false) { hex[it] }.size)
     }
+
+    @Test fun nestedLightDarkColorIsRejected() {
+        val errs = errors(doc("""{"id":"t-main","type":"titleBar","style":{"color":{"light":{"light":"primary","dark":"dark"},"dark":"dark"},"backdrop":"scrim"}}"""))
+        assertTrue(errs.toString(), errs.contains("elements[0].style.color.light must be #RRGGBB or one of light, dark, onWallpaper, primary, secondary, onSurface, surface."))
+    }
 }

@@ -974,9 +974,30 @@
   },
   {
     "file": "invalid/card-secret-url.json",
-    "expect": "invalid, B2: a leftover ${secret:…} in a tap url is a load error",
+    "expect": "invalid, B2: leftover ${secret:…} and {secret:…} in tap urls are load errors",
     "layer": "both",
     "ref": "reflow-widgets.md §5.1",
+    "note": "#360"
+  },
+  {
+    "file": "invalid/card-segments-21.json",
+    "expect": "invalid, B2: progress segments is at most 20",
+    "layer": "both",
+    "ref": "reflow-widgets.md §4.2",
+    "note": "#360"
+  },
+  {
+    "file": "invalid/card-summary-121.json",
+    "expect": "invalid, B2: summary is at most 120 characters",
+    "layer": "both",
+    "ref": "reflow-widgets.md §4",
+    "note": "#360"
+  },
+  {
+    "file": "invalid/card-thresholds-6.json",
+    "expect": "invalid, B2: thresholds allows at most 5 entries",
+    "layer": "both",
+    "ref": "reflow-widgets.md §4.2",
     "note": "#360"
   },
   {
