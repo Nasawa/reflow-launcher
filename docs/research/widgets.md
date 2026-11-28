@@ -161,7 +161,9 @@ What **can** be restored, as options:
 
 ### 5.5 First-party config-defined widgets
 
-> **Superseded (2026-11-27):** `text` and `clock` are not element types. First-party readouts are cards with ambient tokens and recipes; see [docs/design/reflow-widgets.md](../design/reflow-widgets.md).
+> **Superseded (2026-11-27):** `text` and `clock` are not element types. First-party readouts are cards with ambient tokens and recipes; see [docs/design/reflow-widgets.md](../design/reflow-widgets.md). The historical sketch below is the earlier recommendation only; it is not the plan.
+
+Earlier recommendation (not current):
 
 Reuse everything the title bar built: element base, `style` block (`elementStyle`), template grammar with allow-listed tokens, ticker, contrast warnings, `requires` levels.
 - **`text`**: `content.template` (same grammar and token set as the title bar: `{time:…}`, `{date:…}`, `{page}`, and later `{status}`/`{nextAlarm}`), `maxLines`, plus the full text style. This covers "clock as text", greetings, and status lines.
