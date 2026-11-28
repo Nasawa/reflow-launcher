@@ -420,17 +420,19 @@ object Card : Elements.ElementType {
                 val lp = "$path.layers[$i]"
                 val fit = (layer["fit"] as? JsonPrimitive)?.takeIf { it.isString }?.content ?: "cover"
                 if ("width" in layer && fit != "fixed")
-                    out += """$lp.width is ignored unless fit is "fixed"."""
+                    out += """$lp.width is ignored unless fit is "fixed", so the picture is sized with "$fit". Set fit to "fixed" to use width, or drop width."""
                 numOf(layer, "width")?.let { w ->
-                    if (fit == "fixed" && w < MIN_WIDTH) out += "$lp.width: $w was clamped to $MIN_WIDTH."
-                    else if (fit == "fixed" && w > MAX_WIDTH) out += "$lp.width: $w was clamped to $MAX_WIDTH."
+                    if (fit == "fixed" && (w < MIN_WIDTH || w > MAX_WIDTH)) {
+                        val setTo = w.coerceIn(MIN_WIDTH, MAX_WIDTH)
+                        out += "$lp.width: ${fmtNum(w)} is outside ${fmtNum(MIN_WIDTH)} to ${fmtNum(MAX_WIDTH)}, so it was set to ${fmtNum(setTo)}. Use a value in that range."
+                    }
                 }
                 (layer["offset"] as? JsonObject)?.let { off ->
                     fun clamp(axis: String) {
                         val v = numOf(off, axis) ?: return
-                        when {
-                            v < -MAX_OFFSET -> out += "$lp.offset.$axis: $v was clamped to ${-MAX_OFFSET}."
-                            v > MAX_OFFSET -> out += "$lp.offset.$axis: $v was clamped to $MAX_OFFSET."
+                        if (v < -MAX_OFFSET || v > MAX_OFFSET) {
+                            val setTo = v.coerceIn(-MAX_OFFSET, MAX_OFFSET)
+                            out += "$lp.offset.$axis: ${fmtNum(v)} is outside ${fmtNum(-MAX_OFFSET)} to ${fmtNum(MAX_OFFSET)}, so it was set to ${fmtNum(setTo)}. Use a value in that range."
                         }
                     }
                     clamp("x"); clamp("y")
@@ -444,7 +446,7 @@ object Card : Elements.ElementType {
                 if (above) {
                     val opacity = numOf(layer, "opacity") ?: 1.0
                     if (opacity > ABOVE_OPACITY)
-                        out += "$lp: a layer above content is shown at 60% at most, so text stays readable."
+                        out += "$lp.opacity is above ${fmtNum(ABOVE_OPACITY)} on a layer above content, so it's shown at ${fmtNum(ABOVE_OPACITY)} to keep text readable. Use ${fmtNum(ABOVE_OPACITY)} or less, or move the layer under the content."
                 }
                 if (files != null) {
                     val src = (layer["src"] as? JsonPrimitive)?.takeIf { it.isString }?.content
@@ -465,14 +467,14 @@ object Card : Elements.ElementType {
                     val k = (cv as? JsonPrimitive)?.content?.toLongOrNull()
                     if (k != null) {
                         when {
-                            style != "ticks" -> out += """$np.count is ignored unless style is "ticks"."""
-                            k > MAX_TICKS -> out += "$np.count: $k was lowered to $MAX_TICKS, the most a ticks bar can have."
-                            k < MIN_TICKS -> out += "$np.count: $k was raised to $MIN_TICKS, the least a ticks bar can have."
+                            style != "ticks" -> out += """$np.count is ignored unless style is "ticks", so the tick count isn't used. Set style to "ticks" to use count, or drop count."""
+                            k > MAX_TICKS -> out += "$np.count: $k is outside $MIN_TICKS to $MAX_TICKS, so it was set to $MAX_TICKS. A ticks bar can have at most $MAX_TICKS ticks."
+                            k < MIN_TICKS -> out += "$np.count: $k is outside $MIN_TICKS to $MAX_TICKS, so it was set to $MIN_TICKS. A ticks bar needs at least $MIN_TICKS ticks."
                         }
                     }
                 }
                 if (style == "ticks" && "segments" in n)
-                    out += """$np.segments is ignored when style is "ticks"."""
+                    out += """$np.segments is ignored when style is "ticks", so the bar uses ticks. Drop segments, or drop style to use a segmented bar."""
             }
             (n["children"] as? JsonArray)?.forEachIndexed { i, ch -> walkNodes(ch, "$np.children[$i]") }
         }
@@ -490,6 +492,12 @@ object Card : Elements.ElementType {
         val p = o[k] as? JsonPrimitive ?: return null
         if (p.isString) return null
         return p.content.toDoubleOrNull()
+    }
+
+    /** Whole numbers without a trailing ".0", so "width 2" matches the §4.4 sentence. */
+    internal fun fmtNum(n: Double): String {
+        val i = n.toLong()
+        return if (n == i.toDouble()) i.toString() else n.toString()
     }
 
     override fun canonical(o: JsonObject): JsonObject {

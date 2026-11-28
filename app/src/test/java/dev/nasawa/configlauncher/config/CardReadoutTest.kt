@@ -122,7 +122,7 @@ class CardReadoutTest {
         // first 4 are pictures (content at index 5 is skipped), implicit content at front of the kept 4? kept = first 4 pictures, no content listed in kept → implicit at top, all 4 are under implicit content. Last kept picture (index 3) is directly under implicit content.
         assertTrue(w.any { it == """elements[0].layers[3]: a picture is right under content, so a default scrim was added to keep text readable. Set this layer's scrim to choose it, or "none" to turn it off.""" })
         val above = doc(card(extra = ""","layers":[{"kind":"content"},{"kind":"picture","src":"over.webp","opacity":0.9}]"""))
-        assertEquals(listOf("elements[0].layers[1]: a layer above content is shown at 60% at most, so text stays readable."), warnings(above))
+        assertEquals(listOf("elements[0].layers[1].opacity is above 0.6 on a layer above content, so it's shown at 0.6 to keep text readable. Use 0.6 or less, or move the layer under the content."), warnings(above))
         val aboveOk = doc(card(extra = ""","layers":[{"kind":"content"},{"kind":"picture","src":"over.webp","opacity":0.5}]"""))
         assertTrue(warnings(aboveOk).isEmpty())
     }
@@ -136,17 +136,25 @@ class CardReadoutTest {
 
     @Test fun widthOffsetAndTickCountWarnings() {
         val width = doc(card(extra = ""","layers":[{"kind":"picture","src":"a.webp","fit":"cover","width":0.4}]"""))
-        assertTrue(warnings(width).any { it == """elements[0].layers[0].width is ignored unless fit is "fixed".""" })
+        assertTrue(warnings(width).any { it == """elements[0].layers[0].width is ignored unless fit is "fixed", so the picture is sized with "cover". Set fit to "fixed" to use width, or drop width.""" })
+        val contain = doc(card(extra = ""","layers":[{"kind":"picture","src":"a.webp","fit":"contain","width":0.4}]"""))
+        assertTrue(warnings(contain).any { it == """elements[0].layers[0].width is ignored unless fit is "fixed", so the picture is sized with "contain". Set fit to "fixed" to use width, or drop width.""" })
         val wide = doc(card(extra = ""","layers":[{"kind":"picture","src":"a.webp","fit":"fixed","width":2}]"""))
-        assertTrue(warnings(wide).any { it == "elements[0].layers[0].width: 2.0 was clamped to 1.5." })
+        assertTrue(warnings(wide).any { it == "elements[0].layers[0].width: 2 is outside 0.1 to 1.5, so it was set to 1.5. Use a value in that range." })
+        val narrow = doc(card(extra = ""","layers":[{"kind":"picture","src":"a.webp","fit":"fixed","width":0.05}]"""))
+        assertTrue(warnings(narrow).any { it == "elements[0].layers[0].width: 0.05 is outside 0.1 to 1.5, so it was set to 0.1. Use a value in that range." })
         val off = doc(card(extra = ""","layers":[{"kind":"picture","src":"a.webp","offset":{"x":-0.4,"y":0.3}}]"""))
         val ow = warnings(off)
-        assertTrue(ow.contains("elements[0].layers[0].offset.x: -0.4 was clamped to -0.25."))
-        assertTrue(ow.contains("elements[0].layers[0].offset.y: 0.3 was clamped to 0.25."))
+        assertTrue(ow.contains("elements[0].layers[0].offset.x: -0.4 is outside -0.25 to 0.25, so it was set to -0.25. Use a value in that range."))
+        assertTrue(ow.contains("elements[0].layers[0].offset.y: 0.3 is outside -0.25 to 0.25, so it was set to 0.25. Use a value in that range."))
         val high = doc(card(layouts = """{"1x1":[{"type":"progress","value":0.5,"style":"ticks","count":200}]}"""))
-        assertEquals(listOf("elements[0].layouts.1x1[0].count: 200 was lowered to 120, the most a ticks bar can have."), warnings(high))
+        assertEquals(listOf("elements[0].layouts.1x1[0].count: 200 is outside 10 to 120, so it was set to 120. A ticks bar can have at most 120 ticks."), warnings(high))
         val low = doc(card(layouts = """{"1x1":[{"type":"progress","value":0.5,"style":"ticks","count":5}]}"""))
-        assertEquals(listOf("elements[0].layouts.1x1[0].count: 5 was raised to 10, the least a ticks bar can have."), warnings(low))
+        assertEquals(listOf("elements[0].layouts.1x1[0].count: 5 is outside 10 to 120, so it was set to 10. A ticks bar needs at least 10 ticks."), warnings(low))
+        val segs = doc(card(layouts = """{"1x1":[{"type":"progress","value":0.5,"style":"ticks","segments":8}]}"""))
+        assertEquals(listOf("""elements[0].layouts.1x1[0].segments is ignored when style is "ticks", so the bar uses ticks. Drop segments, or drop style to use a segmented bar."""), warnings(segs))
+        val countIgnored = doc(card(layouts = """{"1x1":[{"type":"progress","value":0.5,"count":40}]}"""))
+        assertEquals(listOf("""elements[0].layouts.1x1[0].count is ignored unless style is "ticks", so the tick count isn't used. Set style to "ticks" to use count, or drop count."""), warnings(countIgnored))
     }
 
     @Test fun missingFileWarningsAreExact() {

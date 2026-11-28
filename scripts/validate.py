@@ -977,6 +977,12 @@ class Card:
         return n
 
     @staticmethod
+    def _fmt_num(n):
+        """Whole numbers without a trailing ".0", so "width 2" matches the §4.4 sentence."""
+        i = int(n)
+        return str(i) if n == i else str(n)
+
+    @staticmethod
     def _color(r, v, path):
         if isinstance(v, dict):
             r.keys(v, path, {"light", "dark"}, [], x_keys=False)
@@ -1443,23 +1449,20 @@ class Card:
                 lp = f"{path}.layers[{i}]"
                 fit = e.get("fit") if _is_str(e.get("fit")) else "cover"
                 if "width" in e and fit != "fixed":
-                    out.append(f'{lp}.width is ignored unless fit is "fixed".')
+                    out.append(f'{lp}.width is ignored unless fit is "fixed", so the picture is sized with "{fit}". Set fit to "fixed" to use width, or drop width.')
                 w = Card._num_of(e, "width")
-                if w is not None and fit == "fixed":
-                    if w < Card.MIN_WIDTH:
-                        out.append(f"{lp}.width: {w} was clamped to {Card.MIN_WIDTH}.")
-                    elif w > Card.MAX_WIDTH:
-                        out.append(f"{lp}.width: {w} was clamped to {Card.MAX_WIDTH}.")
+                if w is not None and fit == "fixed" and (w < Card.MIN_WIDTH or w > Card.MAX_WIDTH):
+                    set_to = min(max(w, Card.MIN_WIDTH), Card.MAX_WIDTH)
+                    out.append(f"{lp}.width: {Card._fmt_num(w)} is outside {Card._fmt_num(Card.MIN_WIDTH)} to {Card._fmt_num(Card.MAX_WIDTH)}, so it was set to {Card._fmt_num(set_to)}. Use a value in that range.")
                 off = e.get("offset")
                 if isinstance(off, dict):
                     for axis in ("x", "y"):
                         v = Card._num_of(off, axis)
                         if v is None:
                             continue
-                        if v < -Card.MAX_OFFSET:
-                            out.append(f"{lp}.offset.{axis}: {v} was clamped to {-Card.MAX_OFFSET}.")
-                        elif v > Card.MAX_OFFSET:
-                            out.append(f"{lp}.offset.{axis}: {v} was clamped to {Card.MAX_OFFSET}.")
+                        if v < -Card.MAX_OFFSET or v > Card.MAX_OFFSET:
+                            set_to = min(max(v, -Card.MAX_OFFSET), Card.MAX_OFFSET)
+                            out.append(f"{lp}.offset.{axis}: {Card._fmt_num(v)} is outside {Card._fmt_num(-Card.MAX_OFFSET)} to {Card._fmt_num(Card.MAX_OFFSET)}, so it was set to {Card._fmt_num(set_to)}. Use a value in that range.")
                 under = i == content_at - 1
                 above = i > content_at
                 scrim = e.get("scrim", None)
@@ -1471,7 +1474,7 @@ class Card:
                     if opacity is None:
                         opacity = 1.0
                     if opacity > Card.ABOVE_OPACITY:
-                        out.append(f"{lp}: a layer above content is shown at 60% at most, so text stays readable.")
+                        out.append(f"{lp}.opacity is above {Card._fmt_num(Card.ABOVE_OPACITY)} on a layer above content, so it's shown at {Card._fmt_num(Card.ABOVE_OPACITY)} to keep text readable. Use {Card._fmt_num(Card.ABOVE_OPACITY)} or less, or move the layer under the content.")
                 if files is not None:
                     src = e.get("src")
                     if _is_str(src) and "{" not in src and src not in files:
@@ -1489,13 +1492,13 @@ class Card:
                     if isinstance(cv, Num) and cv.is_int():
                         k = int(cv)
                         if style != "ticks":
-                            out.append(f'{np}.count is ignored unless style is "ticks".')
+                            out.append(f'{np}.count is ignored unless style is "ticks", so the tick count isn\'t used. Set style to "ticks" to use count, or drop count.')
                         elif k > Card.MAX_TICKS:
-                            out.append(f"{np}.count: {k} was lowered to {Card.MAX_TICKS}, the most a ticks bar can have.")
+                            out.append(f"{np}.count: {k} is outside {Card.MIN_TICKS} to {Card.MAX_TICKS}, so it was set to {Card.MAX_TICKS}. A ticks bar can have at most {Card.MAX_TICKS} ticks.")
                         elif k < Card.MIN_TICKS:
-                            out.append(f"{np}.count: {k} was raised to {Card.MIN_TICKS}, the least a ticks bar can have.")
+                            out.append(f"{np}.count: {k} is outside {Card.MIN_TICKS} to {Card.MAX_TICKS}, so it was set to {Card.MIN_TICKS}. A ticks bar needs at least {Card.MIN_TICKS} ticks.")
                 if style == "ticks" and "segments" in n:
-                    out.append(f'{np}.segments is ignored when style is "ticks".')
+                    out.append(f'{np}.segments is ignored when style is "ticks", so the bar uses ticks. Drop segments, or drop style to use a segmented bar.')
             for i, ch in enumerate(n.get("children") or []):
                 walk(ch, f"{np}.children[{i}]")
         ls = o.get("layouts")

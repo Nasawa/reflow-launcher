@@ -358,6 +358,47 @@ class CardReadout(unittest.TestCase):
         _, errs = V.validate(self._raw(card), use_schema=False)
         self.assertEqual([], errs)
 
+    def test_width_offset_count_warning_sentences(self):
+        card = {"id": "w-1", "type": "card", "requires": 6, "page": "home", "x": 0, "y": 1, "w": 2, "h": 2,
+                "layers": [{"kind": "picture", "src": "a.webp", "fit": "cover", "width": 2,
+                            "offset": {"x": -0.4, "y": 0.3}}, {"kind": "content"}],
+                "layouts": {"1x1": [{"type": "progress", "value": 0.5, "style": "ticks", "count": 200, "segments": 8}]}}
+        tree, errs = V.validate(self._raw(card), use_schema=False)
+        self.assertEqual([], errs)
+        ws = V.warnings(tree)
+        self.assertIn('elements[0].layers[0].width is ignored unless fit is "fixed", so the picture is sized with "cover". Set fit to "fixed" to use width, or drop width.', ws)
+        self.assertIn("elements[0].layers[0].offset.x: -0.4 is outside -0.25 to 0.25, so it was set to -0.25. Use a value in that range.", ws)
+        self.assertIn("elements[0].layers[0].offset.y: 0.3 is outside -0.25 to 0.25, so it was set to 0.25. Use a value in that range.", ws)
+        self.assertIn("elements[0].layouts.1x1[0].count: 200 is outside 10 to 120, so it was set to 120. A ticks bar can have at most 120 ticks.", ws)
+        self.assertIn('elements[0].layouts.1x1[0].segments is ignored when style is "ticks", so the bar uses ticks. Drop segments, or drop style to use a segmented bar.', ws)
+        wide = {"id": "w-1", "type": "card", "requires": 6, "page": "home", "x": 0, "y": 1, "w": 2, "h": 2,
+                "layers": [{"kind": "picture", "src": "a.webp", "fit": "fixed", "width": 2, "scrim": "none"},
+                           {"kind": "content"}],
+                "layouts": {"1x1": [{"type": "text", "text": "hi"}]}}
+        tree, errs = V.validate(self._raw(wide), use_schema=False)
+        self.assertEqual([], errs)
+        self.assertIn("elements[0].layers[0].width: 2 is outside 0.1 to 1.5, so it was set to 1.5. Use a value in that range.", V.warnings(tree))
+        contain = {**wide, "layers": [{"kind": "picture", "src": "a.webp", "fit": "contain", "width": 0.4, "scrim": "none"}, {"kind": "content"}]}
+        tree, errs = V.validate(self._raw(contain), use_schema=False)
+        self.assertEqual([], errs)
+        self.assertIn('elements[0].layers[0].width is ignored unless fit is "fixed", so the picture is sized with "contain". Set fit to "fixed" to use width, or drop width.', V.warnings(tree))
+        low = {"id": "w-1", "type": "card", "requires": 6, "page": "home", "x": 0, "y": 1, "w": 2, "h": 2,
+               "layouts": {"1x1": [{"type": "progress", "value": 0.5, "style": "ticks", "count": 5}]}}
+        tree, errs = V.validate(self._raw(low), use_schema=False)
+        self.assertEqual([], errs)
+        self.assertEqual(["elements[0].layouts.1x1[0].count: 5 is outside 10 to 120, so it was set to 10. A ticks bar needs at least 10 ticks."], V.warnings(tree))
+        ignored = {"id": "w-1", "type": "card", "requires": 6, "page": "home", "x": 0, "y": 1, "w": 2, "h": 2,
+                   "layouts": {"1x1": [{"type": "progress", "value": 0.5, "count": 40}]}}
+        tree, errs = V.validate(self._raw(ignored), use_schema=False)
+        self.assertEqual([], errs)
+        self.assertEqual(['elements[0].layouts.1x1[0].count is ignored unless style is "ticks", so the tick count isn\'t used. Set style to "ticks" to use count, or drop count.'], V.warnings(tree))
+        above = {"id": "w-1", "type": "card", "requires": 6, "page": "home", "x": 0, "y": 1, "w": 2, "h": 2,
+                 "layers": [{"kind": "content"}, {"kind": "picture", "src": "over.webp", "opacity": 0.9}],
+                 "layouts": {"1x1": [{"type": "text", "text": "hi"}]}}
+        tree, errs = V.validate(self._raw(above), use_schema=False)
+        self.assertEqual([], errs)
+        self.assertEqual(["elements[0].layers[1].opacity is above 0.6 on a layer above content, so it's shown at 0.6 to keep text readable. Use 0.6 or less, or move the layer under the content."], V.warnings(tree))
+
     def test_missing_file_sentences(self):
         card = {"id": "w-1", "type": "card", "requires": 6, "page": "home", "x": 0, "y": 1, "w": 2, "h": 2,
                 "layers": [{"kind": "picture", "src": "sticker.webp", "default": "sticker-idle.webp", "scrim": "none"}, {"kind": "content"}],
