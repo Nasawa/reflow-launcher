@@ -8,6 +8,9 @@ import android.os.Vibrator
 import android.provider.Settings
 import android.view.HapticFeedbackConstants
 import android.view.View
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.platform.LocalView
 
 /**
  * dev1 fix: the one-buzz-per-cell tick for widget resize and move (and app-tile drags), which gave nothing on the
@@ -63,4 +66,24 @@ object Haptics {
             is Plan.ViewFeedback -> if (!view.performHapticFeedback(p.type)) view.performHapticFeedback(p.fallback)
         }
     }
+
+    /**
+     * The buzz when a long-press menu or sheet opens. One `LONG_PRESS` through the view, default flags, so the
+     * system touch-feedback setting decides (same path as a drag-start tick, never forced). Tests may set [menuOpenHook].
+     */
+    fun menuOpen(view: View) {
+        (menuOpenHook ?: defaultMenuOpen)(view)
+    }
+
+    private val defaultMenuOpen: (View) -> Unit = { it.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS) }
+
+    /** Tests only: replace the view call, then clear. */
+    @Volatile internal var menuOpenHook: ((View) -> Unit)? = null
+}
+
+/** Fires [Haptics.menuOpen] once, when this long-press sheet first enters composition. */
+@Composable
+internal fun MenuOpenHaptic() {
+    val view = LocalView.current
+    LaunchedEffect(Unit) { Haptics.menuOpen(view) }
 }

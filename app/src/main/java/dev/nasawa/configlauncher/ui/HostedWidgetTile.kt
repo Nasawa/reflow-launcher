@@ -168,6 +168,8 @@ fun HostedPlaceholder(tile: HostedWidgets.Tile, onLong: () -> Unit, onTap: (() -
 @Composable
 fun HostedWidgetSheet(tile: HostedWidgets.Tile, installed: Boolean, onEditLayout: () -> Unit, onAppInfo: () -> Unit,
                       onRetry: () -> Unit, onDismiss: () -> Unit, onReconfigure: (() -> Unit)? = null, onRemove: (() -> Unit)? = null) {
+
+    MenuOpenHaptic()
     val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(onDismiss, sheetState = sheet) {
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp).padding(bottom = 24.dp)) {

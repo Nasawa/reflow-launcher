@@ -245,6 +245,8 @@ internal class CenterKey(private val onTap: () -> Unit, private val onLong: () -
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WidgetItemSheet(name: String, live: Boolean, reason: ConsentUi.Reason? = null, onAction: (ConsentUi.SheetAction) -> Unit, onDismiss: () -> Unit) {
+
+    MenuOpenHaptic()
     // #201 F3: same short-window rule as ItemSheet / #181 — full expand + scroll so every action is reachable.
     val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(onDismiss, sheetState = sheet) {
