@@ -76,7 +76,7 @@
   },
   "elements": [
     {
-      "id": "w-anigeek",
+      "id": "w-example",
       "type": "card",
       "requires": 3,
       "page": "home",

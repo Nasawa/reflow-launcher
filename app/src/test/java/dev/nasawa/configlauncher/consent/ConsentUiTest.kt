@@ -20,7 +20,7 @@ class ConsentUiTest {
         """{"id":"$id","type":"card","requires":$requires,"page":"$page","x":0,"y":$y,"w":2,"h":2,$extra"capabilities":[$caps],"layouts":{"2x2":[{"type":"text","text":"hi"}]}}"""
     private fun cfg(s: String): LauncherConfig = (ConfigCodec.decode(s) as? ParseResult.Ok)?.config ?: error("invalid: ${(ConfigCodec.decode(s) as ParseResult.Invalid).errors}")
     private val open = """{"kind":"ui.openUrl"}"""
-    private val src = """"title":"Anigeek LLC","source":"blog.anigeek.com","""
+    private val src = """"title":"Example Co","source":"status.example.com","""
 
     @Test fun tilesForWaitingOffAndSkippedCardsOnly() {
         val s = ConsentStore(tmp.newFolder(), clock = { 42L })
@@ -31,7 +31,7 @@ class ConsentUiTest {
         s.settle(c)
         val tiles = ConsentUi.tiles(c, s.report(c), "home")
         assertEquals(listOf("w-1" to Reason.NeedsOk, "w-new" to Reason.Update), tiles.map { it.id to it.reason })
-        assertEquals("Anigeek LLC", tiles[0].title)
+        assertEquals("Example Co", tiles[0].title)
         assertEquals(setOf(0 to 4, 1 to 4, 0 to 5, 1 to 5), tiles[1].placement.cells())
         assertEquals(1, ConsentUi.tiles(c, s.report(c), "two").size)
         assertEquals(2, ConsentUi.count(s.report(c)))
@@ -43,21 +43,21 @@ class ConsentUiTest {
     @Test fun firstTimePromptListsEveryLineInTierOrder() {
         val s = ConsentStore(tmp.newFolder(), clock = { 42L })
         val c = cfg(doc(card(caps = """$open,{"kind":"ui.openApp","packages":["org.a"]},{"kind":"ui.reload"},{"kind":"data.file"}""",
-            extra = """"title":"Anigeek LLC","author":"Claw","source":"http://nas.lan",""")))
+            extra = """"title":"Example Co","author":"Alex","source":"http://nas.example",""")))
         s.settle(c)
         val st = s.report(c).single()
         val p = ConsentUi.prompt(c.elements!![0], st, s.entry("w-1"))
         assertFalse(p.broadened)
         assertEquals(42L, p.seen)
-        assertEquals("Claw", p.author)
+        assertEquals("Alex", p.author)
         assertEquals(listOf(Kind.ShowFile, Kind.Reload, Kind.OpenApp, Kind.OpenSource), p.lines.map { it.kind })
         assertEquals("widgets-data/w-1.json", p.lines[0].arg)
         assertEquals("org.a", p.lines[2].arg)
         // An http source is written in full and carries the not-private note; https is shown bare.
-        assertEquals("http://nas.lan", p.lines[3].arg); assertTrue(p.lines[3].http)
+        assertEquals("http://nas.example", p.lines[3].arg); assertTrue(p.lines[3].http)
         assertTrue(p.lines.none { it.isNew })
         val https = cfg(doc(card(caps = open, extra = src)))
-        assertEquals(ConsentUi.Line(Kind.OpenSource, "blog.anigeek.com"), ConsentUi.prompt(https.elements!![0], s.report(https).single(), null).lines.single())
+        assertEquals(ConsentUi.Line(Kind.OpenSource, "status.example.com"), ConsentUi.prompt(https.elements!![0], s.report(https).single(), null).lines.single())
         // No author: no author line (Q-C4).
         assertNull(ConsentUi.prompt(https.elements!![0], s.report(https).single(), null).author)
     }
@@ -66,11 +66,11 @@ class ConsentUiTest {
         val s = ConsentStore(tmp.newFolder())
         val v1 = cfg(doc(card(caps = """{"kind":"data.file"},$open""", extra = src)))
         s.allow("w-1", s.report(v1).single().lines, v1)
-        val v2 = cfg(doc(card(caps = """{"kind":"data.file"},$open""", extra = """"title":"Anigeek LLC","source":"anigeek.com",""")))
+        val v2 = cfg(doc(card(caps = """{"kind":"data.file"},$open""", extra = """"title":"Example Co","source":"example.com",""")))
         val st = s.report(v2).single()
         val p = ConsentUi.prompt(v2.elements!![0], st, s.entry("w-1"))
         assertTrue(p.broadened)
-        assertEquals(listOf(ConsentUi.Line(Kind.OpenSource, "anigeek.com", isNew = true)), p.newLines)
+        assertEquals(listOf(ConsentUi.Line(Kind.OpenSource, "example.com", isNew = true)), p.newLines)
         assertEquals(listOf(Kind.ShowFile), p.already.map { it.kind })
         // After Forget approval the next Allow is a fresh first-time prompt with every line.
         s.forget("w-1")
@@ -92,7 +92,7 @@ class ConsentUiTest {
         val s = ConsentStore(tmp.newFolder())
         val v1 = cfg(doc(card(caps = """{"kind":"data.file"},$open""", extra = src)))
         val o = ConsentUi.open(v1, s.report(v1), s::entry, "w-1")!!
-        val v2 = cfg(doc(card(caps = """{"kind":"data.file"},$open,{"kind":"ui.reload"}""", extra = """"title":"Anigeek LLC","source":"evil.example",""")))
+        val v2 = cfg(doc(card(caps = """{"kind":"data.file"},$open,{"kind":"ui.reload"}""", extra = """"title":"Example Co","source":"evil.example",""")))
         assertTrue(ConsentUi.current(o, s.report(v1)))
         assertFalse(ConsentUi.current(o, s.report(v2)))  // the sheet closes instead of changing under the finger
         // Even if Allow lands anyway, the store refuses: the card no longer has the fingerprint the user saw.
@@ -112,19 +112,19 @@ class ConsentUiTest {
         val v1 = cfg(doc(card(caps = """{"kind":"data.file"},$open""", extra = src)))
         s.allow("w-1", s.report(v1).single().lines, v1)
         s.turnOff("w-1")
-        val v2 = cfg(doc(card(caps = """{"kind":"data.file"},$open""", extra = """"title":"Anigeek LLC","source":"anigeek.com",""")))
+        val v2 = cfg(doc(card(caps = """{"kind":"data.file"},$open""", extra = """"title":"Example Co","source":"example.com",""")))
         val st = s.report(v2).single()
         assertEquals(Consent.State.Off, st.state)
         val p = ConsentUi.prompt(v2.elements!![0], st, s.entry("w-1"))
         assertTrue(p.broadened)
-        assertEquals(listOf("anigeek.com"), p.newLines.map { it.arg })
+        assertEquals(listOf("example.com"), p.newLines.map { it.arg })
     }
 
     @Test fun sourceCaseNeverRePrompts() {
-        assertEquals("https://blog.anigeek.com", Consent.canonicalSource("Blog.Anigeek.COM"))
-        assertEquals("http://nas.lan", Consent.canonicalSource("HTTP://NAS.lan"))
+        assertEquals("https://status.example.com", Consent.canonicalSource("Status.Example.COM"))
+        assertEquals("http://nas.example", Consent.canonicalSource("HTTP://NAS.example"))
         // The validator already rejects a mixed-case source; this keeps the fingerprint stable regardless.
-        assertEquals(Consent.canonicalSource("blog.anigeek.com"), Consent.canonicalSource("https://BLOG.anigeek.com"))
+        assertEquals(Consent.canonicalSource("status.example.com"), Consent.canonicalSource("https://STATUS.example.com"))
     }
 
     @Test fun obscuredTouchesAreRecognised() {
@@ -136,7 +136,7 @@ class ConsentUiTest {
     @Test fun untitledCardFallsBackToItsId() {
         // title is optional: no crash, no blank title; the sheet and status.json name the card by its id.
         val s = ConsentStore(tmp.newFolder())
-        val c = cfg(doc(card(caps = open, extra = """"source":"blog.anigeek.com",""")))
+        val c = cfg(doc(card(caps = open, extra = """"source":"status.example.com",""")))
         val st = s.report(c).single()
         assertEquals("w-1", st.title)
         val o = ConsentUi.open(c, s.report(c), s::entry, "w-1")!!
@@ -144,7 +144,7 @@ class ConsentUiTest {
         assertEquals("w-1", o.prompt.id)
         assertNull(ConsentUi.tiles(c, s.report(c), "home").single().title)
         // A blank title counts as none too.
-        val blank = cfg(doc(card(caps = open, extra = """"title":"  ","source":"blog.anigeek.com",""")))
+        val blank = cfg(doc(card(caps = open, extra = """"title":"  ","source":"status.example.com",""")))
         assertNull(ConsentUi.prompt(blank.elements!![0], s.report(blank).single(), null).title)
     }
 

@@ -194,15 +194,15 @@ add(I,'titlebar-anchor-bottom.json',m(els(_tb(anchor='bottom'))),'invalid, B2: t
 add(I,'override-bad-template.json',m(lambda c:(els(_tb())(c), c['pages'][0].__setitem__('overrides',{'t-main':{'content':{'slots':{'end':'{wether}'}}}}))),'invalid, B2: overrides of a title bar follow its rules','kotlin','title-bar.md §4','#79')
 
 # #137 S3-A: dashboard card (feature level 4; docs/design/dynamic-widgets.md §1-§4, §11). Schema only, nothing renders.
-_card = lambda **kw: {**{'id':'w-anigeek','type':'card','requires':4,'page':'home','x':0,'y':1,'w':4,'h':3,
+_card = lambda **kw: {**{'id':'w-example','type':'card','requires':4,'page':'home','x':0,'y':1,'w':4,'h':3,
     'layouts':{'2x1':[{'type':'metric','label':'Monitors','value':'{data:monitors.summary}'}]}}, **kw}
-add(V,'card-example.json',m(els(_card(minSpan={'w':3,'h':2},title='Anigeek LLC',author='Claw',source='https://blog.anigeek.com',surface='auto',
+add(V,'card-example.json',m(els(_card(minSpan={'w':3,'h':2},title='Example Co',author='Alex',source='https://status.example.com',surface='auto',
     capabilities=[{'kind':'data.file'},{'kind':'ui.openUrl'},{'kind':'ui.reload'}],data={'staleAfter':'PT30M'},
     layouts={'2x1':[{'type':'metric','label':'Monitors','value':'{data:monitors.summary}','status':'{data:monitors.status}'}],
-             '4x3':[{'type':'tile','children':[{'type':'text','role':'caption','text':'Latest on blog.anigeek.com'},
+             '4x3':[{'type':'tile','children':[{'type':'text','role':'caption','text':'Latest on status.example.com'},
                      {'type':'text','role':'body','text':'{data:blog.title}','maxLines':2}],'tap':{'kind':'ui.openUrl','url':'{data:blog.url}'}},
-                    {'type':'row','children':[{'type':'metric','label':'PicSpin site','value':'{data:picspin.value}','status':'{data:picspin.status}'},
-                     {'type':'metric','label':'letmeaithatforyou','value':'{data:lmaitfy.value}','priority':4}]},
+                    {'type':'row','children':[{'type':'metric','label':'Site A','value':'{data:siteA.value}','status':'{data:siteA.status}'},
+                     {'type':'metric','label':'Site B','value':'{data:siteB.value}','priority':4}]},
                     {'type':'list','label':'Unhealthy monitors','items':'{data:unhealthy}','maxItems':'auto','emptyText':'All monitors up'},
                     {'type':'row','children':[{'type':'button','label':'Refresh','tap':{'kind':'ui.reload'}},{'type':'progress','value':0.5},
                      {'type':'icon','name':'cloud','tap':{'kind':'ui.openUrl','url':'https://status.example.org/'}}]}]}))),
@@ -214,7 +214,7 @@ add(I,'card-no-requires.json',m(lambda c:(els(_card())(c), c['elements'][0].pop(
 add(I,'card-requires-3.json',m(els(_card(requires=3))),'invalid, B2: cards need requires 4 (level 3 is retired)','both','#137','')
 add(I,'card-layout-key.json',m(els(_card(layouts={'4X3':[{'type':'text','text':'x'}]}))),'invalid, B2: layout keys use a lowercase x','both','dynamic-widgets.md §1','#137')
 add(I,'card-node-type.json',m(els(_card(layouts={'1x1':[{'type':'chart'}]}))),'invalid, B2: unknown node type','both','dynamic-widgets.md §1','#137')
-add(I,'card-openurl-hosts.json',m(els(_card(capabilities=[{'kind':'ui.openUrl','hosts':['anigeek.com']}]))),'invalid, B2: ui.openUrl takes no hosts (Q-D5)','both','#137','')
+add(I,'card-openurl-hosts.json',m(els(_card(capabilities=[{'kind':'ui.openUrl','hosts':['example.com']}]))),'invalid, B2: ui.openUrl takes no hosts (Q-D5)','both','#137','')
 add(I,'card-tap-undeclared.json',m(els(_card(layouts={'1x1':[{'type':'button','label':'Go','tap':{'kind':'ui.openApp','package':'com.android.settings'}}]}))),
     'invalid, B2: a tap needs its capability on the same card','kotlin','dynamic-widgets.md §4','#137')
 

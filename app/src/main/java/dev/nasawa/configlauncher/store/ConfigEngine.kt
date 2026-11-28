@@ -388,7 +388,7 @@ class ConfigEngine(
             // The file is the layout we show again, so anything said about a broken one in between is over.
             invalidHash = null; invalidBytes = null
             // #103: first look at a newly connected folder holding the file we already show: still write a receipt.
-            // #343 (Claw): also when status.json describes another file: an agent restored exactly the loaded layout after
+            // #343: also when status.json describes another file: an agent restored exactly the loaded layout after
             // a broken write, and status.json kept that write's parse_error (RELOAD said 0 "unchanged" over it).
             if (statusResult.let { it == null || it.first != "ok" || it.third != hash })
                 writeStatus("ok", emptyList(), hash, _state.value.config.revision, Elements.warnings(_state.value.config), _state.value.config)
@@ -421,7 +421,7 @@ class ConfigEngine(
     }
 
     /**
-     * #339: B6 over a launcher.json that didn't load (Claw: a torn file kept B6 up, RELOAD busy and status.json on the
+     * #339: B6 over a launcher.json that didn't load (a torn file kept B6 up, RELOAD busy and status.json on the
      * old `ok` for 5 minutes while the agent kept writing). Read the file when it changed: still broken, status.json
      * reports its errors; loading, B6 goes and the pending edits merge onto it like any other change. #340 follow-up:
      * with Ask before merging (or a merge that wouldn't load), B6 stays, but status.json follows the changed file.
@@ -700,7 +700,7 @@ class ConfigEngine(
         unsaved = null // written: whatever failed before is saved now
         // #339: saved, but over the start of another writer's file: theirs is lost, so status.json says so.
         overlap = if (source.lastWriteOverlapped()) overlapWarning(StatusJson.iso(clock())) else null
-        // #351 (Claw, dev5, 3/200): never a stamp taken after the read-back. The temp delete and sweep run between the two
+        // #351 (dev5, 3/200): never a stamp taken after the read-back. The temp delete and sweep run between the two
         // (40-120 ms on the A51), so an agent's `cp` finishing there was in that stamp: every poll then saw "no change"
         // and skipped the read, the screen and status.json kept our save over the agent's file until a hash-anyway poll.
         // No stamp: the next poll reads and hashes (ours is an echo then, with a stamp taken before that read).

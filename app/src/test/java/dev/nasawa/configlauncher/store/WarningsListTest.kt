@@ -60,7 +60,7 @@ class WarningsListTest {
         assertEquals(loaded.size + 1, themed.size)
 
         // Allowing the card: the consent warning leaves both lists.
-        consent.allow("w-anigeek", e.consentReport().first { it.id == "w-anigeek" }.lines, e.state.value.config); e.consentChanged()
+        consent.allow("w-example", e.consentReport().first { it.id == "w-example" }.lines, e.state.value.config); e.consentChanged()
         val allowed = assertSame(dir, e)
         assertTrue(allowed.none { "waiting for approval" in it })
 

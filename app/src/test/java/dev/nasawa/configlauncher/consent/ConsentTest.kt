@@ -22,21 +22,21 @@ class ConsentTest {
     private fun doc(vararg cards: String) =
         """{"schemaVersion":1,"grid":{"columns":4,"rows":6},"pages":[{"id":"home","items":[]}],"elements":[${cards.joinToString(",")}]}"""
     private fun card(id: String = "w-1", caps: String = """{"kind":"data.file"}""", extra: String = "", y: Int = 0, requires: Int = 4) =
-        """{"id":"$id","type":"card","requires":$requires,"page":"home","x":0,"y":$y,"w":2,"h":2,"title":"Anigeek LLC",$extra"capabilities":[$caps],"layouts":{"2x2":[{"type":"text","text":"hi"}]}}"""
+        """{"id":"$id","type":"card","requires":$requires,"page":"home","x":0,"y":$y,"w":2,"h":2,"title":"Example Co",$extra"capabilities":[$caps],"layouts":{"2x2":[{"type":"text","text":"hi"}]}}"""
     private fun cfg(s: String): LauncherConfig = (ConfigCodec.decode(s) as? ParseResult.Ok)?.config ?: error("invalid: ${(ConfigCodec.decode(s) as ParseResult.Invalid).errors}")
     private fun store() = ConsentStore(tmp.newFolder())
     private fun ConsentStore.state(c: LauncherConfig, id: String = "w-1") = report(c).single { it.id == id }.state
 
     private val open = """{"kind":"ui.openUrl"}"""
-    private val src = """"source":"blog.anigeek.com","""
+    private val src = """"source":"status.example.com","""
 
     @Test fun linesAreTheFingerprint() {
         val c = cfg(doc(card(caps = """$open,{"kind":"ui.openApp","packages":["org.b","org.a"]},{"kind":"ui.reload"},{"kind":"data.file"}""", extra = src)))
-        assertEquals(listOf("data.file", "ui.openApp org.a", "ui.openApp org.b", "ui.openUrl https://blog.anigeek.com", "ui.reload"),
+        assertEquals(listOf("data.file", "ui.openApp org.a", "ui.openApp org.b", "ui.openUrl https://status.example.com", "ui.reload"),
             Consent.lines(c.elements!![0]))
         // Bare ui.openUrl without source adds no line; http:// is kept, so it never matches the https form.
         assertEquals(emptyList<String>(), Consent.lines(cfg(doc(card(caps = open))).elements!![0]))
-        assertEquals(listOf("ui.openUrl http://nas.lan"), Consent.lines(cfg(doc(card(caps = open, extra = """"source":"http://nas.lan","""))).elements!![0]))
+        assertEquals(listOf("ui.openUrl http://nas.example"), Consent.lines(cfg(doc(card(caps = open, extra = """"source":"http://nas.example","""))).elements!![0]))
     }
 
     @Test fun silentKindsGoLiveWithNoPrompt() {
@@ -53,22 +53,22 @@ class ConsentTest {
         s.settle(v1)
         val st = s.report(v1).single()
         assertEquals(State.NeedsApproval, st.state)
-        assertEquals(listOf("ui.openUrl https://blog.anigeek.com"), st.missing)
-        assertEquals("elements[0]: widget \"Anigeek LLC\" is waiting for approval on this phone. It isn't shown until then.", st.warning)
+        assertEquals(listOf("ui.openUrl https://status.example.com"), st.missing)
+        assertEquals("elements[0]: widget \"Example Co\" is waiting for approval on this phone. It isn't shown until then.", st.warning)
         s.allow("w-1", st.lines, v1)
         assertEquals(State.Allowed, s.state(v1))
         // Removing source: stricter (every tap confirms), stays live.
         assertEquals(State.Allowed, s.state(cfg(doc(card(caps = """{"kind":"data.file"},$open""")))))
         // Changed host, or https -> http (no silent downgrade): needs OK again; only the new line is missing.
-        for (other in listOf("anigeek.com", "http://blog.anigeek.com")) {
+        for (other in listOf("example.com", "http://status.example.com")) {
             val v2 = cfg(doc(card(caps = """{"kind":"data.file"},$open""", extra = """"source":"$other",""")))
             val r = s.report(v2).single()
             assertEquals(other, State.NeedsApprovalAgain, r.state)
             assertEquals(1, r.missing.size)
-            assertEquals("elements[0]: widget \"Anigeek LLC\" asks for more access and is waiting for approval on this phone. It isn't shown until then.", r.warning)
+            assertEquals("elements[0]: widget \"Example Co\" asks for more access and is waiting for approval on this phone. It isn't shown until then.", r.warning)
         }
         // Bare and https:// spellings of the same source are one line.
-        assertEquals(State.Allowed, s.state(cfg(doc(card(caps = """{"kind":"data.file"},$open""", extra = """"source":"https://blog.anigeek.com",""")))))
+        assertEquals(State.Allowed, s.state(cfg(doc(card(caps = """{"kind":"data.file"},$open""", extra = """"source":"https://status.example.com",""")))))
     }
 
     @Test fun ceilingIsAUnionThatNeverShrinks() {
@@ -97,17 +97,17 @@ class ConsentTest {
         s.turnOff("w-1")
         val off = s.report(c).single()
         assertEquals(State.Off, off.state)
-        assertEquals("elements[0]: widget \"Anigeek LLC\" is turned off on this phone.", off.warning)
+        assertEquals("elements[0]: widget \"Example Co\" is turned off on this phone.", off.warning)
         assertTrue(off.missing.isEmpty()) // Allow restores with no prompt
         s.turnOn("w-1")
         assertEquals(State.Allowed, s.state(c))
 
-        s.alwaysAllow("w-1", "https://anigeek.com")
+        s.alwaysAllow("w-1", "https://example.com")
         s.forget("w-1")
         val f = s.report(c).single()
         assertEquals(State.Off, f.state) // stays off
-        assertEquals(listOf("ui.openUrl https://blog.anigeek.com"), f.missing) // next Allow is a fresh full prompt
-        assertFalse(s.isAlwaysAllowed("w-1", "https://anigeek.com"))
+        assertEquals(listOf("ui.openUrl https://status.example.com"), f.missing) // next Allow is a fresh full prompt
+        assertFalse(s.isAlwaysAllowed("w-1", "https://example.com"))
         assertTrue(s.entry("w-1")!!.ceiling.isEmpty())
         // A silently-live card stays off after Forget too (the switch is sticky).
         s.settle(cfg(doc(card())))
@@ -218,7 +218,7 @@ class ConsentTest {
         assertEquals("needsApproval", m["w-1"]!!.jsonObject["state"]!!.jsonPrimitive.content)
         assertEquals("allowed", m["w-2"]!!.jsonObject["state"]!!.jsonPrimitive.content)
         assertNull(m["w-2"]!!.jsonObject["warning"])
-        val w = "elements[0]: widget \"Anigeek LLC\" is waiting for approval on this phone. It isn't shown until then."
+        val w = "elements[0]: widget \"Example Co\" is waiting for approval on this phone. It isn't shown until then."
         assertEquals(w, m["w-1"]!!.jsonObject["warning"]!!.jsonPrimitive.content)
         assertTrue(s["warnings"]!!.jsonArray.map { it.jsonPrimitive.content }.contains(w))
         assertFalse(File(dir, ".configlauncher/status.json").readText().contains("ceiling"))

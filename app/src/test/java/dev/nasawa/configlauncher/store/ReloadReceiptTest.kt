@@ -47,7 +47,7 @@ class ReloadReceiptTest {
         assertNotEquals(t1, status(src)["time"]!!.jsonPrimitive.content)
     }
 
-    /** #343 (Claw): broken write, RELOAD 2, then the exact loaded bytes back: RELOAD 0 and status.json `ok` on them. */
+    /** #343: broken write, RELOAD 2, then the exact loaded bytes back: RELOAD 0 and status.json `ok` on them. */
     @Test fun restoringTheLoadedFileAfterABrokenOneRewritesStatusOk() = runBlocking {
         val (e, src) = setup(); assertEquals(ReloadOutcome.RELOADED, e.reloadForAgent())
         val good = src.file.readBytes()
@@ -77,7 +77,7 @@ class ReloadReceiptTest {
         assertEquals(ConfigCodec.sha256(good), status(src)["hash"]!!.jsonPrimitive.content)
     }
 
-    /** #343: Claw saw the stale parse_error survive a relaunch: a new engine's first look rewrites it too. */
+    /** #343: the stale parse_error survive a relaunch: a new engine's first look rewrites it too. */
     @Test fun aRelaunchOverAStaleParseErrorWritesOk() = runBlocking {
         val dir = tmp.newFolder(); val last = tmp.newFolder()
         val src = LocalFileSource(dir); src.file.writeText(doc(7))

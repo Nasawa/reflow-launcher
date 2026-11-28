@@ -23,13 +23,13 @@ class ConsentReviewTest {
         """{"id":"$id","type":"card","requires":4,"page":"$page","x":0,"y":$y,"w":$w,"h":2,$extra"capabilities":[$caps],"layouts":{"2x2":[{"type":"text","text":"$text"}]}}"""
     private fun cfg(s: String): LauncherConfig = (ConfigCodec.decode(s) as? ParseResult.Ok)?.config ?: error("invalid: ${(ConfigCodec.decode(s) as ParseResult.Invalid).errors}")
     private val open = """{"kind":"ui.openUrl"}"""
-    private val src = """"title":"Anigeek LLC","source":"blog.anigeek.com","""
+    private val src = """"title":"Example Co","source":"status.example.com","""
     private var now = 1_000L
     private fun store(dir: java.io.File = tmp.newFolder()) = ConsentStore(dir, clock = { now })
 
     @Test fun reviewListHasOneSectionPerStateAndNoAllowAll() {
         val s = store()
-        val c = cfg(doc(card(caps = """{"kind":"data.file"},$open""", extra = """"title":"Anigeek LLC","author":"Claw","source":"blog.anigeek.com","""),
+        val c = cfg(doc(card(caps = """{"kind":"data.file"},$open""", extra = """"title":"Example Co","author":"Alex","source":"status.example.com","""),
             card(id = "w-2", caps = """{"kind":"data.file"},{"kind":"ui.openApp","packages":["org.a"]}""", y = 2, extra = """"title":"Two","""),
             card(id = "w-3", page = "two", w = 4, extra = """"title":"Three",""")))
         s.settle(c)
@@ -41,7 +41,7 @@ class ConsentReviewTest {
         val needs = r.needs.single()
         assertEquals(ConsentUi.Where(1, 2, 2), needs.where)
         assertEquals(listOf(Noun.Links), needs.news)   // only what's waiting: the source link
-        assertEquals("Claw", needs.author)
+        assertEquals("Alex", needs.author)
         assertEquals(1_000L, needs.changed)
         assertEquals(listOf(Chip.Show, Chip.Open), r.allowed.single().chips)
         assertEquals(ConsentUi.Where(2, 4, 2), r.off.single().where)
@@ -65,7 +65,7 @@ class ConsentReviewTest {
         assertEquals(listOf(ConsentUi.Line.Kind.ShowFile to true, ConsentUi.Line.Kind.OpenSource to false), d.approved.map { it.first.kind to it.second })
         assertEquals(listOf("http://news.example.org"), d.always)
         assertEquals("http://news.example.org", ConsentUi.host(d.always.single()))
-        assertEquals("blog.anigeek.com", ConsentUi.host("https://blog.anigeek.com"))
+        assertEquals("status.example.com", ConsentUi.host("https://status.example.com"))
         assertTrue(d.canForget)
         assertTrue(d.allowNeedsNoPrompt)
         // Newest first; the narrowing is logged quietly.
