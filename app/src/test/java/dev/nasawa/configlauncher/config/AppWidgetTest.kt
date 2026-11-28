@@ -52,7 +52,7 @@ class AppWidgetTest {
         assertEquals(listOf("elements[0].requires: an appWidget needs feature level 5 or higher"), errors(doc(aw(requires = "4"))))
         assertEquals(listOf("elements[0]: missing required \"requires\""), errors(doc(aw().replace("\"requires\":5,", ""))))
         // Above the level: skipped like any element, not checked strictly, cells kept.
-        val c = ok(doc(aw(requires = "6", extra = ""","style":{"padding":8}""")))
+        val c = ok(doc(aw(requires = "7", extra = ""","style":{"padding":8}""")))
         assertEquals(1, Elements.warnings(c).size)
         assertEquals(2, Elements.reserved(c, "home").size)
     }

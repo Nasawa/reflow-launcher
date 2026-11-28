@@ -76,18 +76,25 @@
   },
   "elements": [
     {
-      "id": "t-main",
-      "type": "titleBar",
-      "anchor": "top",
-      "content": {
-        "slots": {
-          "center": "{page}"
-        }
-      },
+      "id": "w-example",
+      "type": "card",
       "requires": 6,
-      "future": {
-        "a": 1
-      }
+      "page": "home",
+      "x": 0,
+      "y": 1,
+      "w": 4,
+      "h": 3,
+      "layouts": {
+        "2x1": [
+          {
+            "type": "metric",
+            "label": "Monitors",
+            "value": "{data:monitors.summary}"
+          }
+        ]
+      },
+      "header": false,
+      "surface": "none"
     }
   ]
 }

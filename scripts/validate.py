@@ -33,7 +33,8 @@ CLS = re.compile(r"^[A-Za-z0-9_.$]+$")
 CATEGORIES = {"game", "audio", "video", "image", "social", "news", "maps", "productivity", "accessibility", "undefined"}
 MAX_ELEMENTS = 32
 MAX_OVERRIDES = 32
-FEATURE_LEVEL = 5          # Elements.kt: 1 = #79 container release, 2 = title bar, 3 = retired (never used), 4 = card, 5 = appWidget (#298)
+FL_CARDS_READOUT = 6       # Elements.kt: M1 readout keys on card (#360 RW-1)
+FEATURE_LEVEL = FL_CARDS_READOUT  # 1 = #79 container, 2 = title bar, 3 = retired, 4 = card, 5 = appWidget (#298), 6 = FL_CARDS_READOUT
 ELEMENT_TYPES = {}         # known element types, name -> class (Elements.types); filled below the classes
 PLACEMENT = ("page", "x", "y", "w", "h")
 TYPE = re.compile(r"^[a-zA-Z][a-zA-Z0-9]{0,31}$")
@@ -894,25 +895,40 @@ ELEMENT_TYPES["titleBar"] = TitleBar
 
 
 class Card:
-    """Card.kt (#137 S3-A, feature level 4): dashboard card schema only (docs/design/dynamic-widgets.md §1-§4, §11)."""
+    """Card.kt (#137 S3-A + #360 RW-1): dashboard card schema, M1 readout keys at FL_CARDS_READOUT."""
     LEVEL, SINGLE = 4, False
-    KEYS = ("id", "type", "requires", "page", "x", "y", "w", "h", "minSpan", "title", "author", "source", "surface", "capabilities", "data", "layouts")
+    KEYS = ("id", "type", "requires", "page", "x", "y", "w", "h", "minSpan", "title", "author", "source", "surface", "header", "summary", "layers", "capabilities", "data", "layouts")
     KINDS = {"data.file": (), "ui.reload": (), "ui.openApp": ("packages",), "ui.openUrl": ()}
     TAP_KINDS = {"ui.openUrl": ("url",), "ui.openApp": ("package",), "ui.reload": ()}
     NODES = {"column": ("children",), "row": ("children",), "tile": ("children",),
-             "text": ("text", "role", "maxLines"), "metric": ("label", "value", "unit", "status"),
+             "text": ("text", "role", "maxLines", "align", "font", "status"),
+             "metric": ("label", "value", "unit", "status", "thresholds"),
              "list": ("label", "items", "maxItems", "emptyText"), "icon": ("name", "package"),
-             "progress": ("label", "value"), "button": ("label",)}
+             "progress": ("label", "value", "max", "segments", "style", "count", "thresholds", "by"),
+             "button": ("label", "icon")}
     NODE_REQUIRED = {"column": ("children",), "row": ("children",), "tile": ("children",), "text": ("text",),
                      "metric": ("value",), "list": ("items",), "progress": ("value",), "button": ("label", "tap")}
-    COMMON = ("type", "priority", "weight", "tap")
-    ROLES = ("caption", "body", "title")
+    COMMON = ("type", "priority", "weight", "tap", "color")
+    ROLES = ("caption", "body", "title", "display")
+    ALIGN = ("start", "center", "end")
+    FONT = ("default", "mono")
+    PICTURE_KEYS = ("kind", "src", "default", "fit", "width", "align", "offset", "opacity", "overflow", "scrim")
+    FIT = ("cover", "contain", "fixed")
+    LAYER_ALIGN = ("topStart", "top", "topEnd", "start", "center", "end", "bottomStart", "bottom", "bottomEnd")
+    TONES = ("ok", "warn", "error", "accent", "muted")
+    BY = ("value", "position")
     LAYOUT = re.compile(r"^([1-9][0-9]?)x([1-9][0-9]?)$")
     HOST = re.compile(r"^(https?://)?[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$")
     DURATION = re.compile(r"^P(?=[0-9]|T[0-9])([0-9]+D)?(T(?=[0-9])([0-9]+H)?([0-9]+M)?([0-9]+S)?)?$")
     URL = re.compile(r"^([A-Za-z][A-Za-z0-9+.-]*)://([^/?#]*)")
+    FILE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*\.(png|jpg|jpeg|webp)$")
+    HEX = re.compile(r"^#[0-9A-Fa-f]{6}$")
+    SECRET_REF = re.compile(r"\$\{secret:|\{secret:")
+    TOKEN = re.compile(r"\{(data|fetch):[^}]*}")
     MIN_REQUIRES, MAX_CAPABILITIES, MAX_TARGETS, MAX_LAYOUTS = 4, 8, 8, 3
     MAX_CHILDREN, MAX_DEPTH, MAX_NODES, MAX_TEXT, MAX_URL = 12, 4, 48, 200, 2048
+    MAX_SUMMARY, MAX_LAYERS, MAX_FILE, MAX_THRESHOLDS, MAX_SEGMENTS = 120, 4, 80, 5, 20
+    MIN_TICKS, MAX_TICKS, MIN_WIDTH, MAX_WIDTH, MAX_OFFSET, ABOVE_OPACITY = 10, 120, 0.1, 1.5, 0.25, 0.6
 
     @staticmethod
     def unknown_capability(o):
@@ -930,11 +946,56 @@ class Card:
         return _is_str(s) and rx.fullmatch(s) is not None
 
     @staticmethod
+    def _num(o, k, path, r):
+        if k not in o:
+            return None
+        v = o[k]
+        if isinstance(v, bool) or not isinstance(v, Num):
+            r.err(f"{path}.{k}", "must be a number")
+            return None
+        try:
+            n = float(v)
+        except ValueError:
+            r.err(f"{path}.{k}", "must be a number")
+            return None
+        if n != n or n in (float("inf"), float("-inf")):
+            r.err(f"{path}.{k}", "must be a number")
+            return None
+        return n
+
+    @staticmethod
+    def _num_of(o, k):
+        v = o.get(k)
+        if isinstance(v, bool) or not isinstance(v, Num):
+            return None
+        try:
+            n = float(v)
+        except ValueError:
+            return None
+        if n != n or n in (float("inf"), float("-inf")):
+            return None
+        return n
+
+    @staticmethod
+    def _color(r, v, path):
+        if isinstance(v, dict):
+            r.keys(v, path, {"light", "dark"}, [], x_keys=False)
+            if not v:
+                r.err("", f"{path} needs light or dark.")
+            for k in ("light", "dark"):
+                if k in v:
+                    Card._color(r, v[k], f"{path}.{k}")
+        else:
+            TitleBar._color(r, v, path)
+
+    @staticmethod
     def validate(r, o, path):
         r.keys(o, path, set(Card.KEYS), ["requires", "page", "layouts"])
         q = o.get("requires")
         if isinstance(q, Num) and q.is_int() and int(q) < Card.MIN_REQUIRES:
             r.err(f"{path}.requires", f"a card needs feature level {Card.MIN_REQUIRES} or higher")
+        elif isinstance(q, Num) and q.is_int() and int(q) < FL_CARDS_READOUT and Card.uses_readout_keys(o):
+            r.err(f"{path}.requires", f"a card that uses readout keys needs feature level {FL_CARDS_READOUT} or higher")
         if "minSpan" in o:
             m = r.obj(o["minSpan"], f"{path}.minSpan")
             if m is not None:
@@ -946,9 +1007,14 @@ class Card:
         src = r.str(o, "source", path)   # Q-D5: the site taps open silently
         if src is not None and (len(src) > 253 + 8 or not Card._full(Card.HOST, src)):
             r.err("", f"{path}.source must be a lowercase hostname, optionally with http:// or https://.")
-        sf = r.str(o, "surface", path)
-        if sf is not None and sf != "auto":
-            r.err("", f'{path}.surface must be "auto".')
+        Card.surface(r, o, path)
+        r.bool(o, "header", path)
+        r.str(o, "summary", path, mx=Card.MAX_SUMMARY)
+        if "layers" in o:
+            if not isinstance(o["layers"], list):
+                r.err(f"{path}.layers", "must be an array")
+            else:
+                Card.layers(r, o["layers"], f"{path}.layers")
         caps = Card.capabilities(r, o, path)
         if "data" in o:
             d = r.obj(o["data"], f"{path}.data")
@@ -959,6 +1025,129 @@ class Card:
             ls = r.obj(o["layouts"], f"{path}.layouts")
             if ls is not None:
                 Card.layouts(r, ls, f"{path}.layouts", caps)
+
+    @staticmethod
+    def surface(r, o, path):
+        if "surface" not in o:
+            return
+        e = o["surface"]
+        if isinstance(e, dict):
+            r.keys(e, f"{path}.surface", {"color", "opacity"}, ["color"], x_keys=False)
+            if "color" in e:
+                Card._color(r, e["color"], f"{path}.surface.color")
+            r.int(e, "opacity", f"{path}.surface", 50, 100)
+        elif _is_str(e):
+            if e not in ("auto", "none"):
+                r.err("", f'{path}.surface must be "auto", "none", or an object with color.')
+        else:
+            r.err("", f'{path}.surface must be "auto", "none", or an object with color.')
+
+    @staticmethod
+    def layers(r, arr, path):
+        contents = 0
+        for i, e in enumerate(arr):
+            lp = f"{path}[{i}]"
+            o = r.obj(e, lp)
+            if o is None:
+                continue
+            kind = r.str(o, "kind", lp)
+            if kind is None:
+                if "kind" not in o:
+                    r.err(lp, 'missing required "kind"')
+                continue
+            if kind == "content":
+                r.keys(o, lp, {"kind"}, ["kind"], x_keys=False)
+                contents += 1
+                if contents > 1:
+                    r.err(lp, "a card can have only one content layer")
+            elif kind == "picture":
+                Card.picture(r, o, lp)
+            else:
+                r.err(f"{lp}.kind", "must be picture or content")
+
+    @staticmethod
+    def picture(r, o, path):
+        r.keys(o, path, set(Card.PICTURE_KEYS), ["kind", "src"], x_keys=False)
+        s = r.str(o, "src", path, mx=Card.MAX_FILE, mn=1)
+        if s is not None:
+            Card.file_or_template(r, s, f"{path}.src", True)
+        d = r.str(o, "default", path, mx=Card.MAX_FILE, mn=1)
+        if d is not None:
+            Card.file_or_template(r, d, f"{path}.default", False)
+        fit = r.str(o, "fit", path)
+        if fit is not None and fit not in Card.FIT:
+            r.err(f"{path}.fit", "must be cover, contain or fixed")
+        if "width" in o:
+            Card._num(o, "width", path, r)
+        al = r.str(o, "align", path)
+        if al is not None and al not in Card.LAYER_ALIGN:
+            r.err(f"{path}.align", "must be topStart, top, topEnd, start, center, end, bottomStart, bottom or bottomEnd")
+        if "offset" in o:
+            off = r.obj(o["offset"], f"{path}.offset")
+            if off is not None:
+                r.keys(off, f"{path}.offset", {"x", "y"}, [], x_keys=False)
+                if "x" in off:
+                    Card._num(off, "x", f"{path}.offset", r)
+                if "y" in off:
+                    Card._num(off, "y", f"{path}.offset", r)
+        if "opacity" in o:
+            n = Card._num(o, "opacity", path, r)
+            if n is not None and not (0 <= n <= 1):
+                r.err(f"{path}.opacity", "must be a number from 0 to 1")
+        r.bool(o, "overflow", path)
+        if "scrim" in o:
+            Card.scrim(r, o["scrim"], f"{path}.scrim")
+
+    @staticmethod
+    def scrim(r, e, path):
+        if isinstance(e, dict):
+            r.keys(e, path, {"color", "opacity"}, ["color"], x_keys=False)
+            if "color" in e:
+                Card._color(r, e["color"], f"{path}.color")
+            if "opacity" in e:
+                n = Card._num(e, "opacity", path, r)
+                if n is not None and not (0 <= n <= 1):
+                    r.err(f"{path}.opacity", "must be a number from 0 to 1")
+        elif _is_str(e):
+            if e not in ("auto", "none"):
+                r.err("", f'{path} must be "auto", "none", or an object with color.')
+        else:
+            r.err("", f'{path} must be "auto", "none", or an object with color.')
+
+    @staticmethod
+    def looks_remote(s):
+        return s.startswith("http://") or s.startswith("https://") or s.startswith("//") or "/" in s
+
+    @staticmethod
+    def file_name_msg():
+        return "must be a file name (letters, digits, '.', '_' or '-') ending in .png, .jpg, .jpeg or .webp"
+
+    @staticmethod
+    def legal_template(s):
+        stripped = Card.TOKEN.sub("x", s)
+        if "{" in stripped or "}" in stripped:
+            return False
+        if ".." in s or "/" in s or s.startswith("."):
+            return False
+        return Card.FILE.fullmatch(stripped) is not None
+
+    @staticmethod
+    def file_or_template(r, s, path, template):
+        if Card.looks_remote(s):
+            r.err("", f"{path} must be a file name in the card's pictures folder, not a web address.")
+            return
+        if ".." in s or s.startswith("."):
+            r.err(path, Card.file_name_msg())
+            return
+        if "{" not in s:
+            if not Card._full(Card.FILE, s):
+                r.err(path, Card.file_name_msg())
+            return
+        if not template:
+            r.err(path, "must be a file name, not a template")
+            return
+        if not Card.legal_template(s):
+            r.err(path, "must be a file name template ending in .png, .jpg, .jpeg or .webp")
 
     @staticmethod
     def capabilities(r, o, path):
@@ -1024,24 +1213,59 @@ class Card:
         r.keys(o, np, {*Card.COMMON, *fields}, list(Card.NODE_REQUIRED.get(t, ())), x_keys=False)
         r.int(o, "priority", np, 0, 9)
         r.int(o, "weight", np, 1, 12)
+        if "color" in o:
+            Card._color(r, o["color"], f"{np}.color")
         has = lambda k: k in fields
         if has("text"):
             r.str(o, "text", np, mx=Card.MAX_TEXT)
         if has("role"):
             ro = r.str(o, "role", np)
             if ro is not None and ro not in Card.ROLES:
-                r.err(f"{np}.role", "must be caption, body or title")
+                r.err(f"{np}.role", "must be caption, body, title or display")
         if has("maxLines"):
             r.int(o, "maxLines", np, 1, 6)
+        if has("align"):
+            al = r.str(o, "align", np)
+            if al is not None and al not in Card.ALIGN:
+                r.err(f"{np}.align", "must be start, center or end")
+        if has("font"):
+            fo = r.str(o, "font", np)
+            if fo is not None and fo not in Card.FONT:
+                r.err(f"{np}.font", "must be default or mono")
         if has("label"):
             r.str(o, "label", np, mx=40)
+        if has("icon") and t == "button":
+            r.str(o, "icon", np, mx=64)
         if t == "progress":
+            mxv = Card._num(o, "max", np, r) if "max" in o else None
+            if mxv is not None and mxv <= 0:
+                r.err(f"{np}.max", "must be a number greater than 0")
             if "value" in o:
                 v = o["value"]
                 if _is_str(v):
                     r.str(o, "value", np, mx=Card.MAX_TEXT)
-                elif not (isinstance(v, Num) and 0 <= float(v) <= 1):
-                    r.err(f"{np}.value", "must be a template or a number from 0 to 1")
+                else:
+                    try:
+                        n = float(v) if isinstance(v, Num) and not isinstance(v, bool) else None
+                    except ValueError:
+                        n = None
+                    hi = mxv if mxv is not None and mxv > 0 else 1
+                    if n is None or not (0 <= n <= hi):
+                        if mxv is not None and mxv > 0:
+                            r.err(f"{np}.value", f"must be a template or a number from 0 to {mxv}")
+                        else:
+                            r.err(f"{np}.value", "must be a template or a number from 0 to 1")
+            r.int(o, "segments", np, 2, Card.MAX_SEGMENTS)
+            st = r.str(o, "style", np)
+            if st is not None and st != "ticks":
+                r.err(f"{np}.style", 'must be "ticks"')
+            if "count" in o:
+                cv = o["count"]
+                if not (isinstance(cv, Num) and cv.is_int()):
+                    r.err(f"{np}.count", "must be an integer")
+            by = r.str(o, "by", np)
+            if by is not None and by not in Card.BY:
+                r.err(f"{np}.by", "must be value or position")
         elif has("value"):
             r.str(o, "value", np, mx=Card.MAX_TEXT)
         if has("unit"):
@@ -1059,6 +1283,8 @@ class Card:
             r.str(o, "package", np, rx=PKG)
             if ("name" in o) == ("package" in o):
                 r.err(np, 'needs exactly one of "name" or "package"')
+        if has("thresholds") and "thresholds" in o:
+            Card.thresholds(r, o["thresholds"], f"{np}.thresholds")
         if "tap" in o:
             Card.tap(r, o["tap"], f"{np}.tap", caps)
         if has("children") and "children" in o:
@@ -1067,6 +1293,33 @@ class Card:
             else:
                 for i, n in enumerate(r.arr(o, "children", np, mx=Card.MAX_CHILDREN, mn=1) or []):
                     Card.node(r, n, f"{np}.children[{i}]", depth + 1, count, lp, caps)
+
+    @staticmethod
+    def thresholds(r, e, path):
+        if not isinstance(e, list):
+            r.err(path, "must be an array")
+            return
+        if not (1 <= len(e) <= Card.MAX_THRESHOLDS):
+            r.err(path, f"needs 1 to {Card.MAX_THRESHOLDS} entries")
+        prev = None
+        for i, item in enumerate(e):
+            tp = f"{path}[{i}]"
+            o = r.obj(item, tp)
+            if o is None:
+                continue
+            r.keys(o, tp, {"from", "tone"}, ["from", "tone"], x_keys=False)
+            fr = Card._num(o, "from", tp, r)
+            if fr is not None:
+                if not (0 <= fr <= 100):
+                    r.err(f"{tp}.from", "must be 0 to 100")
+                if i == 0 and fr != 0:
+                    r.err(f"{tp}.from", "must be 0")
+                if prev is not None and fr <= prev:
+                    r.err(f"{tp}.from", "must be greater than the previous from")
+                prev = fr
+            tone = r.str(o, "tone", tp)
+            if tone is not None and tone not in Card.TONES and not Card.HEX.fullmatch(tone):
+                r.err(f"{tp}.tone", "must be ok, warn, error, accent, muted, or #RRGGBB")
 
     @staticmethod
     def tap(r, e, tp, caps):
@@ -1091,10 +1344,17 @@ class Card:
         if pk is not None and pk not in packages:
             r.err(f"{tp}.package", f'"{pk}" isn\'t in the ui.openApp packages')
         url = r.str(o, "url", tp, mx=Card.MAX_URL, mn=1)
-        if url is not None and "{" not in url:
-            p = Card.url_problem(url)
-            if p:
-                r.err(f"{tp}.url", p)
+        if url is not None:
+            if Card.mentions_secret(url):
+                r.err(f"{tp}.url", "a link can't use a secret.")
+            elif "{" not in url:
+                p = Card.url_problem(url)
+                if p:
+                    r.err(f"{tp}.url", p)
+
+    @staticmethod
+    def mentions_secret(s):
+        return Card.SECRET_REF.search(s) is not None
 
     @staticmethod
     def url_problem(url):
@@ -1107,15 +1367,175 @@ class Card:
         return None
 
     @staticmethod
+    def empty_not_drawn(resolved):
+        return resolved == ""
+
+    @staticmethod
+    def uses_readout_keys(o):
+        if "header" in o or "summary" in o or "layers" in o:
+            return True
+        sf = o.get("surface")
+        if isinstance(sf, dict) or (_is_str(sf) and sf != "auto"):
+            return True
+        def walk(n):
+            if not isinstance(n, dict):
+                return False
+            typ = n.get("type")
+            if "color" in n:
+                return True
+            if typ == "text" and ("align" in n or "font" in n or "status" in n or n.get("role") == "display"):
+                return True
+            if typ == "progress" and any(k in n for k in ("max", "segments", "style", "count", "thresholds", "by")):
+                return True
+            if typ == "metric" and "thresholds" in n:
+                return True
+            if typ == "button" and "icon" in n:
+                return True
+            for ch in n.get("children") or []:
+                if walk(ch):
+                    return True
+            return False
+        ls = o.get("layouts")
+        if isinstance(ls, dict):
+            for nodes in ls.values():
+                if isinstance(nodes, list):
+                    for n in nodes:
+                        if walk(n):
+                            return True
+        return False
+
+    @staticmethod
+    def has_open_url(o):
+        caps = o.get("capabilities")
+        if not isinstance(caps, list):
+            return False
+        return any(isinstance(c, dict) and c.get("kind") == "ui.openUrl" for c in caps)
+
+    @staticmethod
+    def honors_header_false(o):
+        return o.get("header") is False and not Card.has_open_url(o)
+
+    @staticmethod
     def override(r, o, path):
         pass
 
     @staticmethod
     def warnings(o, path):
-        return []
+        return Card.load_warnings(o, path, files=None)
+
+    @staticmethod
+    def load_warnings(o, path, files=None):
+        out = []
+        header_false = o.get("header") is False
+        if header_false and Card.has_open_url(o):
+            out.append(f'{path}.header: false is ignored because this card opens links or needs your OK, so the header is shown.')
+        if header_false and o.get("surface") == "none":
+            out.append(f'{path}.surface: "none" can\'t be used with header: false, so the default card surface was used.')
+        arr = o.get("layers")
+        if isinstance(arr, list):
+            if len(arr) > Card.MAX_LAYERS:
+                out.append(f"{path}.layers: has {len(arr)} layers, so the last {len(arr) - Card.MAX_LAYERS} were skipped. A card can have at most {Card.MAX_LAYERS}.")
+            kept = arr[:Card.MAX_LAYERS]
+            content_at = next((i for i, e in enumerate(kept) if isinstance(e, dict) and e.get("kind") == "content"), len(kept))
+            for i, e in enumerate(kept):
+                if not isinstance(e, dict) or e.get("kind") != "picture":
+                    continue
+                lp = f"{path}.layers[{i}]"
+                fit = e.get("fit") if _is_str(e.get("fit")) else "cover"
+                if "width" in e and fit != "fixed":
+                    out.append(f'{lp}.width is ignored unless fit is "fixed".')
+                w = Card._num_of(e, "width")
+                if w is not None and fit == "fixed":
+                    if w < Card.MIN_WIDTH:
+                        out.append(f"{lp}.width: {w} was clamped to {Card.MIN_WIDTH}.")
+                    elif w > Card.MAX_WIDTH:
+                        out.append(f"{lp}.width: {w} was clamped to {Card.MAX_WIDTH}.")
+                off = e.get("offset")
+                if isinstance(off, dict):
+                    for axis in ("x", "y"):
+                        v = Card._num_of(off, axis)
+                        if v is None:
+                            continue
+                        if v < -Card.MAX_OFFSET:
+                            out.append(f"{lp}.offset.{axis}: {v} was clamped to {-Card.MAX_OFFSET}.")
+                        elif v > Card.MAX_OFFSET:
+                            out.append(f"{lp}.offset.{axis}: {v} was clamped to {Card.MAX_OFFSET}.")
+                under = i == content_at - 1
+                above = i > content_at
+                scrim = e.get("scrim", None)
+                scrim_auto = "scrim" not in e or scrim == "auto"
+                if under and scrim_auto:
+                    out.append(f'{lp}: a picture is right under content, so a default scrim was added to keep text readable. Set this layer\'s scrim to choose it, or "none" to turn it off.')
+                if above:
+                    opacity = Card._num_of(e, "opacity")
+                    if opacity is None:
+                        opacity = 1.0
+                    if opacity > Card.ABOVE_OPACITY:
+                        out.append(f"{lp}: a layer above content is shown at 60% at most, so text stays readable.")
+                if files is not None:
+                    src = e.get("src")
+                    if _is_str(src) and "{" not in src and src not in files:
+                        out.append(f'{lp}.src: "{src}" isn\'t in this card\'s pictures folder, so the layer was skipped.')
+                    default = e.get("default")
+                    if _is_str(default) and default not in files:
+                        out.append(f'{lp}.default: "{default}" isn\'t in this card\'s pictures folder, so the default picture was skipped.')
+        def walk(n, np):
+            if not isinstance(n, dict):
+                return
+            if n.get("type") == "progress":
+                style = n.get("style")
+                if "count" in n:
+                    cv = n["count"]
+                    if isinstance(cv, Num) and cv.is_int():
+                        k = int(cv)
+                        if style != "ticks":
+                            out.append(f'{np}.count is ignored unless style is "ticks".')
+                        elif k > Card.MAX_TICKS:
+                            out.append(f"{np}.count: {k} was lowered to {Card.MAX_TICKS}, the most a ticks bar can have.")
+                        elif k < Card.MIN_TICKS:
+                            out.append(f"{np}.count: {k} was raised to {Card.MIN_TICKS}, the least a ticks bar can have.")
+                if style == "ticks" and "segments" in n:
+                    out.append(f'{np}.segments is ignored when style is "ticks".')
+            for i, ch in enumerate(n.get("children") or []):
+                walk(ch, f"{np}.children[{i}]")
+        ls = o.get("layouts")
+        if isinstance(ls, dict):
+            for k, nodes in ls.items():
+                if isinstance(nodes, list):
+                    for i, n in enumerate(nodes):
+                        walk(n, f"{path}.layouts.{k}[{i}]")
+        return out
+
+    @staticmethod
+    def image_bad_warning(path, file_name):
+        return f'{path}: "{file_name}" can\'t be shown (too big, or not a PNG, JPEG or WebP), so the layer was skipped.'
 
     @staticmethod
     def canonical(o):
+        def order(obj, keys, inner=None):
+            out = {}
+            for k in keys:
+                if k in obj:
+                    out[k] = inner(k, obj[k]) if inner else obj[k]
+            return out
+        def color_obj(obj, keys):
+            return order(obj, keys, lambda k, v: order(v, ("light", "dark")) if k == "color" and isinstance(v, dict) else v)
+        def node(e):
+            if not isinstance(e, dict):
+                return e
+            typ = e.get("type")
+            keys = list(Card.COMMON) + list(Card.NODES.get(typ, ()))
+            def inner(k, v):
+                if k == "color" and isinstance(v, dict):
+                    return color_obj(v, ("light", "dark"))
+                if k == "thresholds" and isinstance(v, list):
+                    return [order(t, ("from", "tone")) if isinstance(t, dict) else t for t in v]
+                if k == "tap" and isinstance(v, dict):
+                    return order(v, ("kind", *Card.TAP_KINDS.get(v.get("kind"), ())))
+                if k == "children" and isinstance(v, list):
+                    return [node(ch) for ch in v]
+                return v
+            return order(e, keys, inner)
         out = {}
         for k in Card.KEYS:
             if k not in o:
@@ -1123,13 +1543,29 @@ class Card:
             v = o[k]
             if k == "minSpan":
                 v = {kk: v[kk] for kk in ("w", "h") if kk in v}
+            elif k == "surface" and isinstance(v, dict):
+                v = color_obj(v, ("color", "opacity"))
+            elif k == "layers" and isinstance(v, list):
+                def layer(lo):
+                    if not isinstance(lo, dict):
+                        return lo
+                    if lo.get("kind") == "picture":
+                        def lin(key, ev):
+                            if key == "offset" and isinstance(ev, dict):
+                                return {kk: ev[kk] for kk in ("x", "y") if kk in ev}
+                            if key == "scrim" and isinstance(ev, dict):
+                                return color_obj(ev, ("color", "opacity"))
+                            return ev
+                        return order(lo, Card.PICTURE_KEYS, lin)
+                    return order(lo, ("kind",))
+                v = [layer(x) for x in v]
             elif k == "capabilities":
                 v = [{kk: c[kk] for kk in ("kind", *Card.KINDS[c["kind"]]) if kk in c} for c in v]
+            elif k == "layouts" and isinstance(v, dict):
+                v = {lk: [node(n) for n in nodes] for lk, nodes in v.items()}
             out[k] = v
         out.update(_x(o))
         return out
-
-
 ELEMENT_TYPES["card"] = Card
 
 

@@ -89,14 +89,39 @@
       "elements[0].capabilities[0]: unknown key \"hosts\""
     ]
   },
+  "invalid/card-readout-requires-4.json": {
+    "errors": [
+      "elements[0].requires: a card that uses readout keys needs feature level 6 or higher"
+    ]
+  },
+  "invalid/card-remote-src.json": {
+    "errors": [
+      "elements[0].layers[0].src must be a file name in the card's pictures folder, not a web address."
+    ]
+  },
   "invalid/card-requires-3.json": {
     "errors": [
       "elements[0].requires: a card needs feature level 4 or higher"
     ]
   },
+  "invalid/card-second-content.json": {
+    "errors": [
+      "elements[0].layers[1]: a card can have only one content layer"
+    ]
+  },
+  "invalid/card-secret-url.json": {
+    "errors": [
+      "elements[0].layouts.1x1[0].tap.url: a link can't use a secret."
+    ]
+  },
   "invalid/card-tap-undeclared.json": {
     "errors": [
       "elements[0].layouts.1x1[0].tap: ui.openApp isn't in this card's capabilities"
+    ]
+  },
+  "invalid/card-thresholds-from.json": {
+    "errors": [
+      "elements[0].layouts.1x1[0].thresholds[0].from: must be 0"
     ]
   },
   "invalid/cell-outside-grid.json": {
@@ -579,11 +604,35 @@
   "valid/bom.json": {
     "canonicalSha256": "d0391dfa528a863a6fcefc53211172a82bb00c7dbc9ff37cae48bf3a91bfb800"
   },
+  "valid/card-auto-scrim.json": {
+    "canonicalSha256": "1c230b30a5cba04a5be8d19002b0cdc392a64127c4a694f3de52bc6fe7b5fc0c",
+    "warnings": [
+      "elements[0].layers[0]: a picture is right under content, so a default scrim was added to keep text readable. Set this layer's scrim to choose it, or \"none\" to turn it off."
+    ]
+  },
   "valid/card-example.json": {
-    "canonicalSha256": "864fe81d356aec22cca9330a14f58009c16c0e0c1703c7aab08e1921aa20b5f6"
+    "canonicalSha256": "67129b67cd3d5f2dc3fcfe80a1aad16dc6e79bd4d5dd84dd9b220b711543aed5"
+  },
+  "valid/card-header-false-openurl.json": {
+    "canonicalSha256": "ae90d7ca5f55d31ae7523e2062e1746dd8b2c919e9b69f61224b8177d58cd4ea",
+    "warnings": [
+      "elements[0].header: false is ignored because this card opens links or needs your OK, so the header is shown."
+    ]
+  },
+  "valid/card-header-false-surface-none.json": {
+    "canonicalSha256": "b7d6b933afd625e7b276382afb94e2c81e46094d1728f8cf66d1ede541d91fed",
+    "warnings": [
+      "elements[0].surface: \"none\" can't be used with header: false, so the default card surface was used."
+    ]
   },
   "valid/card-key-order.json": {
-    "canonicalSha256": "7f85bfb1eebaf97eeb590b20ac727dd786706faaa1ee016bc3954d0da3c12a44"
+    "canonicalSha256": "04221304d220914bb5e1ebd127325d29b207aec809b27e4dbd0afd29f06ced0e"
+  },
+  "valid/card-status.json": {
+    "canonicalSha256": "82420983149c04c24c5e8e88c44d414109120c9438104682cf80f64142c650cc"
+  },
+  "valid/card-usage.json": {
+    "canonicalSha256": "e2c8b9368990420a8cb0677f22d6be8197501d6adc927408a6c335f4650a21b5"
   },
   "valid/drawer-rules-key-order.json": {
     "canonicalSha256": "44d8f9807adf1cea56c04b3ff8f311e9e6fd6f385007f40558ad1603f753f07e"
@@ -593,7 +642,7 @@
     "warnings": [
       "elements[0]: type \"banner\" isn't supported by this Reflow Launcher, so it was skipped. It stays in the file.",
       "elements[1]: type \"gauge\" isn't supported by this Reflow Launcher, so it was skipped. It stays in the file.",
-      "elements[2] needs feature level 9, but this Reflow Launcher supports up to 5, so it was skipped. It stays in the file. Update the app to show it.",
+      "elements[2] needs feature level 9, but this Reflow Launcher supports up to 6, so it was skipped. It stays in the file. Update the app to show it.",
       "pages[0].overrides: \"t-gone\" doesn't match any element, so it was ignored."
     ]
   },
@@ -648,10 +697,10 @@
   "valid/titlebar-preset.json": {
     "canonicalSha256": "07eca8cf0c0448a111655e7df997974a1ff0b4b2875f4d586f9fd264ae579af8"
   },
-  "valid/titlebar-requires-6.json": {
-    "canonicalSha256": "39ae174f5dedfc8510550e13c6aa1b72dc6359d8f25153dedf0c2c8d1ff92374",
+  "valid/titlebar-requires-7.json": {
+    "canonicalSha256": "6955f8cc1b66eaa171d25d87c9cd172854c345c4b74a684d611ad0ca063e9c75",
     "warnings": [
-      "elements[0] needs feature level 6, but this Reflow Launcher supports up to 5, so it was skipped. It stays in the file. Update the app to show it."
+      "elements[0] needs feature level 7, but this Reflow Launcher supports up to 6, so it was skipped. It stays in the file. Update the app to show it."
     ]
   },
   "valid/titlebar-shorthands.json": {

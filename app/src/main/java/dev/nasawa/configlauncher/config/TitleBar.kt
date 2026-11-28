@@ -67,13 +67,7 @@ object TitleBar : Elements.ElementType {
             val ok = if (p?.isString == true) p.content in WEIGHTS else p?.content?.toLongOrNull()?.let { it in 300..800 && it % 100 == 0L } == true
             if (!ok) c.err("", "$path.weight must be regular, medium or bold, or 300 to 800 in steps of 100.")
         }
-        o["color"]?.let { v ->
-            if (v is JsonObject) {
-                c.keys(v, "$path.color", setOf("light", "dark"), emptySet(), xKeys = false)
-                if (v.isEmpty()) c.err("", "$path.color needs light or dark.")
-                for (k in listOf("light", "dark")) v[k]?.let { color(it, "$path.color.$k", c) }
-            } else color(v, "$path.color", c)
-        }
+        o["color"]?.let { v -> checkColor(v, "$path.color", c) }
         o["align"]?.let { v ->
             val a = c.obj(v, "$path.align") ?: return@let
             c.keys(a, "$path.align", SLOTS.toSet(), emptySet(), xKeys = false)
@@ -94,6 +88,15 @@ object TitleBar : Elements.ElementType {
                 if (s !in setOf("auto", "none", "scrim")) c.err("", "$path.backdrop must be auto, none or scrim, or an object with color.")
             }
         }
+    }
+
+    /** Token, `#RRGGBB`, or `{light, dark}`. Shared with card surface / scrim / node color (#360). */
+    fun checkColor(v: JsonElement, path: String, c: Validator.Checks) {
+        if (v is JsonObject) {
+            c.keys(v, path, setOf("light", "dark"), emptySet(), xKeys = false)
+            if (v.isEmpty()) c.err("", "$path needs light or dark.")
+            for (k in listOf("light", "dark")) v[k]?.let { checkColor(it, "$path.$k", c) }
+        } else color(v, path, c)
     }
 
     private fun color(v: JsonElement, path: String, c: Validator.Checks) {

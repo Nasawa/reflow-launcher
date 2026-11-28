@@ -1260,7 +1260,7 @@ Showing the last working layout.`). Warnings never raise a banner.
 | Template too long | Error | `elements[0].content.slots.center is 130 characters; the maximum is 120.` |
 | Second title bar | Error | `elements[1]: only one titleBar is allowed (elements[0] is already one).` |
 | Unknown element type | Warning | `elements[2]: type "gauge" isn't supported by this Reflow Launcher, so it was skipped. It stays in the file.` |
-| `requires` too high | Warning | `elements[2] needs feature level 6, but this Reflow Launcher supports up to 5, so it was skipped. It stays in the file. Update the app to show it.` |
+| `requires` too high | Warning | `elements[2] needs feature level 7, but this Reflow Launcher supports up to 6, so it was skipped. It stays in the file. Update the app to show it.` |
 | Override for a missing element | Warning | `pages[1].overrides: "t-clock" doesn't match any element, so it was ignored.` |
 | Pattern on a token that has none | Error | `elements[0].content.slots.center: {page:x} doesn't take a pattern. Only {time} and {date} do.` |
 | Empty pattern | Error | `elements[0].content.slots.end: {time:} has an empty pattern. Write {time} for the default format.` |
@@ -1766,7 +1766,7 @@ the §16.2 placeholder so every non-live widget looks like the same family:
 | Asks for more than a non-empty ceiling (including silent lines recorded while it was live) | `Needs your OK again` | Broadened prompt |
 | User chose `Keep off` on a prompt | Unchanged (`Needs your OK` / `Needs your OK again`) | Prompt again |
 | User revoked it | `Turned off` | Same |
-| Above this launcher's feature level (`requires`, e.g. `net.fetch` at 6 on a level-5 phone) | `Update Reflow Launcher to show this` | Hint sheet. Same skip-and-keep rule as §15, but it **keeps its cells and shows the tile**, because a dashboard card going missing looks broken |
+| Above this launcher's feature level (`requires`, e.g. a card at `FL_CARDS_READOUT` (6) on a level-5 phone) | `Update Reflow Launcher to show this` | Hint sheet. Same skip-and-keep rule as §15, but it **keeps its cells and shows the tile**, because a dashboard card going missing looks broken |
 | Declares a capability `kind` this launcher doesn't know (a newer kind that's missing its `requires` bump, a typo, or a never-offered kind) | `Update Reflow Launcher to show this` | Same hint sheet and skip-and-keep: cells kept, the element stays in the file, and nothing is rendered or granted. The `status.json` warning names the kind (below), so a typo is visible to the agent even though the phone's copy suggests an update. No prompt, no B2 |
 | Data file missing or unreadable on first load | *(live; values show `—`, `as of` gets ▲, §17.9)* | — |
 
@@ -1979,17 +1979,17 @@ glyph for warn ▲ and error ■.
 
 | Primitive | Shows | Overflow | Empty / stale / error | TalkBack |
 |---|---|---|---|---|
-| `text` | Template text (title-bar grammar + `{data:…}`), `role` caption/body/title, `maxLines` 1–4 | Ellipsize at the end | Binding missing → `—` | As written |
-| `metric` | Label (caption), value (metric tier), optional unit and status, like `Site A · up` | Label ellipsizes first, value never truncates. Too narrow → the unit is dropped, then the label | `—` | `Site A, up` |
+| `text` | Template text (title-bar grammar + `{data:…}`), `role` caption/body/title/`display`, optional `align` (`start`/`center`/`end`), `font` (`default`/`mono`), `status` (dot), `color` | Ellipsize at the end | Binding missing → `—`. Empty string → not drawn (the row disappears if nothing is left) | As written |
+| `metric` | Label (caption), value (metric tier), optional unit, status, `thresholds` (colours the status dot) and `color`, like `Site A · up` | Label ellipsizes first, value never truncates. Too narrow → the unit is dropped, then the label | Binding missing → `—`. Empty string → not drawn | `Site A, up` |
 | `list` | Rows from a data array: leading dot/icon, primary text, trailing caption (`down`). `maxItems` or `auto` (as many as fit) | `auto` shows what fits plus `+2 more` | Empty → `emptyText` (default `Nothing to show`) | `Unhealthy monitors, list, 1 item. Label Printer, down` |
 | `icon` | Material symbol or app icon, `icon`/`icon.l` | Dropped by priority | — | Its `label`, or skipped if decorative |
-| `progress` | Bar (or ring at 1×1), value 0–1, label + percentage (the ctx/5h/7d case, done right) | Label drops before the bar | `—` and an empty track | `ctx, 18 percent` |
-| `button` | Label (+ icon), runs a declared action (`ui.openApp` / `ui.openUrl` / `ui.reload`; Act kinds later) | Icon-only at compact, label kept in TalkBack | Action not allowed → hidden, never greyed-and-tappable | `<Label>, button` |
+| `progress` | Bar (or ring at 1×1), or `style: "ticks"` with optional `count` 10–120. `max` (default 1) lets `value` be `79` with `max: 100`. Optional `segments` (2–20), `thresholds`, `by` (`value`/`position`), `color` | Label drops before the bar | `—` and an empty track | `ctx, 18 percent` |
+| `button` | Label + optional `icon` (Material symbol name), runs a declared action (`ui.openApp` / `ui.openUrl` / `ui.reload`; Act kinds later). Optional `color` | Icon-only at compact, label kept in TalkBack | Action not allowed → hidden, never greyed-and-tappable | `<Label>, button` |
 
 **Card chrome (automatic, always drawn; agent review #4).** Every config widget gets a header row with the title (`title` role)
 and its source: `as of 08:38` (caption) when the data has `updatedAt`, otherwise a 12 dp `dashboard` glyph that marks it as
 a widget. The header never shows `author`. It turns `as of 08:38 · stale` with ▲ after the widget's `staleAfter` (default 2× the agent's declared
-interval, else 30 min). **The header can't be turned off,** except with `header: false` on a card that opens no links and needs no consent (see reflow-widgets.md §4.5). At `short` heights (h = 1) it collapses to a leading title
+interval, else 30 min). **The header can't be turned off,** except with `header: false` on a card that opens no links and needs no consent (see reflow-widgets.md §4.5). `header: false` with `ui.openUrl` is valid, the header is shown, and the warning is `elements[N].header: false is ignored because this card opens links or needs your OK, so the header is shown.` (`net.fetch` is #368.) Combined with `surface: "none"`, the default card surface is kept and the warning is `elements[N].surface: "none" can't be used with header: false, so the default card surface was used.` At `short` heights (h = 1) it collapses to a leading title
 caption on the same row, ellipsized before the content, so even a 1-row card says what it is. This way a live card
 (even a Show-only one, which needs no prompt) can't pass for a system dialog, a notification or the status bar.
 - `title` is optional (Archimedes, the S3-A validator). Missing or empty → the header shows the element `id` in the
@@ -2004,8 +2004,8 @@ caption on the same row, ellipsized before the content, so even a 1-row card say
 first ever load shows `—`. A data file that's missing or unreadable keeps the last values, adds ▲ to `as of`, and writes a
 `status.json` warning.
 
-**Link taps (`ui.openUrl`, Q-D5).** A tap `url` may contain `{data:…}` (e.g. the latest blog post). At tap time the
-launcher resolves it and checks the **resolved** URL, in this order:
+**Link taps (`ui.openUrl`, Q-D5).** A tap `url` may contain `{data:…}` (e.g. the latest blog post). A leftover `${secret:…}` or `{secret:…}` in the `url` string is a load error: `elements[N].layouts…url: a link can't use a secret.` At tap time the
+launcher resolves a valid template and checks the **resolved** URL, in this order:
 1. **Blocked** (nothing opens): a scheme other than `https` / `http` (`intent:`, `javascript:`, `file:`, `content:`, …),
    or a user name or password in the URL (`https://example.com@evil.net`). Snackbar (4 s, no action, TalkBack says the
    same) `This link isn't allowed for this widget.`, never a dialog and no "open anyway", plus a `status.json` warning

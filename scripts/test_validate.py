@@ -181,8 +181,10 @@ class AppWidgetLevel(unittest.TestCase):
     """#298 NW-1: appWidget is feature level 5 (level 3 retired); a level-4 app (v1.0.0) skips it and keeps its cells."""
     def test_level_matches_phone(self):
         kt = (ROOT / "app/src/main/java/dev/nasawa/configlauncher/config/Elements.kt").read_text()
-        self.assertEqual(5, V.FEATURE_LEVEL)
-        self.assertEqual(f"const val FEATURE_LEVEL = {V.FEATURE_LEVEL}", re.search(r"const val FEATURE_LEVEL = \d+", kt).group(0))
+        self.assertEqual(6, V.FEATURE_LEVEL)
+        self.assertEqual(6, V.FL_CARDS_READOUT)
+        self.assertIn("const val FL_CARDS_READOUT = 6", kt)
+        self.assertIn("const val FEATURE_LEVEL = FL_CARDS_READOUT", kt)
         self.assertEqual(5, V.ELEMENT_TYPES["appWidget"].LEVEL)
         self.assertEqual({"titleBar", "card", "appWidget"}, set(V.ELEMENT_TYPES))
 
@@ -291,6 +293,81 @@ class SchemaId(unittest.TestCase):
         tree2, errs2 = V.validate(out.encode(), use_schema=False)
         self.assertEqual([], errs2)
         self.assertEqual(self.NEW, tree2["$schema"])
+
+
+class CardReadout(unittest.TestCase):
+    """#360 RW-1: M1 readout keys; Kotlin and validate.py agree on every message."""
+    def _doc(self, card):
+        return {"schemaVersion": 1, "grid": {"columns": 4, "rows": 12}, "pages": [{"id": "home", "items": []}], "elements": [card]}
+
+    def _raw(self, card):
+        return json.dumps(self._doc(card)).encode()
+
+    def test_examples_validate(self):
+        for name in ("card-status.json", "card-usage.json"):
+            raw = (FIX / "valid" / name).read_bytes()
+            tree, errs = V.validate(raw, use_schema=False)
+            self.assertEqual([], errs, name)
+            self.assertEqual([], V.warnings(tree), name)
+
+    def test_new_keys_need_level(self):
+        card = {"id": "w-1", "type": "card", "requires": 4, "page": "home", "x": 0, "y": 1, "w": 2, "h": 2,
+                "header": False, "layouts": {"1x1": [{"type": "text", "text": "hi"}]}}
+        _, errs = V.validate(self._raw(card), use_schema=False)
+        self.assertIn("elements[0].requires: a card that uses readout keys needs feature level 6 or higher", errs)
+
+    def test_level_five_app_skips_readout_card(self):
+        raw = (FIX / "valid" / "card-usage.json").read_bytes()
+        old = V.FEATURE_LEVEL
+        V.FEATURE_LEVEL = 5
+        self.addCleanup(setattr, V, "FEATURE_LEVEL", old)
+        tree, errs = V.validate(raw, use_schema=False)
+        self.assertEqual([], errs)
+        self.assertEqual(["elements[0] needs feature level 6, but this Reflow Launcher supports up to 5, so it was skipped. "
+                          "It stays in the file. Update the app to show it."], V.warnings(tree))
+
+    def test_header_false_openurl_warning(self):
+        card = {"id": "w-1", "type": "card", "requires": 6, "page": "home", "x": 0, "y": 1, "w": 2, "h": 2,
+                "header": False, "capabilities": [{"kind": "ui.openUrl"}],
+                "layouts": {"1x1": [{"type": "text", "text": "hi"}]}}
+        tree, errs = V.validate(self._raw(card), use_schema=False)
+        self.assertEqual([], errs)
+        self.assertEqual(['elements[0].header: false is ignored because this card opens links or needs your OK, so the header is shown.'], V.warnings(tree))
+
+    def test_header_false_surface_none_warning(self):
+        card = {"id": "w-1", "type": "card", "requires": 6, "page": "home", "x": 0, "y": 1, "w": 2, "h": 2,
+                "header": False, "surface": "none", "layouts": {"1x1": [{"type": "text", "text": "hi"}]}}
+        tree, errs = V.validate(self._raw(card), use_schema=False)
+        self.assertEqual([], errs)
+        self.assertEqual(['elements[0].surface: "none" can\'t be used with header: false, so the default card surface was used.'], V.warnings(tree))
+
+    def test_secret_url_and_data_link(self):
+        base = {"id": "w-1", "type": "card", "requires": 6, "page": "home", "x": 0, "y": 1, "w": 2, "h": 2,
+                "capabilities": [{"kind": "ui.openUrl"}]}
+        ok = {**base, "layouts": {"1x1": [{"type": "text", "text": "go", "tap": {"kind": "ui.openUrl", "url": "{data:blog.url}"}}]}}
+        _, errs = V.validate(self._raw(ok), use_schema=False)
+        self.assertEqual([], errs)
+        bad = {**base, "layouts": {"1x1": [{"type": "text", "text": "go", "tap": {"kind": "ui.openUrl", "url": "https://example.com/${secret:ha}"}}]}}
+        _, errs = V.validate(self._raw(bad), use_schema=False)
+        self.assertIn("elements[0].layouts.1x1[0].tap.url: a link can't use a secret.", errs)
+
+    def test_from_75_accepted(self):
+        card = {"id": "w-1", "type": "card", "requires": 6, "page": "home", "x": 0, "y": 1, "w": 2, "h": 2,
+                "layouts": {"1x1": [{"type": "progress", "value": 79, "max": 100,
+                                     "thresholds": [{"from": 0, "tone": "accent"}, {"from": 75, "tone": "warn"}]}]}}
+        _, errs = V.validate(self._raw(card), use_schema=False)
+        self.assertEqual([], errs)
+
+    def test_missing_file_sentences(self):
+        card = {"id": "w-1", "type": "card", "requires": 6, "page": "home", "x": 0, "y": 1, "w": 2, "h": 2,
+                "layers": [{"kind": "picture", "src": "sticker.webp", "default": "sticker-idle.webp", "scrim": "none"}, {"kind": "content"}],
+                "layouts": {"1x1": [{"type": "text", "text": "hi"}]}}
+        ws = V.Card.load_warnings(card, "elements[0]", files=set())
+        self.assertEqual([
+            'elements[0].layers[0].src: "sticker.webp" isn\'t in this card\'s pictures folder, so the layer was skipped.',
+            'elements[0].layers[0].default: "sticker-idle.webp" isn\'t in this card\'s pictures folder, so the default picture was skipped.',
+        ], ws)
+
 
 
 if __name__ == "__main__":

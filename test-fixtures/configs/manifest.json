@@ -744,7 +744,7 @@
     "note": "#79"
   },
   {
-    "file": "valid/titlebar-requires-6.json",
+    "file": "valid/titlebar-requires-7.json",
     "expect": "valid with a warning: requires above the feature level skips the bar (kept verbatim, unknown keys allowed)",
     "layer": "both",
     "ref": "title-bar.md §6",
@@ -914,6 +914,78 @@
     "ref": "dynamic-widgets.md §4",
     "note": "#137",
     "kotlinOnly": "card-capability-ref"
+  },
+  {
+    "file": "valid/card-status.json",
+    "expect": "valid: reflow-widgets.md §8.1 Example Co status card at FL_CARDS_READOUT",
+    "layer": "both",
+    "ref": "reflow-widgets.md §8.1",
+    "note": "#360"
+  },
+  {
+    "file": "valid/card-usage.json",
+    "expect": "valid: reflow-widgets.md §8.2 M1 Agent usage card at FL_CARDS_READOUT",
+    "layer": "both",
+    "ref": "reflow-widgets.md §8.2",
+    "note": "#360"
+  },
+  {
+    "file": "valid/card-header-false-openurl.json",
+    "expect": "valid with a warning: header false is ignored because the card opens links",
+    "layer": "both",
+    "ref": "reflow-widgets.md §4.5",
+    "note": "#360"
+  },
+  {
+    "file": "valid/card-header-false-surface-none.json",
+    "expect": "valid with a warning: surface none cannot pair with header false, default surface is kept",
+    "layer": "both",
+    "ref": "reflow-widgets.md §4.5",
+    "note": "#360"
+  },
+  {
+    "file": "valid/card-auto-scrim.json",
+    "expect": "valid with a warning: default scrim on a picture directly under content",
+    "layer": "both",
+    "ref": "reflow-widgets.md §4.4",
+    "note": "#360"
+  },
+  {
+    "file": "invalid/card-readout-requires-4.json",
+    "expect": "invalid, B2: readout keys need requires 6",
+    "layer": "kotlin-only",
+    "ref": "reflow-widgets.md §12",
+    "note": "#360",
+    "kotlinOnly": "card-readout"
+  },
+  {
+    "file": "invalid/card-second-content.json",
+    "expect": "invalid, B2: only one content layer",
+    "layer": "both",
+    "ref": "reflow-widgets.md §4.4",
+    "note": "#360"
+  },
+  {
+    "file": "invalid/card-remote-src.json",
+    "expect": "invalid, B2: picture src cannot be a web address",
+    "layer": "both",
+    "ref": "reflow-widgets.md §4.4",
+    "note": "#360"
+  },
+  {
+    "file": "invalid/card-secret-url.json",
+    "expect": "invalid, B2: a leftover ${secret:…} in a tap url is a load error",
+    "layer": "both",
+    "ref": "reflow-widgets.md §5.1",
+    "note": "#360"
+  },
+  {
+    "file": "invalid/card-thresholds-from.json",
+    "expect": "invalid, B2: the first thresholds from must be 0",
+    "layer": "kotlin-only",
+    "ref": "reflow-widgets.md §4.2",
+    "note": "#360",
+    "kotlinOnly": "card-readout"
   },
   {
     "file": "invalid/number-too-large.json",
