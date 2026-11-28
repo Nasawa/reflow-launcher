@@ -992,9 +992,9 @@ class Bindings:
         if err:
             return err
         if tok["kind"] not in ("data", "fetch"):
-            return f"{path}: \"{{{inner}}}\" isn't a file name token, so this card wasn't loaded. Use {{data:…}} or {{fetch:…}} in a picture src."
+            return f"{path}: \"{{{inner}}}\" isn't allowed in a picture file name, so the last working layout is shown. Use {{data:…}} or {{fetch:…}}."
         if tok["formatters"]:
-            return f"{path}: {{{inner}}} has a formatter, so this card wasn't loaded. A picture file name can only use {{data:…}} or {{fetch:…}}."
+            return f"{path}: {{{inner}}} has a formatter, so the last working layout is shown. Use a bare {{data:…}} or {{fetch:…}} in a picture file name."
         return None
 
     @staticmethod
@@ -1008,12 +1008,12 @@ class Bindings:
         bits.append("".join(buf))
         if not bits or bits[0] == "":
             return (
-                f"{path}: unknown token {{{inner}}}, so this card wasn't loaded. "
+                f"{path}: unknown token {{{inner}}}, so the last working layout is shown. "
                 "Use {data:…}, {fetch:…}, {time}, {date}, {battery}, {batteryFraction}, {batteryState}, {nextAlarm} or {relative}."
             ), None
         if len(bits) - 1 > Bindings.MAX_FORMATTERS:
             return (
-                f"{path}: {{{inner}}} has {len(bits) - 1} formatters, so this card wasn't loaded. "
+                f"{path}: {{{inner}}} has {len(bits) - 1} formatters, so the last working layout is shown. "
                 f"A token can have at most {Bindings.MAX_FORMATTERS}."
             ), None
         fmts = []
@@ -1058,17 +1058,17 @@ class Bindings:
                     n = None
             if n is None or not (0 <= n <= Bindings.MAX_ROUND):
                 return (
-                    f"{path}: the n in {{{inner}}} isn't a whole number from 0 to {Bindings.MAX_ROUND}, "
-                    "so this card wasn't loaded. Write {…|round} or {…|round:1}."
+                    f"{path}: the number after round in {{{inner}}} isn't a whole number from 0 to {Bindings.MAX_ROUND}, "
+                    "so the last working layout is shown. Write {…|round} or {…|round:1}."
                 ), None
             return None, ("round", n)
         if name == "duration":
             if arg is not None:
-                return f"{path}: duration in {{{inner}}} doesn't take an argument, so this card wasn't loaded. Write {{…|duration}}.", None
+                return f"{path}: duration in {{{inner}}} doesn't take an argument, so the last working layout is shown. Write {{…|duration}}.", None
             return None, ("duration", None)
         if name == "since":
             if arg is not None:
-                return f"{path}: since in {{{inner}}} doesn't take an argument, so this card wasn't loaded. Write {{…|since}}.", None
+                return f"{path}: since in {{{inner}}} doesn't take an argument, so the last working layout is shown. Write {{…|since}}.", None
             return None, ("since", None)
         if name == "time":
             if arg is not None:
@@ -1078,10 +1078,10 @@ class Bindings:
             return None, ("time", arg)
         if name == "default":
             if arg is None:
-                return f"{path}: default in {{{inner}}} needs a text value, so this card wasn't loaded. Write {{…|default:text}}.", None
+                return f"{path}: default in {{{inner}}} needs a text value, so the last working layout is shown. Write {{…|default:text}}.", None
             return None, ("default", arg)
         return (
-            f"{path}: unknown formatter \"{name}\" in {{{inner}}}, so this card wasn't loaded. Use round, duration, since, time or default."
+            f"{path}: unknown formatter \"{name}\" in {{{inner}}}, so the last working layout is shown. Use round, duration, since, time or default."
         ), None
 
     @staticmethod
@@ -1092,7 +1092,7 @@ class Bindings:
         if name == "data":
             if arg is None or not Bindings.legal_path(arg):
                 return (
-                    f"{path}: {{{inner}}} isn't a data path, so this card wasn't loaded. "
+                    f"{path}: {{{inner}}} isn't a data path, so the last working layout is shown. "
                     "Use a path of dots and [index] like {data:updatedAt}."
                 ), None
             tok["path"] = arg
@@ -1103,7 +1103,7 @@ class Bindings:
             rest = arg[dot + 1:] if dot > 0 else None
             if arg is None or source is None or not Bindings.SOURCE.fullmatch(source) or not rest or not Bindings.legal_path(rest):
                 return (
-                    f"{path}: {{{inner}}} isn't a fetch path, so this card wasn't loaded. "
+                    f"{path}: {{{inner}}} isn't a fetch path, so the last working layout is shown. "
                     "Write {fetch:source.path}, with a source name and a path of dots and [index]."
                 ), None
             tok["path"], tok["source"] = rest, source
@@ -1119,7 +1119,7 @@ class Bindings:
         if name in ("battery", "batteryFraction", "batteryState"):
             if arg is not None:
                 return (
-                    f"{path}: {{{name}}} doesn't take a path, so this card wasn't loaded. Write {{{name}}}."
+                    f"{path}: {{{inner}}} doesn't take a path, so the last working layout is shown. Write {{{name}}}."
                 ), None
             return None, tok
         if name == "nextAlarm":
@@ -1138,12 +1138,12 @@ class Bindings:
                 p = arg
             else:
                 return (
-                    f"{path}: {{relative}} doesn't take a pattern, so this card wasn't loaded. Write {{relative}} or {{relative:updatedAt}}."
+                    f"{path}: {{{inner}}} isn't a data path, so the last working layout is shown. Write {{relative}} or {{relative:updatedAt}}."
                 ), None
             tok["path"] = p
             return None, tok
         return (
-            f"{path}: unknown token {{{inner}}}, so this card wasn't loaded. "
+            f"{path}: unknown token {{{inner}}}, so the last working layout is shown. "
             "Use {data:…}, {fetch:…}, {time}, {date}, {battery}, {batteryFraction}, {batteryState}, {nextAlarm} or {relative}."
         ), None
 
@@ -1152,7 +1152,7 @@ class Bindings:
         p = s[5:] if s.startswith("data.") and Bindings.legal_path(s[5:]) else s
         if Bindings.legal_path(p):
             return None
-        return f"{path}: \"{s}\" isn't a data path, so this card wasn't loaded. Use a path of dots and [index] like updatedAt."
+        return f"{path}: \"{s}\" isn't a data path, so the last working layout is shown. Use a path of dots and [index] like updatedAt."
 
     @staticmethod
     def as_of_path(s):
@@ -1234,19 +1234,25 @@ class Bindings:
             if ahead < 60:
                 return "just now"
             if ahead < 3600:
-                return f"{ahead // 60} min from now"
+                return Bindings._relative_phrase(ahead // 60, "minute", "from now")
             if ahead < 86400:
-                return f"{ahead // 3600} h from now"
-            return f"{ahead // 86400} d from now"
+                return Bindings._relative_phrase(ahead // 3600, "hour", "from now")
+            return Bindings._relative_phrase(ahead // 86400, "day", "from now")
         if sec < 60:
             return "just now"
         if sec < 3600:
-            return f"{sec // 60} min ago"
+            return Bindings._relative_phrase(sec // 60, "minute", "ago")
         if sec < 86400:
-            return f"{sec // 3600} h ago"
-        return f"{sec // 86400} d ago"
+            return Bindings._relative_phrase(sec // 3600, "hour", "ago")
+        return Bindings._relative_phrase(sec // 86400, "day", "ago")
 
     @staticmethod
+
+    @staticmethod
+    def _relative_phrase(n, singular, suffix):
+        unit = singular if n == 1 else singular + "s"
+        return f"{n} {unit} {suffix}"
+
     def battery_state(env):
         b = env.get("batteryPercent")
         if b is None:

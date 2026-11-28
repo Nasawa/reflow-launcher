@@ -62,7 +62,7 @@ Responsive: up to 3 `layouts` keyed by `"WxH"` with a **lowercase** `x` (e.g. `"
 ### Templating and binding
 
 - Reuse title-bar token grammar where useful (`{time:…}`, `{date:…}`, `{page}`, …).
-- **Relative time (cards):** token name `{relative}` (optional path `{relative:data.updatedAt}`; default = data file root `updatedAt`). Renders **`5 min ago` / `just now`** only — **no pattern** argument. Closed formatter, no scripts. Title bar stays absolute-only in v1.
+- **Relative time (cards):** token name `{relative}` (optional path `{relative:data.updatedAt}`; default = data file root `updatedAt`). Renders **`5 minutes ago` / `just now`** only — **no pattern** argument. Closed formatter, no scripts. Title bar stays absolute-only in v1.
 - Data: `{data:path}` with a **strict JSON-path subset** (dot keys + `[index]`). Nothing is evaluated.
 - Missing path → `—` (never throw). Lists require arrays.
 
@@ -296,7 +296,7 @@ Honest holes in "local files + opt-in URL fetch + per-widget manifest":
 - **Q-C3:** *(decided)* **Yes** — users own what they knowingly approve; explicit per-origin allow including private/`http://`; clear prompt labelling. Consent/disclosure copy must note that http is less secure, that some local setups make https difficult for little gain, and that the user is responsible for their approvals.
 - **Q-C4:** *(decided)* **Keep** `author` as optional/recommended (cheap quote signal). If omitted, **hide** it — do not crash or show empty chrome.
 - **Q-C5:** *(decided)* **Yes** — companion AppWidgets + agent-written local JSON are enough for v1 of (b). No tight HA coupling; own HA-reading widgets are advanced. Distant optional first-class in-app widgets OK as a far goal, not v1.
-- **Q-C6:** *(decided)* Show-tier `ui.reload`; token `{relative}` → `5 min ago` / `just now`, no pattern. Pragma OK.
+- **Q-C6:** *(decided)* Show-tier `ui.reload`; token `{relative}` → `5 minutes ago` / `just now`, no pattern. Pragma OK.
 - **Q-C7:** *(decided)* Scheme-qualified `http://` when approved by name — a card `source`, an Always-allow site, or a `net.fetch` origin (the `ui.openUrl.hosts` form is superseded by Q-D5); **TOFU** for self-signed (stern pin-on-approve / re-pin-on-change copy); no silent downgrade. **Archimedes:** while the re-pin prompt is unanswered, pause `net.fetch` for that origin and show last-good data stale.
 - **Q-D5:** *(decided — Christopher via Pragma, 2026-10-19)* Optional card **`source`**; `ui.openUrl` is **bare** (`hosts` dropped); taps matching `source` open **silently**; any other site **confirms every tap** with **Always allow this site** (device-local per element id, not synced); `source` is in the capability fingerprint; `source` is not fetch and does not imply `net.fetch`.
 

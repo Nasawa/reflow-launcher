@@ -131,9 +131,9 @@ object Bindings {
         if (t is Result.Bad) return t.message
         val tok = (t as Result.Ok).parts.single() as Tok
         if (tok.kind != Kind.Data && tok.kind != Kind.Fetch)
-            return "$path: \"${srcWrap(inner)}\" isn't a file name token, so this card wasn't loaded. Use {data:…} or {fetch:…} in a picture src."
+            return "$path: \"${srcWrap(inner)}\" isn't allowed in a picture file name, so the last working layout is shown. Use {data:…} or {fetch:…}."
         if (tok.formatters.isNotEmpty())
-            return "$path: ${srcWrap(inner)} has a formatter, so this card wasn't loaded. A picture file name can only use {data:…} or {fetch:…}."
+            return "$path: ${srcWrap(inner)} has a formatter, so the last working layout is shown. Use a bare {data:…} or {fetch:…} in a picture file name."
         return null
     }
 
@@ -142,9 +142,9 @@ object Bindings {
     private fun token(inner: String, path: String): Result {
         val bits = splitFormatters(inner)
         if (bits.isEmpty() || bits[0].isEmpty())
-            return Result.Bad("$path: unknown token {$inner}, so this card wasn't loaded. Use {data:…}, {fetch:…}, {time}, {date}, {battery}, {batteryFraction}, {batteryState}, {nextAlarm} or {relative}.")
+            return Result.Bad("$path: unknown token {$inner}, so the last working layout is shown. Use {data:…}, {fetch:…}, {time}, {date}, {battery}, {batteryFraction}, {batteryState}, {nextAlarm} or {relative}.")
         if (bits.size - 1 > MAX_FORMATTERS)
-            return Result.Bad("$path: {$inner} has ${bits.size - 1} formatters, so this card wasn't loaded. A token can have at most $MAX_FORMATTERS.")
+            return Result.Bad("$path: {$inner} has ${bits.size - 1} formatters, so the last working layout is shown. A token can have at most $MAX_FORMATTERS.")
         val head = bits[0]
         val fmts = mutableListOf<Fmt>()
         for (f in bits.drop(1)) {
@@ -179,14 +179,14 @@ object Bindings {
             "round" -> {
                 val n = if (arg == null) 0 else arg.toIntOrNull()
                 if (n == null || n !in 0..MAX_ROUND)
-                    Result.Bad("$path: the n in {$inner} isn't a whole number from 0 to $MAX_ROUND, so this card wasn't loaded. Write {…|round} or {…|round:1}.")
+                    Result.Bad("$path: the number after round in {$inner} isn't a whole number from 0 to $MAX_ROUND, so the last working layout is shown. Write {…|round} or {…|round:1}.")
                 else Result.Ok(listOf(FmtHolder(Fmt.Round(n))))
             }
             "duration" -> if (arg != null)
-                Result.Bad("$path: duration in {$inner} doesn't take an argument, so this card wasn't loaded. Write {…|duration}.")
+                Result.Bad("$path: duration in {$inner} doesn't take an argument, so the last working layout is shown. Write {…|duration}.")
             else Result.Ok(listOf(FmtHolder(Fmt.Duration)))
             "since" -> if (arg != null)
-                Result.Bad("$path: since in {$inner} doesn't take an argument, so this card wasn't loaded. Write {…|since}.")
+                Result.Bad("$path: since in {$inner} doesn't take an argument, so the last working layout is shown. Write {…|since}.")
             else Result.Ok(listOf(FmtHolder(Fmt.Since)))
             "time" -> {
                 if (arg != null) {
@@ -204,10 +204,10 @@ object Bindings {
                 Result.Ok(listOf(FmtHolder(Fmt.Time(arg))))
             }
             "default" -> {
-                if (arg == null) Result.Bad("$path: default in {$inner} needs a text value, so this card wasn't loaded. Write {…|default:text}.")
+                if (arg == null) Result.Bad("$path: default in {$inner} needs a text value, so the last working layout is shown. Write {…|default:text}.")
                 else Result.Ok(listOf(FmtHolder(Fmt.Default(arg))))
             }
-            else -> Result.Bad("$path: unknown formatter \"$name\" in {$inner}, so this card wasn't loaded. Use round, duration, since, time or default.")
+            else -> Result.Bad("$path: unknown formatter \"$name\" in {$inner}, so the last working layout is shown. Use round, duration, since, time or default.")
         }
     }
 
@@ -220,7 +220,7 @@ object Bindings {
         return when (name) {
             "data" -> {
                 if (arg == null || !legalPath(arg))
-                    Result.Bad("$path: {$inner} isn't a data path, so this card wasn't loaded. Use a path of dots and [index] like {data:updatedAt}.")
+                    Result.Bad("$path: {$inner} isn't a data path, so the last working layout is shown. Use a path of dots and [index] like {data:updatedAt}.")
                 else tok(Kind.Data, p = arg)
             }
             "fetch" -> {
@@ -228,7 +228,7 @@ object Bindings {
                 val source = if (dot > 0) arg!!.substring(0, dot) else null
                 val rest = if (dot > 0) arg!!.substring(dot + 1) else null
                 if (arg == null || source == null || !SOURCE.matches(source) || rest.isNullOrEmpty() || !legalPath(rest))
-                    Result.Bad("$path: {$inner} isn't a fetch path, so this card wasn't loaded. Write {fetch:source.path}, with a source name and a path of dots and [index].")
+                    Result.Bad("$path: {$inner} isn't a fetch path, so the last working layout is shown. Write {fetch:source.path}, with a source name and a path of dots and [index].")
                 else tok(Kind.Fetch, p = rest, source = source)
             }
             "time", "date" -> {
@@ -247,13 +247,13 @@ object Bindings {
                 tok(if (name == "time") Kind.Time else Kind.Date, pattern = arg)
             }
             "battery" -> if (arg != null)
-                Result.Bad("$path: {battery} doesn't take a path, so this card wasn't loaded. Write {battery}.")
+                Result.Bad("$path: {$inner} doesn't take a path, so the last working layout is shown. Write {battery}.")
             else tok(Kind.Battery)
             "batteryFraction" -> if (arg != null)
-                Result.Bad("$path: {batteryFraction} doesn't take a path, so this card wasn't loaded. Write {batteryFraction}.")
+                Result.Bad("$path: {$inner} doesn't take a path, so the last working layout is shown. Write {batteryFraction}.")
             else tok(Kind.BatteryFraction)
             "batteryState" -> if (arg != null)
-                Result.Bad("$path: {batteryState} doesn't take a path, so this card wasn't loaded. Write {batteryState}.")
+                Result.Bad("$path: {$inner} doesn't take a path, so the last working layout is shown. Write {batteryState}.")
             else tok(Kind.BatteryState)
             "nextAlarm" -> {
                 if (arg != null) {
@@ -275,18 +275,18 @@ object Bindings {
                     arg == null || arg.isEmpty() -> "updatedAt"
                     arg.startsWith("data.") && legalPath(arg.removePrefix("data.")) -> arg.removePrefix("data.")
                     legalPath(arg) -> arg
-                    else -> return Result.Bad("$path: {relative} doesn't take a pattern, so this card wasn't loaded. Write {relative} or {relative:updatedAt}.")
+                    else -> return Result.Bad("$path: {$inner} isn't a data path, so the last working layout is shown. Write {relative} or {relative:updatedAt}.")
                 }
                 tok(Kind.Relative, p = p)
             }
-            else -> Result.Bad("$path: unknown token {$inner}, so this card wasn't loaded. Use {data:…}, {fetch:…}, {time}, {date}, {battery}, {batteryFraction}, {batteryState}, {nextAlarm} or {relative}.")
+            else -> Result.Bad("$path: unknown token {$inner}, so the last working layout is shown. Use {data:…}, {fetch:…}, {time}, {date}, {battery}, {batteryFraction}, {batteryState}, {nextAlarm} or {relative}.")
         }
     }
 
     fun checkAsOf(s: String, path: String): String? {
         val p = if (s.startsWith("data.") && legalPath(s.removePrefix("data."))) s.removePrefix("data.") else s
         return if (legalPath(p)) null
-        else "$path: \"$s\" isn't a data path, so this card wasn't loaded. Use a path of dots and [index] like updatedAt."
+        else "$path: \"$s\" isn't a data path, so the last working layout is shown. Use a path of dots and [index] like updatedAt."
     }
 
     fun asOfPath(s: String): String = if (s.startsWith("data.") && legalPath(s.removePrefix("data."))) s.removePrefix("data.") else s
@@ -458,25 +458,29 @@ object Bindings {
         return if (neg) "-$body" else body
     }
 
-    /** `{relative}`: `just now` under 60 s, then `5 min ago`, `3 h ago`, `2 d ago`. */
+    /** `{relative}`: `just now` under 60 s, then spelled-out `5 minutes ago` / `1 minute ago` (and hours, days; `from now` when future). Plain English in this Android-free layer. */
     fun relative(at: Instant, now: Instant): String {
         val sec = java.time.Duration.between(at, now).seconds
         if (sec < 0) {
-            // A future timestamp uses the same units with "from now".
             val ahead = -sec
             return when {
                 ahead < 60 -> "just now"
-                ahead < 3600 -> "${ahead / 60} min from now"
-                ahead < 86400 -> "${ahead / 3600} h from now"
-                else -> "${ahead / 86400} d from now"
+                ahead < 3600 -> relativePhrase(ahead / 60, "minute", "from now")
+                ahead < 86400 -> relativePhrase(ahead / 3600, "hour", "from now")
+                else -> relativePhrase(ahead / 86400, "day", "from now")
             }
         }
         return when {
             sec < 60 -> "just now"
-            sec < 3600 -> "${sec / 60} min ago"
-            sec < 86400 -> "${sec / 3600} h ago"
-            else -> "${sec / 86400} d ago"
+            sec < 3600 -> relativePhrase(sec / 60, "minute", "ago")
+            sec < 86400 -> relativePhrase(sec / 3600, "hour", "ago")
+            else -> relativePhrase(sec / 86400, "day", "ago")
         }
+    }
+
+    private fun relativePhrase(n: Long, singular: String, suffix: String): String {
+        val unit = if (n == 1L) singular else "${singular}s"
+        return "$n $unit $suffix"
     }
 
     fun batteryState(env: Env): String {

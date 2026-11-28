@@ -46,12 +46,24 @@ class BindingsTest {
         assertNull(Bindings.check("{data:ctx}", "elements[0].text"))
         assertNull(Bindings.check("{fetch:usage.state}", "elements[0].text"))
         assertEquals(
-            "elements[0].text: unknown token {foo}, so this card wasn't loaded. Use {data:…}, {fetch:…}, {time}, {date}, {battery}, {batteryFraction}, {batteryState}, {nextAlarm} or {relative}.",
+            "elements[0].text: unknown token {foo}, so the last working layout is shown. Use {data:…}, {fetch:…}, {time}, {date}, {battery}, {batteryFraction}, {batteryState}, {nextAlarm} or {relative}.",
             Bindings.check("{foo}", "elements[0].text"),
         )
         assertEquals(
-            "elements[0].text: {data:ctx|round|duration|time} has 3 formatters, so this card wasn't loaded. A token can have at most 2.",
+            "elements[0].text: {data:ctx|round|duration|time} has 3 formatters, so the last working layout is shown. A token can have at most 2.",
             Bindings.check("{data:ctx|round|duration|time}", "elements[0].text"),
+        )
+        assertEquals(
+            "elements[0].text: the number after round in {data:ctx|round:11} isn't a whole number from 0 to 10, so the last working layout is shown. Write {…|round} or {…|round:1}.",
+            Bindings.check("{data:ctx|round:11}", "elements[0].text"),
+        )
+        assertEquals(
+            "elements[0].text: {relative:bad path!} isn't a data path, so the last working layout is shown. Write {relative} or {relative:updatedAt}.",
+            Bindings.check("{relative:bad path!}", "elements[0].text"),
+        )
+        assertEquals(
+            "elements[0].text: {battery:foo} doesn't take a path, so the last working layout is shown. Write {battery}.",
+            Bindings.check("{battery:foo}", "elements[0].text"),
         )
     }
 
@@ -108,9 +120,15 @@ class BindingsTest {
     }
 
     @Test fun relativeJustNowAndMinutes() {
-        assertEquals("5 min ago", text("{relative}", env()))
+        assertEquals("5 minutes ago", text("{relative}", env()))
         assertEquals("just now", text("{relative}", env(data = """{"updatedAt":"2026-11-28T09:37:30-07:00"}""")))
-        assertEquals("2 h ago", text("{relative}", env(data = """{"updatedAt":"2026-11-28T07:38:00-07:00"}""")))
+        assertEquals("1 minute ago", text("{relative}", env(data = """{"updatedAt":"2026-11-28T09:37:00-07:00"}""")))
+        assertEquals("2 hours ago", text("{relative}", env(data = """{"updatedAt":"2026-11-28T07:38:00-07:00"}""")))
+        assertEquals("1 hour ago", text("{relative}", env(data = """{"updatedAt":"2026-11-28T08:38:00-07:00"}""")))
+        assertEquals("1 day ago", text("{relative}", env(data = """{"updatedAt":"2026-11-27T09:38:00-07:00"}""")))
+        assertEquals("2 days ago", text("{relative}", env(data = """{"updatedAt":"2026-11-26T09:38:00-07:00"}""")))
+        assertEquals("1 minute from now", text("{relative}", env(data = """{"updatedAt":"2026-11-28T09:39:00-07:00"}""")))
+        assertEquals("2 hours from now", text("{relative}", env(data = """{"updatedAt":"2026-11-28T11:38:00-07:00"}""")))
     }
 
     @Test fun time12And24HourAndInjectedClock() {
@@ -138,11 +156,11 @@ class BindingsTest {
     @Test fun pictureSrcRejectsFormattersAndAmbientTokens() {
         assertNull(Bindings.checkFileToken("data:state", "elements[0].layers[0].src"))
         assertEquals(
-            "elements[0].layers[0].src: {data:state|round} has a formatter, so this card wasn't loaded. A picture file name can only use {data:…} or {fetch:…}.",
+            "elements[0].layers[0].src: {data:state|round} has a formatter, so the last working layout is shown. Use a bare {data:…} or {fetch:…} in a picture file name.",
             Bindings.checkFileToken("data:state|round", "elements[0].layers[0].src"),
         )
         assertEquals(
-            "elements[0].layers[0].src: \"{time}\" isn't a file name token, so this card wasn't loaded. Use {data:…} or {fetch:…} in a picture src.",
+            "elements[0].layers[0].src: \"{time}\" isn't allowed in a picture file name, so the last working layout is shown. Use {data:…} or {fetch:…}.",
             Bindings.checkFileToken("time", "elements[0].layers[0].src"),
         )
     }
@@ -151,7 +169,7 @@ class BindingsTest {
         assertNull(Bindings.checkAsOf("updatedAt", "elements[0].data.asOf"))
         assertNull(Bindings.checkAsOf("data.last_updated", "elements[0].data.asOf"))
         assertEquals(
-            "elements[0].data.asOf: \"bad path!\" isn't a data path, so this card wasn't loaded. Use a path of dots and [index] like updatedAt.",
+            "elements[0].data.asOf: \"bad path!\" isn't a data path, so the last working layout is shown. Use a path of dots and [index] like updatedAt.",
             Bindings.checkAsOf("bad path!", "elements[0].data.asOf"),
         )
         val at = Bindings.asOf(env().data, "updatedAt", zone)

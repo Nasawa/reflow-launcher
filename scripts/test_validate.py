@@ -531,11 +531,19 @@ class Formatters(unittest.TestCase):
     def test_battery_and_relative(self):
         self.assertEqual("80", self.text("{battery}"))
         self.assertEqual("0.8", self.text("{batteryFraction}"))
-        self.assertEqual("5 min ago", self.text("{relative}"))
+        self.assertEqual("5 minutes ago", self.text("{relative}"))
         env = dict(self.env)
         env["data"] = dict(self.env["data"])
         env["data"]["updatedAt"] = "2026-11-28T09:37:30-07:00"
         self.assertEqual("just now", self.text("{relative}", env))
+        env["data"]["updatedAt"] = "2026-11-28T09:37:00-07:00"
+        self.assertEqual("1 minute ago", self.text("{relative}", env))
+        env["data"]["updatedAt"] = "2026-11-28T08:38:00-07:00"
+        self.assertEqual("1 hour ago", self.text("{relative}", env))
+        env["data"]["updatedAt"] = "2026-11-27T09:38:00-07:00"
+        self.assertEqual("1 day ago", self.text("{relative}", env))
+        env["data"]["updatedAt"] = "2026-11-28T09:39:00-07:00"
+        self.assertEqual("1 minute from now", self.text("{relative}", env))
 
     def test_time_12_and_24(self):
         self.assertEqual("9:38 AM", self.text("{time}"))
@@ -564,6 +572,28 @@ class Formatters(unittest.TestCase):
         card2["data"] = {"asOf": "bad path!"}
         _, errs = V.validate(json.dumps({**doc, "elements": [card2]}).encode(), use_schema=False)
         self.assertTrue(any(e.startswith('elements[0].data.asOf: "bad path!" isn\'t a data path') for e in errs), errs)
+
+
+        self.assertEqual(
+            "elements[0].text: the number after round in {data:ctx|round:11} isn't a whole number from 0 to 10, so the last working layout is shown. Write {…|round} or {…|round:1}.",
+            V.Bindings.check("{data:ctx|round:11}", "elements[0].text"),
+        )
+        self.assertEqual(
+            "elements[0].text: {relative:bad path!} isn't a data path, so the last working layout is shown. Write {relative} or {relative:updatedAt}.",
+            V.Bindings.check("{relative:bad path!}", "elements[0].text"),
+        )
+        self.assertEqual(
+            "elements[0].text: {battery:foo} doesn't take a path, so the last working layout is shown. Write {battery}.",
+            V.Bindings.check("{battery:foo}", "elements[0].text"),
+        )
+        self.assertEqual(
+            'elements[0].layers[0].src: "{time}" isn\'t allowed in a picture file name, so the last working layout is shown. Use {data:…} or {fetch:…}.',
+            V.Bindings.check_file_token("time", "elements[0].layers[0].src"),
+        )
+        self.assertEqual(
+            "elements[0].layers[0].src: {data:state|round} has a formatter, so the last working layout is shown. Use a bare {data:…} or {fetch:…} in a picture file name.",
+            V.Bindings.check_file_token("data:state|round", "elements[0].layers[0].src"),
+        )
 
     def test_as_of_is_a_readout_key(self):
         card = {"id": "w-1", "type": "card", "requires": 4, "page": "home", "x": 0, "y": 1, "w": 2, "h": 2,
