@@ -68,22 +68,46 @@ object Haptics {
     }
 
     /**
-     * The buzz when a long-press menu or sheet opens. One `LONG_PRESS` through the view, default flags, so the
-     * system touch-feedback setting decides (same path as a drag-start tick, never forced). Tests may set [menuOpenHook].
+     * A `LONG_PRESS` through the view, default flags, so the system touch-feedback setting decides (never forced).
+     * Marks this gesture as already buzzed, so a later [menuOpen] in the same gesture stays silent (edit-mode
+     * widget/card pickup already buzzes at the hold; the sheet must not add a second). Tests may set [buzzHook].
      */
-    fun menuOpen(view: View) {
-        (menuOpenHook ?: defaultMenuOpen)(view)
+    fun longPress(view: View) {
+        if (gestureBuzzed) return
+        gestureBuzzed = true
+        buzz(view)
     }
 
-    private val defaultMenuOpen: (View) -> Unit = { it.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS) }
+    /**
+     * The buzz when a long-press menu or sheet opens. Skipped when this gesture already buzzed at pickup or lift.
+     */
+    fun menuOpen(view: View) {
+        if (gestureBuzzed) { gestureBuzzed = false; return }
+        buzz(view)
+        gestureBuzzed = false
+    }
+
+    /** Start of a new pointer gesture: clears a leftover pickup mark (a drag that never opened a sheet). */
+    fun beginGesture() { gestureBuzzed = false }
+
+    private fun buzz(view: View) { (buzzHook ?: defaultBuzz)(view) }
+
+    private val defaultBuzz: (View) -> Unit = { it.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS) }
+
+    @Volatile private var gestureBuzzed = false
 
     /** Tests only: replace the view call, then clear. */
-    @Volatile internal var menuOpenHook: ((View) -> Unit)? = null
+    @Volatile internal var buzzHook: ((View) -> Unit)? = null
 }
 
-/** Fires [Haptics.menuOpen] once, when this long-press sheet first enters composition. */
+/**
+ * Fires [Haptics.menuOpen] once, when this long-press sheet first enters composition.
+ * [recompose] is unused in production. A test passes a changing value so this node
+ * recomposes in place; [LaunchedEffect] `(Unit)` must not fire again (a `SideEffect` would).
+ */
 @Composable
-internal fun MenuOpenHaptic() {
+internal fun MenuOpenHaptic(recompose: Any? = null) {
     val view = LocalView.current
-    LaunchedEffect(Unit) { Haptics.menuOpen(view) }
+    val pin = recompose
+    LaunchedEffect(Unit) { Haptics.menuOpen(view); pin }
 }

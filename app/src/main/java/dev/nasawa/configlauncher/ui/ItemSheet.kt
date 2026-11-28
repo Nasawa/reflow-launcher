@@ -54,7 +54,6 @@ data class ItemSheetModel(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ItemSheet(r: ResolvedItem, onAction: (ItemAction) -> Unit, onDismiss: () -> Unit) {
-
     MenuOpenHaptic()
     val m = ItemSheetModel.of(r)
     // #201 F3: phone landscape is short; skip the half-height stop (same as #181 drawer) and scroll
@@ -105,6 +104,7 @@ object HomeMenu {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeMenuSheet(pageCount: Int, reviewCount: Int, onAction: (HomeAction) -> Unit, onDismiss: () -> Unit, cardsLive: Boolean = true) {
+    MenuOpenHaptic()
     val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(onDismiss, sheetState = sheet) {
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp).padding(bottom = 24.dp)) {
@@ -141,7 +141,6 @@ object DrawerMenu {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DrawerAppSheet(app: dev.nasawa.configlauncher.model.InstalledApp, includeWork: Boolean, onAction: (DrawerAction) -> Unit, onDismiss: () -> Unit) {
-
     MenuOpenHaptic()
     val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(onDismiss, sheetState = sheet) {
