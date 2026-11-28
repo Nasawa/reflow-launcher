@@ -184,4 +184,30 @@ class BindingsTest {
         assertTrue(Bindings.scalar(root, "blank") is Bindings.Scalar.Empty)
         assertNull(Bindings.scalar(root, "missing"))
     }
+
+    @Test fun nonFiniteRoundIsMissing() {
+        val e = env("""{"nan":"NaN","inf":"Infinity","ninf":"-Infinity"}""")
+        assertEquals(Bindings.MISSING, text("{data:nan|round}", e))
+        assertEquals(Bindings.MISSING, text("{data:inf|round}", e))
+        assertEquals(Bindings.MISSING, text("{data:ninf|round}", e))
+        assertEquals(Bindings.MISSING, text("{data:nan|duration}", e))
+    }
+
+    @Test fun roundArgMustBeStrictDigits() {
+        fun msg(tok: String) =
+            "elements[0].text: the number after round in $tok isn't a whole number from 0 to 10, so the last working layout is shown. Write {…|round} or {…|round:1}."
+        assertEquals(msg("{data:ctx|round:01}"), Bindings.check("{data:ctx|round:01}", "elements[0].text"))
+        assertEquals(msg("{data:ctx|round:+1}"), Bindings.check("{data:ctx|round:+1}", "elements[0].text"))
+        assertEquals(msg("{data:ctx|round:-1}"), Bindings.check("{data:ctx|round:-1}", "elements[0].text"))
+        assertEquals(msg("{data:ctx|round:00}"), Bindings.check("{data:ctx|round:00}", "elements[0].text"))
+        assertNull(Bindings.check("{data:ctx|round:0}", "elements[0].text"))
+        assertNull(Bindings.check("{data:ctx|round:10}", "elements[0].text"))
+        assertNull(Bindings.check("{data:ctx|round}", "elements[0].text"))
+    }
+
+    @Test fun defaultDateFollowsLocaleMedium() {
+        // Title-bar grammar: DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM)
+        assertEquals("Nov 28, 2026", text("{date}", env(locale = Locale.US)))
+        assertEquals("28.11.2026", text("{date}", env(locale = Locale.GERMANY)))
+    }
 }

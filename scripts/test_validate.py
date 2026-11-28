@@ -465,12 +465,6 @@ class CardReadout(unittest.TestCase):
             'elements[0].layers[0].default: "sticker-idle.webp" isn\'t in this card\'s pictures folder, so the default picture was skipped.',
         ], ws)
 
-
-
-if __name__ == "__main__":
-    unittest.main()
-
-
 class Formatters(unittest.TestCase):
     """#361 RW-4: Bindings and Thresholds match the Kotlin strings."""
 
@@ -603,3 +597,38 @@ class Formatters(unittest.TestCase):
                "pages": [{"id": "home", "items": []}], "elements": [card]}
         _, errs = V.validate(json.dumps(doc).encode(), use_schema=False)
         self.assertIn("elements[0].requires: a card that uses readout keys needs feature level 6 or higher", errs)
+
+    def test_non_finite_round_is_missing(self):
+        env = dict(self.env)
+        env["data"] = dict(self.env["data"])
+        env["data"]["nan"] = "NaN"
+        env["data"]["inf"] = "Infinity"
+        env["data"]["ninf"] = "-Infinity"
+        self.assertEqual("—", self.text("{data:nan|round}", env))
+        self.assertEqual("—", self.text("{data:inf|round}", env))
+        self.assertEqual("—", self.text("{data:ninf|round}", env))
+        self.assertEqual("—", self.text("{data:nan|duration}", env))
+
+    def test_round_arg_must_be_strict_digits(self):
+        def msg(tok):
+            return (
+                f"elements[0].text: the number after round in {tok} isn't a whole number from 0 to 10, "
+                "so the last working layout is shown. Write {…|round} or {…|round:1}."
+            )
+        self.assertEqual(msg("{data:ctx|round:01}"), V.Bindings.check("{data:ctx|round:01}", "elements[0].text"))
+        self.assertEqual(msg("{data:ctx|round:+1}"), V.Bindings.check("{data:ctx|round:+1}", "elements[0].text"))
+        self.assertEqual(msg("{data:ctx|round:-1}"), V.Bindings.check("{data:ctx|round:-1}", "elements[0].text"))
+        self.assertEqual(msg("{data:ctx|round:00}"), V.Bindings.check("{data:ctx|round:00}", "elements[0].text"))
+        self.assertIsNone(V.Bindings.check("{data:ctx|round:0}", "elements[0].text"))
+        self.assertIsNone(V.Bindings.check("{data:ctx|round:10}", "elements[0].text"))
+        self.assertIsNone(V.Bindings.check("{data:ctx|round}", "elements[0].text"))
+
+    def test_default_date_follows_locale_medium(self):
+        # Title-bar grammar: DateTimeFormatter.ofLocalizedDate(MEDIUM). US stays MMM d, yyyy.
+        self.assertEqual("Nov 28, 2026", self.text("{date}"))
+        env = dict(self.env, locale="de_DE")
+        self.assertEqual("28.11.2026", self.text("{date}", env))
+
+
+if __name__ == "__main__":
+    unittest.main()

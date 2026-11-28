@@ -1247,12 +1247,11 @@ class Bindings:
         return Bindings._relative_phrase(sec // 86400, "day", "ago")
 
     @staticmethod
-
-    @staticmethod
     def _relative_phrase(n, singular, suffix):
         unit = singular if n == 1 else singular + "s"
         return f"{n} {unit} {suffix}"
 
+    @staticmethod
     def battery_state(env):
         b = env.get("batteryPercent")
         if b is None:
@@ -1294,13 +1293,36 @@ class Bindings:
             if time:
                 pattern = "H:mm" if env.get("is24Hour") else "h:mm a"
             else:
-                pattern = "MMM d, yyyy"
+                # Title-bar default {date}: DateTimeFormatter.ofLocalizedDate(MEDIUM)
+                pattern = Bindings._medium_date_pattern(loc)
         try:
             return Bindings._java_pattern(zdt, pattern, loc)
         except Exception:
             return Bindings.MISSING
 
     @staticmethod
+    @staticmethod
+    def _medium_date_pattern(loc):
+        """CLDR-style FormatStyle.MEDIUM date pattern, matching java.time for common locales."""
+        tag = (loc or "en_US").replace("-", "_")
+        lang = tag.split("_", 1)[0].lower()
+        exact = {
+            "en_US": "MMM d, yyyy",
+            "en_GB": "d MMM yyyy",
+            "de_DE": "dd.MM.yyyy",
+            "de_AT": "dd.MM.yyyy",
+            "de_CH": "dd.MM.yyyy",
+        }
+        by_lang = {
+            "en": "MMM d, yyyy",
+            "de": "dd.MM.yyyy",
+            "fr": "d MMM yyyy",
+            "es": "d MMM yyyy",
+            "it": "d MMM yyyy",
+            "ja": "yyyy/MM/dd",
+        }
+        return exact.get(tag, by_lang.get(lang, "MMM d, yyyy"))
+
     def _java_pattern(zdt, pattern, loc):
         """A small DateTimeFormatter subset: y M d E a H h k K m and quoted literals."""
         import calendar
@@ -1474,14 +1496,14 @@ class Bindings:
                 continue
             if name == "round":
                 n = number if number is not None else _to_float(text)
-                if n is None:
+                if n is None or not math.isfinite(n):
                     missing, text, number = True, "", None
                 else:
                     text = Bindings.round(n, arg)
                     number = float(text)
             elif name == "duration":
                 n = number if number is not None else _to_float(text)
-                if n is None:
+                if n is None or not math.isfinite(n):
                     missing, text, number = True, "", None
                 else:
                     text = Bindings.format_duration(round(n))
@@ -1510,9 +1532,10 @@ class Bindings:
 
 def _to_float(s):
     try:
-        return float(s)
+        n = float(s)
     except (TypeError, ValueError):
         return None
+    return n if math.isfinite(n) else None
 
 
 

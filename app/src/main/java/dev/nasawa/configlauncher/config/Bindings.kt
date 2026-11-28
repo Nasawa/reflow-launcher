@@ -171,13 +171,21 @@ object Bindings {
         return out
     }
 
+    /** Digits only, no sign and no leading zero, matching Python `str(n) != arg`. */
+    private fun parseRoundDigits(arg: String): Int? {
+        if (arg == "0") return 0
+        if (arg.isEmpty() || arg[0] !in '1'..'9') return null
+        if (arg.any { it !in '0'..'9' }) return null
+        return arg.toIntOrNull()
+    }
+
     private fun formatter(f: String, inner: String, path: String): Result {
         val colon = f.indexOf(':')
         val name = if (colon < 0) f else f.substring(0, colon)
         val arg = if (colon < 0) null else f.substring(colon + 1)
         return when (name) {
             "round" -> {
-                val n = if (arg == null) 0 else arg.toIntOrNull()
+                val n = if (arg == null) 0 else parseRoundDigits(arg)
                 if (n == null || n !in 0..MAX_ROUND)
                     Result.Bad("$path: the number after round in {$inner} isn't a whole number from 0 to $MAX_ROUND, so the last working layout is shown. Write {…|round} or {…|round:1}.")
                 else Result.Ok(listOf(FmtHolder(Fmt.Round(n))))
@@ -384,7 +392,7 @@ object Bindings {
                 is Fmt.Default -> { /* present: no-op */ }
                 is Fmt.Round -> {
                     val n = number ?: text.toDoubleOrNull()
-                    if (n == null) { missing = true; text = ""; number = null }
+                    if (n == null || !n.isFinite()) { missing = true; text = ""; number = null }
                     else {
                         val rounded = round(n, f.n)
                         text = rounded
@@ -393,7 +401,7 @@ object Bindings {
                 }
                 Fmt.Duration -> {
                     val n = number ?: text.toDoubleOrNull()
-                    if (n == null) { missing = true; text = ""; number = null }
+                    if (n == null || !n.isFinite()) { missing = true; text = ""; number = null }
                     else { text = formatDuration(kotlin.math.round(n).toLong()); number = null }
                 }
                 Fmt.Since -> {
