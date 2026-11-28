@@ -399,10 +399,10 @@ A typical Home Assistant setup uses https with a publicly trusted certificate on
   Check that this fingerprint matches your server before you trust it.
   SHA-256
   3A:9F:12:4B:…
-                [Cancel]   [Trust]
+           [Don't trust]   [Trust certificate]
   ```
-  The fingerprint is shown in grouped monospace and may be copied (it is not a secret). `Cancel` is the initial focus. TalkBack: `Trust this certificate for https://ha.example.com:8123? SHA-256: [read in pairs]. Check it matches your server before you tap Trust.`
-- On Trust, the launcher **pins that fingerprint for the canonical origin** (device-local, never synced). Later connections must present that certificate.
+  The fingerprint is shown in grouped monospace and may be copied (it is not a secret). `Don't trust` is the initial focus. It leaves the widget off (the certificate is not pinned, and the widget does not fetch). TalkBack: `Trust this certificate for https://ha.example.com:8123? SHA-256: [read in pairs]. Check it matches your server before you tap Trust certificate.`
+- On `Trust certificate`, the launcher **pins that fingerprint for the canonical origin** (device-local, never synced). Later connections must present that certificate.
 - **If the certificate changes, re-prompt.** Fetching stops, last-good shows stale, and `elements[N]: the certificate for https://ha.example.com:8123 changed since you trusted it, so the widget "agent" stopped fetching. Open it to check the new fingerprint.` It is never accepted silently. Sheet copy (Pragma):
   ```
   Certificate changed for https://ha.example.com:8123
@@ -412,9 +412,9 @@ A typical Home Assistant setup uses https with a publicly trusted certificate on
   before you trust it.
   SHA-256
   3A:9F:12:4B:…
-           [Keep off]   [Trust new certificate]
+           [Don't trust]   [Trust new certificate]
   ```
-  `Keep off` is the initial focus. TalkBack reads the title, then the body, then the new fingerprint in pairs, then the buttons.
+  `Don't trust` is the initial focus. It leaves the widget off (the old pin is kept, the origin stays paused, and the prompt can be reopened from the detail page). TalkBack reads the title, then the body, then the new fingerprint in pairs, then the buttons.
 - Any approved origin can be pinned this way (my call), since the user confirms the fingerprint by hand. The pin follows the same `(canonical origin)` rule as secrets.
 
 ### 6.6 Optional one-shot `secrets.import.json`
@@ -427,18 +427,21 @@ An agent managing the phone's setup shouldn't have to leave tokens in a permanen
 - **Where:** `secrets.import.json` in the config folder root, next to `launcher.json`. At most 16 entries and 4 KiB. `name` follows the secret-name rule, `origin` is canonicalized (§5).
 - **When it is looked for:** on load, on `RELOAD`, and when home resumes (not on the 2 s poll).
 - **Never a live source.** It is not part of `launcher.json`, never logged, and never mentioned in `status.json` except by the warnings below. It is not treated as consumed until the file has been **successfully deleted**.
-- **The phone prompts first.** A sheet lists the **names and origins, never the values**, and marks an entry that would replace a stored one. Sheet copy (Pragma):
+- **The phone prompts first.** A sheet lists the **names and origins, never the values**, and marks an entry that would replace a stored one. Until the person picks an option, the importer never parses, logs or displays secret values; it reads only the names and origins it needs for the sheet. After `Not now`, the file stays untouched until the next load. Sheet copy (Pragma):
   ```
   Import secrets?
   A file in your config folder wants to add these secrets to this phone.
   The values stay on the phone, and the file will be deleted.
    · ha · https://ha.example.com
-   · ha · https://status.example.com
+   · status · https://status.example.com
      Already on this phone. Importing will replace it.
+   · usage · https://usage.example.com
+     Already on this phone for https://metrics.example.com. Importing will
+     replace it and use it for https://usage.example.com.
   If this folder is synced, a copy of the file may still exist elsewhere.
   [Not now]  [Delete file without importing]  [Import and delete file]
   ```
-  `Import and delete file` is primary. TalkBack: title `Import secrets?`; each row `ha, https://ha.example.com` or `ha, https://status.example.com, already on this phone, will be replaced`; then the footnote; buttons named as written, each `button`.
+  `Import and delete file` is primary. `Already on this phone. Importing will replace it.` is only for a row whose name and origin both match a stored secret. A row whose name matches but whose origin changes gets the rebind line, with the old origin first and the new origin second. TalkBack: title `Import secrets?`; a new row `ha, https://ha.example.com`; a same-origin replace `status, https://status.example.com, already on this phone, will be replaced`; a rebind row is read as written, `Already on this phone for https://metrics.example.com. Importing will replace it and use it for https://usage.example.com.`; then the footnote; buttons named as written, each `button`.
 - **On OK:** parse the file **in memory**, with **no plaintext temp file** in the config folder or in cache. Write each secret to the encrypted store as an **idempotent overwrite** by `(name, origin)`, and **only then** delete the import file. The file **stays until that delete succeeds**.
 - **An interrupted import is not consumed.** If the process dies after writing some or all values and before the delete, or mid-delete, the file is still there. The prompt comes back on the next load, and re-importing is safe (the same `(name, origin)` overwrites atomically).
 - **If the delete fails, keep the loud warning, and the prompt comes back** (a top notice until the file is gone, plus `warn_secret_import_left`): `secrets.import.json is still in your config folder and holds secret values. Delete it now. If this folder is synced or in git, change those secrets.` An unreadable file: `secrets.import.json can't be read, so nothing was imported. Delete it, because it may still hold secret values.`
@@ -685,7 +688,7 @@ A card using any new key and `requires` below `FL_CARDS_READOUT` is an error. A 
 
 **RW-10. Consent UX for `net.fetch` and secrets (extends #142).** Prompt lines, the private-origin note, the `http://` acknowledgement (`This sends ha unencrypted on your network.`), **Forget secret**, **re-enter** after `rejected`. *Acceptance:* a broadened line prompts only for the new lines, and the approved secret *name* (never the value) appears in the fingerprint. The acknowledgement is per `(secret name, origin)`, device-local, and cleared by **Forget secret**. 401/403 marks the secret `rejected`, stops fetching, keeps last-good stale, offers re-enter on long-press, and does not auto-delete. After **Forget secret** (token removed): `warn_secret_missing`, last-good stale, no further fetches until a value is entered. *Grace:* Compose tests. **R:** one end-to-end approval on a phone, plus a 401 and a Forget-secret check.
 
-**RW-11. TOFU pin for self-signed HTTPS (optional; does not block M2).** §6.5(c): `needsPin` on an untrusted certificate, the on-phone SHA-256 fingerprint prompt, pin per canonical origin (device-local, never synced), re-prompt when the certificate changes, never a silent accept. It depends on RW-8 and can land after RW-8 and RW-9. Until it lands, the failure mode is the TLS one in RW-8, and M2 is still complete for hosts with a public certificate. *Acceptance:* an untrusted certificate stops the fetch with last-good shown stale until Trust; Trust pins the fingerprint, and a later connection with the same certificate works; a different certificate stops fetching and shows `elements[N]: the certificate for https://ha.lan:8123 changed since you trusted it, so the widget "agent" stopped fetching. Open it to check the new fingerprint.`; **Forget** removes the pin. A pin on `https://ha.example:8123` does not apply to a different scheme or port (`http://ha.example:8123` and `https://ha.example:443` are unpinned). *Grace:* JVM with a self-signed MockWebServer; emulator. **R:** a self-signed LAN server on a phone.
+**RW-11. TOFU pin for self-signed HTTPS (optional; does not block M2).** §6.5(c): `needsPin` on an untrusted certificate, the on-phone SHA-256 fingerprint prompt, pin per canonical origin (device-local, never synced), re-prompt when the certificate changes, never a silent accept. It depends on RW-8 and can land after RW-8 and RW-9. Until it lands, the failure mode is the TLS one in RW-8, and M2 is still complete for hosts with a public certificate. *Acceptance:* an untrusted certificate stops the fetch with last-good shown stale until `Trust certificate`; `Trust certificate` pins the fingerprint, and a later connection with the same certificate works; a different certificate stops fetching and shows `elements[N]: the certificate for https://ha.lan:8123 changed since you trusted it, so the widget "agent" stopped fetching. Open it to check the new fingerprint.`; **Forget** removes the pin. A pin on `https://ha.example:8123` does not apply to a different scheme or port (`http://ha.example:8123` and `https://ha.example:443` are unpinned). *Grace:* JVM with a self-signed MockWebServer; emulator. **R:** a self-signed LAN server on a phone.
 
 **RW-12. QA pass on the signed release APK.** The matrix: reboot; update over a FEATURE_LEVEL 5 APK (a card at `FL_CARDS_READOUT` or `FL_FETCH` is skipped and its cells are kept); file mode and fetch mode; offline; a rotated and a folded screen; token removed (`warn_secret_missing`, last-good stale, no further fetches); TalkBack; the §7 battery budget and no background wakeups. Known gaps listed in the release notes. *Grace:* emulator profiles on debug builds, on the current CI smoke spread (API 29, 35, 36) and any other profiles she already runs. API 31 is not in current CI smoke and is not required here. *Grace does not install release-key-signed APKs on the box.* **R:** the signed APK and hands-on spot checks on a phone and a tablet.
 

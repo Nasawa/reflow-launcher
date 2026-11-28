@@ -2229,15 +2229,15 @@ builds S3-C from it.
 | `cap_tofu_note` | `%1$s uses a certificate Android doesn't trust. Reflow Launcher will remember this certificate and ask again if it ever changes. Only allow this if you trust this server.` | 1 = origin | R · S5 | Under a self-signed origin (Q-C7 TOFU, pin on approve) |
 | `tofu_changed_title` | `Certificate changed for %1$s` | 1 = origin | R · S5 | Re-pin prompt title (fetch is paused until answered) |
 | `tofu_changed_body` | `The certificate no longer matches the one you trusted. This can be normal, like a renewed certificate, or someone could be intercepting the connection. Check that this new fingerprint matches your server before you trust it.` | — | R · S5 / M2 | Re-pin prompt body; the sheet also shows the new SHA-256 fingerprint (reflow-widgets.md §6.5) |
-| `tofu_trust` / `tofu_keep_off` | `Trust new certificate` / `Keep off` | — | R · S5 | Re-pin prompt buttons |
+| `tofu_trust` / `tofu_dont_trust` | `Trust new certificate` / `Don't trust` | — | R · S5 | Re-pin prompt buttons; `Don't trust` is the initial focus and leaves the widget off (replaces `tofu_keep_off`) |
 | `cert_paused_status` | `Paused: certificate changed` | — | R · S5 | Detail-page line status for that origin; also the tap-on-▲ hint on the card header |
 | `cert_paused_a11y` | `stale, paused because the certificate for %1$s changed` | 1 = origin | A · S5 | Replaces `card_stale_a11y` while the re-pin prompt is unanswered |
 
 **Certificate changed (stage 5, Q-C7).** While a `Certificate changed` prompt is unanswered, fetching from **that
 origin pauses** (other origins of the widget keep going), and the card keeps its **last good data**, shown as stale
 (`card_stale` + ▲, `cert_paused_status` on tap and on the detail page). The new certificate is **never accepted
-silently**: only `Trust new certificate` re-pins it. `Keep off` keeps the old pin, the origin stays paused and the
-prompt can be reopened from the detail page. A dismissed sheet counts as unanswered. `status.json` gets
+silently**: only `Trust new certificate` re-pins it. `Don't trust` leaves the widget off (the old pin is kept, the
+origin stays paused, and the prompt can be reopened from the detail page). A dismissed sheet counts as unanswered. `status.json` gets
 `warn_cert_changed` (below).
 | `cap_list_more` | `%1$s and %2$d more` | 1 = first 3 items, 2 = rest count | R · S3 | Lists over 3 items (expandable) |
 | `cap_write_data` | `Change values in %1$s` | 1 = data file | R · Later | Act tier (no v1 kind) |
@@ -2347,21 +2347,23 @@ field and the bare `ui.openUrl` are confirmed by Archimedes in [#146](https://gi
 | `pin_title` | `Trust this certificate?` | — | R · M2 | First-pin sheet title (RW-11) |
 | `pin_body` | `%1$s uses a certificate Android doesn't trust. Check that this fingerprint matches your server before you trust it.` | 1 = origin | R · M2 | First-pin body |
 | `pin_sha_label` | `SHA-256` | — | R · M2 | Label above the fingerprint |
-| `pin_trust` / `pin_cancel` | `Trust` / `Cancel` | — | R · M2 | First-pin buttons; `Cancel` is the initial focus |
-| `pin_a11y` | `Trust this certificate for %1$s? SHA-256: %2$s. Check it matches your server before you tap Trust.` | 1 = origin, 2 = fingerprint read in pairs | A · M2 | First-pin TalkBack |
+| `pin_trust` / `pin_dont_trust` | `Trust certificate` / `Don't trust` | — | R · M2 | First-pin buttons; `Don't trust` is the initial focus and leaves the widget off |
+| `pin_a11y` | `Trust this certificate for %1$s? SHA-256: %2$s. Check it matches your server before you tap Trust certificate.` | 1 = origin, 2 = fingerprint read in pairs | A · M2 | First-pin TalkBack |
 | `tofu_changed_title` | `Certificate changed for %1$s` | 1 = origin | R · M2 | Re-pin title (same id as the earlier draft) |
 | `tofu_changed_body` | `The certificate no longer matches the one you trusted. This can be normal, like a renewed certificate, or someone could be intercepting the connection. Check that this new fingerprint matches your server before you trust it.` | — | R · M2 | Re-pin body; replaces the earlier draft that didn't show the fingerprint |
-| `tofu_trust` / `tofu_keep_off` | `Trust new certificate` / `Keep off` | — | R · M2 | Re-pin buttons; `Keep off` is the initial focus |
+| `tofu_trust` / `tofu_dont_trust` | `Trust new certificate` / `Don't trust` | — | R · M2 | Re-pin buttons; `Don't trust` is the initial focus and leaves the widget off |
 | `import_title` | `Import secrets?` | — | R · M2 | `secrets.import.json` sheet title |
 | `import_body` | `A file in your config folder wants to add these secrets to this phone. The values stay on the phone, and the file will be deleted.` | — | R · M2 | Intro |
 | `import_row` | `%1$s · %2$s` | 1 = secret name, 2 = origin | R · M2 | A new entry |
-| `import_row_replace` | `Already on this phone. Importing will replace it.` | — | R · M2 | Secondary line under an entry that would overwrite a stored value |
+| `import_row_replace` | `Already on this phone. Importing will replace it.` | — | R · M2 | Secondary line under an entry whose name and origin both match a stored secret |
+| `import_row_rebind` | `Already on this phone for %1$s. Importing will replace it and use it for %2$s.` | 1 = old origin, 2 = new origin | R · M2 | Secondary line under an entry whose name matches a stored secret but whose origin has changed |
 | `import_row_a11y` | `%1$s, %2$s` | 1 = secret name, 2 = origin | A · M2 | TalkBack for a new row |
-| `import_row_replace_a11y` | `%1$s, %2$s, already on this phone, will be replaced` | 1 = secret name, 2 = origin | A · M2 | TalkBack for a replace row |
+| `import_row_replace_a11y` | `%1$s, %2$s, already on this phone, will be replaced` | 1 = secret name, 2 = origin | A · M2 | TalkBack for a same-origin replace row |
+| `import_row_rebind_a11y` | `Already on this phone for %1$s. Importing will replace it and use it for %2$s.` | 1 = old origin, 2 = new origin | A · M2 | TalkBack for a rebind row; read as written |
 | `import_footnote` | `If this folder is synced, a copy of the file may still exist elsewhere.` | — | R · M2 | Footnote |
 | `import_ok` | `Import and delete file` | — | R · M2 | Primary button |
 | `import_delete` | `Delete file without importing` | — | R · M2 | Secondary button |
-| `import_not_now` | `Not now` | — | R · M2 | Dismiss; the file stays and the prompt returns on the next load, reload or resume |
+| `import_not_now` | `Not now` | — | R · M2 | Dismiss; the file stays untouched until the next load, and the prompt returns on the next load, reload or resume. Until an option is picked, only names and origins are read; values are never parsed, logged or displayed |
 
 ## Open questions for Christopher
 
