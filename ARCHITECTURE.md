@@ -14,7 +14,7 @@ Status: proposal for review, 2026-10-18. Author: Archimedes (architecture). Buil
 | Choice | Decision | Why |
 |---|---|---|
 | Language/UI | Kotlin 2.x, Jetpack Compose (Material 3), single `MainActivity` with the HOME category | Matches the spike; Compose renders an immutable model naturally. |
-| minSdk | **29** (Android 10), see §18.3 (supersedes the earlier 26 and 23 rulings) | Covers his daily and test phones (S25 Ultra, A53, A51) with no compatibility gates except private space (35): RoleManager, quiet-mode requests, shortcuts, adaptive icons and `LauncherApps.getProfiles()` are all available. The old devices are test-only, not targets. |
+| minSdk | **29** (Android 10), see §18.3 (supersedes the earlier 26 and 23 rulings) | Covers the current flagship phone (daily) and the mid-range and second test phones, with no compatibility gates except private space (35): RoleManager, quiet-mode requests, shortcuts, adaptive icons and `LauncherApps.getProfiles()` are all available. The older devices are test-only, not targets. |
 | target / compile | **targetSdk 35, compileSdk 37** (§18) | compileSdk 37 is required by core-ktx 1.19 and Compose BOM 2026.09; targetSdk stays 35 (edge-to-edge default, no 36/37 behaviour changes taken yet). |
 | JSON | `kotlinx.serialization` for the model; `org.json`/kotlinx `JsonElement` tree for preserving `x-` keys | No reflection, multiplatform-friendly, fast. |
 | Validation | Hand-written Kotlin validator mirroring the schema, plus schema tests on the JVM with a JSON Schema library (networknt) against the same examples | Pulling a full 2020-12 validator into the APK costs size and startup; the Kotlin validator also gives friendlier, path-based messages. The test suite keeps the two in lockstep. |
@@ -213,7 +213,7 @@ Root: `ConfigLauncherApp` (Application, holds `AppGraph`). Data flow: `store` em
 | Two validators drifting | Conformance test (§11). |
 | GPL if Kvaesitso code is copied | Reference only; copying code makes the app GPL-3, which conflicts with this repo's MIT license. **Departs from spike** (it says GPL is "fine"): it is fine only if we relicense, so we don't copy. |
 | OEM launcher quirks (home role resets, Samsung) | Manual QA on one OEM device. |
-| minSdk 29 excludes Christopher's older devices (S8+, Tab S2, OnePlus 2/One) | Accepted: they are test-only (§18.3). A custom ROM on Android 10+ brings one back with no code change. |
+| minSdk 29 excludes older test-only devices (Android 9 / 7 / 6) | Accepted: they are test-only (§18.3). A custom ROM on Android 10+ brings one back with no code change. |
 
 ## 14. Open questions for Christopher (resolved 2026-10-18, see §18.1)
 1. **File name and location:** is `launcher.json` in a folder of your choice OK, and which sync tool will you use (Syncthing, a git client, Drive)? This decides what Grace tests first.
@@ -347,7 +347,7 @@ These override earlier sections where they differ.
 ### 18.1 Answers to §14 and docs/ux.md Q-C
 | Question | Answer | Effect on the design |
 |---|---|---|
-| §14 Q8 devices | Daily phone **Galaxy S25 Ultra**; tests first on a **Galaxy A53**; also A51, S8+, Galaxy Tab S2, OnePlus 2, and a modded OnePlus One as wall displays. | minSdk 29 (§18.3). QA order: A53 → S25 Ultra → A51. The other devices are out of scope (test-only, and only if a custom ROM gives them Android 10+). |
+| §14 Q8 devices | Daily: **a current flagship phone**; tests first on **a mid-range test phone (One UI)**; also a second test phone, and older test-only devices (including a tablet and phones used as wall displays). | minSdk 29 (§18.3). QA order: mid-range test phone → flagship → second test phone. The older devices are out of scope (test-only, and only if a custom ROM gives them Android 10+). |
 | §14 Q1 sync tool | **git is the primary sync target.** | Grace tests a git client folder first; Syncthing and Drive second. README leads with git. |
 | §14 Q2 / Q-C5 | **JSON only is OK.** | No change. |
 | §14 Q3 / Q-C3 | **Unsorted apps go in the drawer only.** | Unplaced apps live only in the drawer; `unsorted` is accepted and ignored (§18.5 AF-2). |
@@ -387,19 +387,19 @@ Christopher clarified that the old devices are for testing only, not targets. mi
 
 | Device | Latest official Android (API) | In scope at 29? |
 |---|---|---|
-| Galaxy S25 Ultra (daily) | 16 (36) | **Yes**, full features incl. private space |
-| Galaxy A53 (first test device) | 16 (36) | **Yes**, full features |
-| Galaxy A51 | 13 (33) | **Yes**, all but private space |
-| Galaxy S8+ | 9 (28) | No (unless a custom ROM gives Android 10+) |
-| Galaxy Tab S2 | 7.0 (24) | No (unless a custom ROM gives Android 10+) |
-| OnePlus 2 | 6.0.1 (23) | No (unless a custom ROM gives Android 10+) |
-| OnePlus One (modded) | Stock 6.0.1 (23) | Only if its custom ROM is Android 10+ |
+| a current flagship phone (daily) | 16 (36) | **Yes**, full features incl. private space |
+| a mid-range test phone (One UI) | 16 (36) | **Yes**, full features |
+| a second test phone | 13 (33) | **Yes**, all but private space |
+| older test-only phone (API 28) | 9 (28) | No (unless a custom ROM gives Android 10+) |
+| older test-only tablet (API 24) | 7.0 (24) | No (unless a custom ROM gives Android 10+) |
+| older test-only phone (API 23) | 6.0.1 (23) | No (unless a custom ROM gives Android 10+) |
+| older test-only phone (modded, stock API 23) | Stock 6.0.1 (23) | Only if its custom ROM is Android 10+ |
 
 **What this removes:** the RoleManager fallback (`ACTION_HOME_SETTINGS` / `ACTION_SETTINGS` and the "Open Apps → Default apps → Home app" hint), the quiet-mode request check (28) and `isQuietModeEnabled` check (24), the shortcut and pin-request checks (25/26) and the "Shortcuts need Android 8" hint, the adaptive-icon check (26), the `getProfiles()` fallback (26), and the "Show internal storage" picker hint. **The only version gate left is private space (35)**, already in code (`getLauncherUserInfo`). Dynamic colour (31) and themed icons (33) get gates only if those features are added.
 
-**Also removed:** the API 23-28 code-gate list, the 1.5 s OnePlus 2 cold-start target and the Tab S2 drawer target, and the API 23 and 26 emulators.
+**Also removed:** the API 23-28 code-gate list, the 1.5 s cold-start target on an older test-only phone and the drawer target on an older test-only tablet, and the API 23 and 26 emulators.
 
-**Testing:** Robolectric at `@Config(sdk = [29, 35])`; emulators API 29, 35 and 36; manual on A53 (primary), S25 Ultra, and A51 when convenient. Lint `NewApi` stays an error. R8-minified release builds and a baseline profile remain normal practice, with no special old-hardware budget.
+**Testing:** Robolectric at `@Config(sdk = [29, 35])`; emulators API 29, 35 and 36; manual on the mid-range test phone (primary), the flagship, and the second test phone when convenient. Lint `NewApi` stays an error. R8-minified release builds and a baseline profile remain normal practice, with no special old-hardware budget.
 
 **Sprite:** set `minSdk = 29` in `app/build.gradle.kts`, delete any 23-28 gates already added, and keep the 35 private-space gate.
 
@@ -432,7 +432,7 @@ Christopher clarified that the old devices are for testing only, not targets. mi
 | Q-v3-1 | `Use phone storage` **overwrites** the app-private source with the current on-screen layout (temp + rename), after snapshotting the previous app-private version to history. "Copies" in §18.2 meant this. Folder → phone → folder then follows the ux.md §7 connect-later flow, so nothing is lost on either side. |
 | Q-v3-2 | Always **focus** the search field. Request the on-screen keyboard only when there's no hardware keyboard: `resources.configuration.hardKeyboardHidden != HARDKEYBOARDHIDDEN_NO`. With a hardware keyboard or DeX, typing goes straight to search and no IME is forced. The `Open keyboard with drawer` setting then only controls focus. |
 | Q-v3-3 | Home-page grid labels only, including the label under a folder icon on the grid. Not inside the open folder sheet (it has its own opaque surface), not in the drawer, and not the dock (no labels). |
-| Q-v3-4 | Best effort, and the real work profile wins. When choosing the work profile, skip any managed profile whose launchable activities include Samsung's Secure Folder app (`com.samsung.knox.securefolder`). If more than one managed profile remains, take the first. A detected Secure Folder profile is treated like private space: never written, not in Unsorted, not draggable, and listed only if it shows up in our activity list at all. The package heuristic is *unverified*; Grace confirms it on the A51 (Android 13) and records what a S25/A53 on One UI 8 shows. If detection fails, the fallback is OQ-29's "first managed profile", and the "Include work apps in config" opt-in (default off) keeps it out of the file anyway. |
+| Q-v3-4 | Best effort, and the real work profile wins. When choosing the work profile, skip any managed profile whose launchable activities include Samsung's Secure Folder app (`com.samsung.knox.securefolder`). If more than one managed profile remains, take the first. A detected Secure Folder profile is treated like private space: never written, not in Unsorted, not draggable, and listed only if it shows up in our activity list at all. The package heuristic is *unverified*; Grace confirms it on the second test phone (Android 13) and records what the flagship and mid-range test phones on One UI 8 show. If detection fails, the fallback is OQ-29's "first managed profile", and the "Include work apps in config" opt-in (default off) keeps it out of the file anyway. |
 | Q-v3-6 | Undo re-checks the hash. If the file changed, it reverts only the merged items by ID onto the new file, or cancels with `File changed again, Undo cancelled.` It never writes the old file blindly. See the Undo safety rule in §18.2. |
 | Q-v3-9 | Done: §18.3 says minSdk 29 (merged in #32), and the rest of §18 mentions 23 only in the superseded note and device table. Sprite's #31 (minSdk 23 with API checks) is superseded: close it or re-scope it to `minSdk = 29` plus the 35 private-space gate and the lint `NewApi` CI step. |
 

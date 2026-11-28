@@ -483,7 +483,7 @@ size, with no special case. Font 2.0 on the open fold ellipsizes labels to about
 | Long-press app | `Add to home` (first free cell, page 1 onward, else a new page), `Hide`, `App info`. Dragging out of the drawer to home is **later** (§14); `Add to home` covers the MVP. Work apps offer `Add to home` only when **Include work apps in config** is on |
 | Menu `⋮` | Folder mode: `Choose folder` / `Use phone storage`, `Reload layout`, `Set as home app`, `Hidden apps`, `Agent instructions (AGENTS.md)`, `Add`/`Update agent instructions`, `Include hidden apps in apps.json` (checkbox, default off, §7.2), `Ask before merging`, `Open keyboard with drawer`, `Label backdrop`, `Include work apps in config` (only when a work profile exists). App-only: hides folder-only items (AGENTS.md, apps.json). Home menu `Settings` opens the same menu (§14 R10) |
 
-### 2.1 Height, system bars and motion (A51 half-sheet report)
+### 2.1 Height, system bars and motion (half-sheet report on a second test phone)
 - **Full height, one motion.** The drawer is a primary destination, not a transient sheet. A swipe up or `Apps`
   opens it straight to full height. There is **no half-height (partially expanded) stop**: a half sheet adds a second
   drag and hides rows. If it stays a Material `ModalBottomSheet`, it uses `skipPartiallyExpanded = true` so the
@@ -504,7 +504,7 @@ size, with no special case. Font 2.0 on the open fold ellipsizes labels to about
 - **Motion.** Open and close durations follow the system animator duration scale. With "Remove animations"
   (scale 0, reduced motion) the drawer uses the §1.4 150 ms fade instead of sliding.
 - **The nav-bar overlap is a bug either way.** Whatever the height, a drawer row, the last row or the scroll end
-  hidden under the nav bar (or the status bar or a cutout) is a defect, not a layout choice. Test it on the A51 in
+  hidden under the nav bar (or the status bar or a cutout) is a defect, not a layout choice. Test it on a second test phone in
   gesture and 3-button modes, in portrait and landscape.
 
 ---
@@ -1109,7 +1109,7 @@ the §1.3 page label and status-bar text, and at 200 % font (28 sp) it still fit
 on small phones, where 18 sp (36 sp at 200 %) would push rows below the 64 × 80 dp minimum. The bar takes its height
 from size + padding, and grid rows share the rest. Never overlaps icons.
 
-**Overflow ladder (narrow phones, #149).** The rules above can't always hold. On Sprite's A51 at 320 dp wide, with
+**Overflow ladder (narrow phones, #149).** The rules above can't always hold. On a second test phone at 320 dp wide, with
 large text and the One UI font, a long date is about 200 dp, the clock about 75 dp and `{page}` 32 dp, plus two 8 dp
 gaps, in a bar of about 285 dp. When the clock, the date, the `{page}` minimum and the gaps don't fit (other side text
 has already ellipsized), the phone applies these steps **in order and stops at the first one that fits**:
@@ -1329,7 +1329,7 @@ Resources (character positions are 1-based, like line and column):
 <string name="err_theme">%1$s must be system, light or dark.</string>
 <!-- code, not strings.xml (status.json): overflow ladder (§15 Layout). %1$s = path of the slot holding the date
      (elements[0].content.slots.end), %2$d = the shared slot width in dp: the bar's width minus its padding (the
-     width the slots and gaps share, e.g. 285 on the A51), %3$d = the last step used (2, 3 or 4),
+     width the slots and gaps share, e.g. 285 on a second test phone), %3$d = the last step used (2, 3 or 4),
      %4$s = what was done: fit_step_date, fit_step_size or fit_step_cut. Phone-only, like warn_contrast_theme.
      Written only by the load-time fit check (§15 "Fit warnings", Q-A12): a portrait bar at smallestScreenWidthDp,
      on load or reload only. Never from window metrics; rotation, fold and resize never write it. %2$d is that

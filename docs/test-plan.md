@@ -232,7 +232,7 @@ Unit-level table test for the replay engine: rows for {Move, Add, Remove, Rename
 | LR-4 | Launcher in the background. | Zero polls (assert with the fake clock and no wakeups). | S |
 | LR-5 | Cold start, 300-item config. | First frame **< 500 ms** on a mid device, from last-good. | I (macrobenchmark) |
 | LR-6 | Write-back debounce. | Write starts 750 ms after the last edit and never mid-drag. | S |
-| LR-7 | **Poll cost and battery** (A§17 Q10). Targets: ≤ 5 ms CPU per poll (one children query, plus a ≤ 2 MiB hash read every 5th poll), < 1 %/h battery with home on screen, zero polls when home isn't visible. | **Per-poll cost:** a Macrobenchmark or instrumented trace with `Trace.beginSection("cl-poll")` around `engine.poll()`, then read the slice CPU time in Perfetto. Report the median and p95 over 300 polls with a 5 KB file and with a 2 MiB file (the hash poll). Run on the A53. **Battery:** A53, screen on at fixed brightness, launcher in front, airplane mode on, for 60 min. `adb shell dumpsys batterystats --reset`, then afterwards `adb bugreport` and load it in **Battery Historian**. Compare the app's estimated mAh with the battery capacity: < 1 % of capacity per hour. Repeat with home in the background for 15 min and assert 0 `cl-poll` slices and no wakeups. | I, M |
+| LR-7 | **Poll cost and battery** (A§17 Q10). Targets: ≤ 5 ms CPU per poll (one children query, plus a ≤ 2 MiB hash read every 5th poll), < 1 %/h battery with home on screen, zero polls when home isn't visible. | **Per-poll cost:** a Macrobenchmark or instrumented trace with `Trace.beginSection("cl-poll")` around `engine.poll()`, then read the slice CPU time in Perfetto. Report the median and p95 over 300 polls with a 5 KB file and with a 2 MiB file (the hash poll). Run on the mid-range test phone. **Battery:** mid-range test phone, screen on at fixed brightness, launcher in front, airplane mode on, for 60 min. `adb shell dumpsys batterystats --reset`, then afterwards `adb bugreport` and load it in **Battery Historian**. Compare the app's estimated mAh with the battery capacity: < 1 % of capacity per hour. Repeat with home in the background for 15 min and assert 0 `cl-poll` slices and no wakeups. | I, M |
 | LR-8 | The file is replaced via rename (new docId), as git or Syncthing do. | Re-found by name and reloaded. | S, I |
 
 Sync transfer time is excluded from all targets (A§15 OQ-23).
@@ -305,7 +305,7 @@ Sync transfer time is excluded from all targets (A§15 OQ-23).
 | DR-3 | Keyboard up, **swipe down** on the list. | Hides the keyboard first. A further swipe down closes the drawer. | I, M |
 | DR-4 | Settings → `Open keyboard with drawer` **off**, then open the drawer. | No focus, no keyboard. Tapping the field shows it. The setting survives a restart (app settings) and doesn't touch launcher.json. | R, I |
 | DR-5 | Keyboard up with 2000 apps: type 3 letters. | Results filter on each keystroke (UX§2 rules). Enter launches the first result. | I |
-| DR-6 | Hardware keyboard or Samsung DeX (A53/S25 if available). | Search field always focused. The IME is requested only when `hardKeyboardHidden != HARDKEYBOARDHIDDEN_NO`; with a hardware keyboard/DeX none is forced. `Open keyboard with drawer` controls focus only (A§18.6 Q-v3-2). Bug: #39. | M |
+| DR-6 | Hardware keyboard or Samsung DeX (mid-range test phone or flagship, if available). | Search field always focused. The IME is requested only when `hardKeyboardHidden != HARDKEYBOARDHIDDEN_NO`; with a hardware keyboard/DeX none is forced. `Open keyboard with drawer` controls focus only (A§18.6 Q-v3-2). Bug: #39. | M |
 | LB-1 | Settings → `Label backdrop` (off by default). | Off: white label with a 1 dp 50% black shadow. On: a rounded 40% black scrim behind each home label. Stored in app settings (SharedPreferences), never written to launcher.json (assert 0 writes on toggle). | R, I |
 | LB-2 | Backdrop on, on a busy, bright wallpaper. | Label contrast ≥ 4.5:1 against the scrim (screenshot + contrast check). Applies to home-grid labels incl. the label under a folder icon; **not** the open folder sheet, the drawer or the dock (A§18.6 Q-v3-3). | M |
 | LB-3 | Backdrop on with a 60-emoji label and with a bidi-stripped label. | The scrim wraps the ellipsized text, with no overflow outside the cell. | I |
@@ -316,7 +316,7 @@ minSdk is 29 (Android 10). RoleManager, `LauncherApps.getProfiles`, shortcuts, a
 
 | ID | Steps | Expected | Level |
 |---|---|---|---|
-| API-1 | Install on API 28 (the S8+, if it's used as a test-only device, or an API 28 emulator locally). | `INSTALL_FAILED_OLDER_SDK`. Documented as unsupported, not a bug. | M |
+| API-1 | Install on API 28 (an older test-only phone, if it's used, or an API 28 emulator locally). | `INSTALL_FAILED_OLDER_SDK`. Documented as unsupported, not a bug. | M |
 | API-2 | Onboarding `Set as Home` on 29+. | `RoleManager.createRequestRoleIntent(ROLE_HOME)`. If the user declines, the onboarding step stays, and the app still works as a normal activity minus shortcuts (A§8). | R (sdk 29), I |
 | API-3 | Shortcut items on 29+. | Launch when we're the default launcher. Otherwise disabled with `Set as Home to use shortcuts` (A§8). | R, I |
 | API-4 | Private space below 35. | No private-space API calls. Gated at 35. | R (sdk 29) |
@@ -325,17 +325,17 @@ minSdk is 29 (Android 10). RoleManager, `LauncherApps.getProfiles`, shortcuts, a
 
 ## 14. Samsung One UI quirks
 
-Marked **(R)** where the expectation comes from research (public reports or docs), not from a device run. Confirm on the A53 first.
+Marked **(R)** where the expectation comes from research (public reports or docs), not from a device run. Confirm on the mid-range test phone first.
 
 | ID | Steps | Expected / what to record | Basis |
 |---|---|---|---|
-| OU-1 | **Default launcher prompt:** install, open, `Set as Home`. Then press Home after installing another launcher, and after an OTA. | The RoleManager dialog on One UI 8 (A53/S25). Record whether One UI resets the default home after an update or an app update (reported on some OEMs, A§13 "home role resets"). | (R) for resets |
-| OU-2 | **Secure Folder as a profile.** One UI 8 reclassified Secure Folder as a **private** profile. Older One UI implemented it as a **work (managed) profile** (Android Authority, Android Police reports on One UI 8). A53/S25: Secure Folder exists, open or hidden. | One UI 8: not in our drawer as a work profile, and not shown unless we hold ACCESS_HIDDEN_PROFILES + HOME (we don't). On older One UI (e.g. the optional A51 on Android 13): Secure Folder may show up as the "first managed profile" and be treated as `work`. Record which profile `InstalledApps` picks when both a real work profile and Secure Folder exist. Ruling A§18.6 Q-v3-4: skip managed profiles containing `com.samsung.knox.securefolder`; real work profile wins; detected Secure Folder is treated like private space. Heuristic **unverified**: see SF-A51. Bug: #40. | (R) |
+| OU-1 | **Default launcher prompt:** install, open, `Set as Home`. Then press Home after installing another launcher, and after an OTA. | The RoleManager dialog on One UI 8 (mid-range test phone / flagship). Record whether One UI resets the default home after an update or an app update (reported on some OEMs, A§13 "home role resets"). | (R) for resets |
+| OU-2 | **Secure Folder as a profile.** One UI 8 reclassified Secure Folder as a **private** profile. Older One UI implemented it as a **work (managed) profile** (Android Authority, Android Police reports on One UI 8). On the mid-range and flagship phones: Secure Folder exists, open or hidden. | One UI 8: not in our drawer as a work profile, and not shown unless we hold ACCESS_HIDDEN_PROFILES + HOME (we don't). On older One UI (e.g. the optional second test phone on Android 13): Secure Folder may show up as the "first managed profile" and be treated as `work`. Record which profile `InstalledApps` picks when both a real work profile and Secure Folder exist. Ruling A§18.6 Q-v3-4: skip managed profiles containing `com.samsung.knox.securefolder`; real work profile wins; detected Secure Folder is treated like private space. Heuristic **unverified**: see SF-PRE8. Bug: #40. | (R) |
 | OU-3 | **Game Launcher / Game Booster.** | Game Launcher is an app, not a profile. Record whether games are hidden from LauncherApps when "Hide game apps" is on in Game Launcher. Expected: still listed by LauncherApps (they're normal launchable activities), unless Samsung hides them. | (R), unverified |
 | OU-4 | **Battery optimisation and app sleeping:** Settings → Battery → Background usage limits (Sleeping / Deep sleeping apps), and "Put unused apps to sleep". | Our polling runs only while home is visible, so sleep should not affect it. Check: (a) after 1 h idle with the launcher in "Sleeping apps", pressing Home polls immediately (LR-1 ≤ 1 s); (b) the launcher is never auto-added to Deep sleeping; (c) the git client's own sync isn't killed (that's the git client's problem, but record it). The default home is normally exempt from app standby (R). | (R) |
 | OU-5 | **One UI Home gestures:** Settings → Display → Navigation bar → Swipe gestures, with our launcher as Home. | Gestures stay enabled with a third-party home. Record (a) swipe-up-to-home latency before the first tap registers (a known One UI delay with third-party launchers: recents are provided by One UI Home), and (b) whether the recents animation targets our icon. Document it, but don't treat it as our bug. | (R) |
 | OU-6 | **Edge panels:** enable the Apps edge panel and open apps from it. | The panel works independently of our launcher. Opening an app from it and returning Home leaves our state intact (no reload, no re-poll beyond the resume poll). | (R) |
-| OU-7 | Samsung `Show internal storage` and the "Samsung My Files" provider in the SAF picker (A53). | The picked git folder's authority is `com.android.externalstorage.documents`, so no cloud warning (Q15). | (R) |
+| OU-7 | Samsung `Show internal storage` and the "Samsung My Files" provider in the SAF picker (mid-range test phone). | The picked git folder's authority is `com.android.externalstorage.documents`, so no cloud warning (Q15). | (R) |
 | OU-8 | One UI "Lock Home screen layout" and "Home screen only" settings. | Apply to One UI Home only. No effect on us. Record it. | (R) |
 
 ## 15. Devices, emulators and performance
@@ -345,25 +345,25 @@ API levels are the latest **official** Android for each model, as listed in A§1
 
 | Order | Device | Latest official Android (API) | Coverage |
 |---|---|---|---|
-| 1 | **Galaxy A53** | 16 (36) | **Full manual pass**, git sync first, One UI quirks (§14), poll cost and battery (LR-7), cold start (PF-2) |
-| 2 | **Galaxy S25 Ultra** | 16 (36) | Full pass after the A53. Private space, Secure Folder (OU-2) |
-| optional | Galaxy A51 | 13 (33) | Smoke. Secure Folder on older One UI (OU-2). No private space |
-| test-only | S8+ (28), Tab S2 (24), OnePlus 2 (23), OnePlus One (modded, ROM version unknown) | Below minSdk 29 | Not supported. At most API-1 (install refused). No performance targets |
+| 1 | **a mid-range test phone (One UI)** | 16 (36) | **Full manual pass**, git sync first, One UI quirks (§14), poll cost and battery (LR-7), cold start (PF-2) |
+| 2 | **a current flagship phone (daily)** | 16 (36) | Full pass after the mid-range test phone. Private space, Secure Folder (OU-2) |
+| optional | a second test phone | 13 (33) | Smoke. Secure Folder on older One UI (OU-2). No private space |
+| test-only | older test-only devices (API 28 / 24 / 23, and a modded phone whose ROM version is unknown) | Below minSdk 29 | Not supported. At most API-1 (install refused). No performance targets |
 
 ### 15.2 Emulator matrix (CI)
 | API | Image | Purpose |
 |---|---|---|
 | 29 | `default` x86 | minSdk floor. RoleManager, `getProfiles`, quiet-mode request |
 | 35 | `google_apis` x86_64 | Private space. Edge-to-edge |
-| 36 | `google_apis` x86_64 | Current (A53/S25 level) |
+| 36 | `google_apis` x86_64 | Current (flagship / mid-range test-phone level) |
 
 Implemented as `.github/workflows/emulator-smoke.yml` (PR #23): nightly, on demand, on every PR and on pushes to main. It installs and cold-starts with crash/ANR detection, plus `am start -W` timings. Instrumented tests (`connectedDebugAndroidTest`) join the same matrix once `app/src/androidTest` exists.
 
 ### 15.3 Performance budgets and how to measure them
 | ID | Budget | Device | Method | Pass |
 |---|---|---|---|---|
-| PF-2 | Cold start to first frame < 500 ms with a 300-item config (A§11) | A53 | `adb shell am force-stop com.anigeek.reflowlauncher`, then `adb shell am start -W -n com.anigeek.reflowlauncher/dev.nasawa.configlauncher.MainActivity` and read `TotalTime`. 10 runs after one warm-up. Cross-check with Macrobenchmark `StartupTimingMetric` (`timeToInitialDisplayMs`), R8-minified release build with a baseline profile. | Median < 500 ms |
-| PF-5 | Poll cost and battery | A53 | See LR-7 | ≤ 5 ms per poll, < 1%/h |
+| PF-2 | Cold start to first frame < 500 ms with a 300-item config (A§11) | mid-range test phone | `adb shell am force-stop com.anigeek.reflowlauncher`, then `adb shell am start -W -n com.anigeek.reflowlauncher/dev.nasawa.configlauncher.MainActivity` and read `TotalTime`. 10 runs after one warm-up. Cross-check with Macrobenchmark `StartupTimingMetric` (`timeToInitialDisplayMs`), R8-minified release build with a baseline profile. | Median < 500 ms |
+| PF-5 | Poll cost and battery | mid-range test phone | See LR-7 | ≤ 5 ms per poll, < 1%/h |
 
 ## 16. Manual QA matrix, for later
 
@@ -371,7 +371,7 @@ Implemented as `.github/workflows/emulator-smoke.yml` (PR #23): nightly, on dema
 
 | ID | Setup | Steps | Expected |
 |---|---|---|---|
-| MG-1 | **git**, primary: a git client folder on the A53 (e.g. MGit, or Termux + git), cloned from a repo the PC agent pushes to. | Agent commits and pushes; pull on the phone; press Home. | Reload ≤ 1 s after the pull on Home, ≤ 3 s if home is showing. The file is replaced, so the docId may change and it's re-resolved by name. |
+| MG-1 | **git**, primary: a git client folder on the mid-range test phone (e.g. MGit, or Termux + git), cloned from a repo the PC agent pushes to. | Agent commits and pushes; pull on the phone; press Home. | Reload ≤ 1 s after the pull on Home, ≤ 3 s if home is showing. The file is replaced, so the docId may change and it's re-resolved by name. |
 | MG-2 | git | Drag on the phone, commit and push from the git client, pull on the PC. | A small canonical diff (2-space, schema order). `revision` + 1. |
 | MG-3 | git | Phone drag not yet committed, then pull a PC change to a different item. | Depends on the git client: it may refuse the pull (dirty tree). If it merges: auto-merge snackbar `Kept your 1 change.` (CM-7). Record the client's behaviour. |
 | MG-4 | git | Pull a conflicted merge (markers; fixture `invalid/git-conflict-markers.json`). | B1 with line/column, last-good kept, no write from us (CM-21). |
@@ -380,15 +380,15 @@ Implemented as `.github/workflows/emulator-smoke.yml` (PR #23): nightly, on dema
 | MS-1 | Syncthing (second) | Edit on the PC, then drag on the phone, then edit on both at once. | As MG-1/MG-3. A Syncthing conflict copy shows the notice (CM-20). |
 | GD-1 | Google Drive (third, best effort) | Pick a Drive folder. | Soft warning `Cloud folders can take a while to sync. A Syncthing or git folder works best.` with `Use anyway` / `Choose another folder`. Record latency. Airplane mode leads to B5 or a delayed write, and the edit is never lost. |
 | WP-M | Work profile (Test DPC on an emulator if no phone has one) | WP-1, WP-2, WP-3, WP-5 | As in §9 |
-| PS-M | Private space on the S25 Ultra or A53 (Android 15+) | PS-1, PS-2, PS-3 | As in §9 |
-| SF-M | Secure Folder on the A53 and A51 | OU-2 | Record it |
+| PS-M | Private space on the flagship or mid-range test phone (Android 15+) | PS-1, PS-2, PS-3 | As in §9 |
+| SF-M | Secure Folder on the mid-range and second test phones | OU-2 | Record it |
 
 ### Pending manual case (unverified heuristic, do later)
 | ID | Device | Steps | Record / expected |
 |---|---|---|---|
-| SF-A51 | Galaxy A51 (Android 13, pre-One UI 8), Secure Folder set up; optionally also a real work profile. Later repeat on A53/S25 (One UI 8). | `adb shell pm list users`; `adb shell dumpsys user`; for each managed user `adb shell cmd package query-activities --user <id> -a android.intent.action.MAIN -c android.intent.category.LAUNCHER \| grep -i securefolder`; open our drawer. | **Pending.** Confirm Secure Folder appears as a *managed profile* whose launchable activities include `com.samsung.knox.securefolder`; that it's excluded and the real work profile wins (A§18.6 Q-v3-4). On One UI 8 record what shows (expected: private profile, invisible to us). Paste the outputs here. |
+| SF-PRE8 | second test phone (Android 13, pre-One UI 8), Secure Folder set up; optionally also a real work profile. Later repeat on the mid-range and flagship phones (One UI 8). | `adb shell pm list users`; `adb shell dumpsys user`; for each managed user `adb shell cmd package query-activities --user <id> -a android.intent.action.MAIN -c android.intent.category.LAUNCHER \| grep -i securefolder`; open our drawer. | **Pending.** Confirm Secure Folder appears as a *managed profile* whose launchable activities include `com.samsung.knox.securefolder`; that it's excluded and the real work profile wins (A§18.6 Q-v3-4). On One UI 8 record what shows (expected: private profile, invisible to us). Paste the outputs here. |
 
-## 17. Manual checklist: Galaxy A53 (≈10 min, git sync, no app-killing)
+## 17. Manual checklist: mid-range test phone (One UI) (≈10 min, git sync, no app-killing)
 
 Before you start: the launcher is set as Home, the config folder is the git repo folder in your git app, and the PC side can commit and push `launcher.json`. Have one small app ready to install.
 
@@ -512,4 +512,4 @@ Copy to check (also in ux.md §17.13):
 
 ## Open questions (v3)
 
-All v3 questions are resolved in A§18.6 (Q-v3-1, -2, -3, -4, -6, -9); the rulings are folded into SK-8, DR-6, LB-2, OU-2, CM-6/CM-22–26 and §13. Remaining unknown: the Secure Folder detection heuristic (SF-A51, pending manual run).
+All v3 questions are resolved in A§18.6 (Q-v3-1, -2, -3, -4, -6, -9); the rulings are folded into SK-8, DR-6, LB-2, OU-2, CM-6/CM-22–26 and §13. Remaining unknown: the Secure Folder detection heuristic (SF-PRE8, pending manual run).
