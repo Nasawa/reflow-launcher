@@ -10,7 +10,7 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 /**
- * #339 (Claw, v1.1.0-dev3, A51, 62 drag-vs-agent-write rounds): two outcomes #334 left.
+ * #339 (v1.1.0-dev3, A51, 62 drag-vs-agent-write rounds): two outcomes #334 left.
  * - Silent loss: the agent's `cp` landed between the save's last look at launcher.json and its truncate-write (two
  *   provider calls), was overwritten in full, and the read-back saw only our bytes: status.json `ok`, agent item gone.
  * - Torn file: the agent's longer file landed after our truncate and we wrote over its start: our JSON plus its
@@ -88,7 +88,7 @@ class Issue339TornWriteTest {
         val src = TreeSource(); val e = engine(src)
         assertTrue(e.poll(force = true))
         assertTrue(e.edit(moveCamera()))
-        // Claw rounds 102/113: the agent's whole cp lands right after the save's look at launcher.json, before its write.
+        // Rounds 102/113: the agent's whole cp lands right after the save's look at launcher.json, before its write.
         src.r.afterTargetRead = { src.agentWrites(agent(63)) }
         assertTrue(e.flush())
         assertTrue("the replace re-checked in its own open", src.r.replaces.isNotEmpty())
@@ -101,9 +101,9 @@ class Issue339TornWriteTest {
 
     // ---- (2) torn file ----
 
-    /** Claw rounds 22/124: the agent's longer file landed after our truncate; our bytes went over its start. */
+    /** Rounds 22/124: the agent's longer file landed after our truncate; our bytes went over its start. */
     private fun TreeSource.tearsTheNextWrite(agentJson: String) {
-        // As the agent's tool would write it: pretty-printed, so longer than our save (Claw: 3,087 vs 2,844 bytes).
+        // As the agent's tool would write it: pretty-printed, so longer than our save (3,087 vs 2,844 bytes).
         val a = ConfigCodec.encodeBytes((ConfigCodec.decode(agentJson.toByteArray()) as ParseResult.Ok).config)
         r.afterTargetWrite = { ours -> check(a.size > ours.size); ours + a.copyOfRange(ours.size, a.size) }
     }

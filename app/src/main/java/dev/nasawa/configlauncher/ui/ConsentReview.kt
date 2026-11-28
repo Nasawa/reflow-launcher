@@ -36,7 +36,7 @@ private fun secondary() = MaterialTheme.colorScheme.onSurfaceVariant
 @Composable
 private fun whereText(w: ConsentUi.Where?) = w?.let { stringResource(R.string.review_row_where, it.page, it.w, it.h) }
 
-/** `in launcher.json · 10:42`, plus ` · says "Claw"` only when `author` is present (Q-C4). */
+/** `in launcher.json · 10:42`, plus ` · says "Alex"` only when `author` is present (Q-C4). */
 @Composable
 private fun withAuthor(source: String, author: String?) = consentText(author)?.let { stringResource(R.string.author_inline, source, it) } ?: source
 

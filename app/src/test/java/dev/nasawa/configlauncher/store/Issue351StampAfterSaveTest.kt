@@ -10,7 +10,7 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 /**
- * #351 (Claw, v1.1.0-dev5, A51, 3/200): an agent's `cp` finishing 40-120 ms after the save's read-back was never loaded.
+ * #351 (v1.1.0-dev5, A51, 3/200): an agent's `cp` finishing 40-120 ms after the save's read-back was never loaded.
  * The save took launcher.json's stamp (docId, modified, size) only after the read-back, the temp delete and the sweep,
  * so that stamp was already the agent's file; every later poll saw "no change" and skipped the read. Screen and
  * status.json kept our save over the agent's file. Real [ConfigEngine] and [SafWrites] on a fake tree; the agent's
@@ -81,7 +81,7 @@ class Issue351StampAfterSaveTest {
 
     @Test fun anAgentWriteJustAfterTheReadBackIsLoadedByTheNextPoll() = runBlocking {
         val (src, e) = savedThenAgentAfterReadBack()
-        // A plain timed poll (not forced, not a hash-anyway one): Claw's phone saw only these for 8 s.
+        // A plain timed poll (not forced, not a hash-anyway one): the phone saw only these for 8 s.
         assertTrue("the next poll loads the agent's file", e.poll())
         assertEquals(listOf("a-agent-55", "a-camera", "a-keep"), ids(e.state.value.config))
         assertEquals(ConfigCodec.sha256(agent.toByteArray()), e.state.value.baseHash)

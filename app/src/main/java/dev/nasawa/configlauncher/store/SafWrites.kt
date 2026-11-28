@@ -158,7 +158,7 @@ internal class SafWrites(
                 if (!replaced) {
                     // #342: no "rw" descriptor, so the look above and the "wt" open are separate calls, and the failed
                     // "rw" open came between them: an agent's whole `cp` landing there was overwritten in full and the
-                    // read-back saw only ours (Claw's round 66 on dev4: status `ok`, the agent's item gone). Look again
+                    // read-back saw only ours (round 66 on dev4: status `ok`, the agent's item gone). Look again
                     // right before the write; what's left is the one provider call that opens "wt".
                     val now = tree.read(target)
                     trace(name) { "no rw: look again now=${short(now)}, then wt" }
@@ -168,7 +168,7 @@ internal class SafWrites(
                 back = tree.read(target); readBack = true
                 trace(name) { "read-back=${short(back)} ours=${short(bytes)}" }
                 // #339: exact bytes. Ours with trailing bytes after them: another writer's file landed after our
-                // truncate and we wrote over its start, so neither file is left (Claw's torn launcher.json). Theirs
+                // truncate and we wrote over its start, so neither file is left (the torn launcher.json). Theirs
                 // can't be put back, so ours is written again (cut to length) and the overlap is reported.
                 // #340 follow-up (Grace): the mirror image, a shorter file over the start of ours (its truncating open
                 // landed before our truncate, its write after ours): same length as ours, doesn't load, ours from where

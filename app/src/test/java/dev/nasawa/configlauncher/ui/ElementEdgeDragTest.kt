@@ -315,7 +315,7 @@ private fun doc(kind: String, pages: Int, takenOnP2: Boolean = false): String {
             "content":{"provider":{"package":"com.example.weather","class":".WeatherWidget"},"profile":"personal","label":"Weather"},"enabled":true}"""
         "live" -> """{"id":"w-1","type":"card","requires":4,"page":"p1","x":1,"y":1,"w":1,"h":1,"title":"Weather",
             "capabilities":[{"kind":"data.file"}],"layouts":{"1x1":[{"type":"text","text":"hi"}]}}"""
-        "consent" -> """{"id":"w-1","type":"card","requires":4,"page":"p1","x":1,"y":1,"w":1,"h":1,"title":"Weather","source":"blog.anigeek.com",
+        "consent" -> """{"id":"w-1","type":"card","requires":4,"page":"p1","x":1,"y":1,"w":1,"h":1,"title":"Weather","source":"status.example.com",
             "capabilities":[{"kind":"data.file"},{"kind":"ui.openUrl"}],"layouts":{"1x1":[{"type":"text","text":"hi"}]}}"""
         else -> null
     }

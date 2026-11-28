@@ -76,7 +76,7 @@
   },
   "elements": [
     {
-      "id": "w-anigeek",
+      "id": "w-example",
       "type": "card",
       "requires": 4,
       "page": "home",
@@ -100,7 +100,7 @@
               {
                 "type": "text",
                 "role": "caption",
-                "text": "Latest on blog.anigeek.com"
+                "text": "Latest on status.example.com"
               },
               {
                 "type": "text",
@@ -119,14 +119,14 @@
             "children": [
               {
                 "type": "metric",
-                "label": "PicSpin site",
-                "value": "{data:picspin.value}",
-                "status": "{data:picspin.status}"
+                "label": "Site A",
+                "value": "{data:siteA.value}",
+                "status": "{data:siteA.status}"
               },
               {
                 "type": "metric",
-                "label": "letmeaithatforyou",
-                "value": "{data:lmaitfy.value}",
+                "label": "Site B",
+                "value": "{data:siteB.value}",
                 "priority": 4
               }
             ]
@@ -168,9 +168,9 @@
         "w": 3,
         "h": 2
       },
-      "title": "Anigeek LLC",
-      "author": "Claw",
-      "source": "https://blog.anigeek.com",
+      "title": "Example Co",
+      "author": "Alex",
+      "source": "https://status.example.com",
       "surface": "auto",
       "capabilities": [
         {

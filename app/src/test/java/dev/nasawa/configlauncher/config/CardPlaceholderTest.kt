@@ -22,7 +22,7 @@ class CardPlaceholderTest {
         """{"id":"$id","type":"card","requires":$requires,"page":"$page","x":0,"y":$y,"w":2,"h":2,$extra"capabilities":[$caps],"layouts":{"2x2":[{"type":"text","text":"hi"}]}}"""
     private fun cfg(s: String): LauncherConfig = (ConfigCodec.decode(s) as? ParseResult.Ok)?.config ?: error("invalid: ${(ConfigCodec.decode(s) as ParseResult.Invalid).errors}")
     private val open = """{"kind":"ui.openUrl"}"""
-    private val src = """"title":"Anigeek LLC","source":"blog.anigeek.com","""
+    private val src = """"title":"Example Co","source":"status.example.com","""
 
     @Test fun placeholdersCoverShownCardsAndSkipTooNew() {
         val c = cfg(doc(
@@ -33,7 +33,7 @@ class CardPlaceholderTest {
         ))
         val home = CardPlaceholder.tiles(c, "home")
         assertEquals(listOf("w-1", "w-live"), home.map { it.id })
-        assertEquals("Anigeek LLC", home[0].title)
+        assertEquals("Example Co", home[0].title)
         assertNull(home[1].title)
         assertEquals(setOf(0 to 0, 1 to 0, 0 to 1, 1 to 1), home[0].placement.cells())
         assertEquals(listOf("w-other"), CardPlaceholder.tiles(c, "two").map { it.id })
@@ -68,7 +68,7 @@ class CardPlaceholderTest {
         assertEquals(listOf("w-1" to Reason.NeedsOk), tiles.map { it.id to it.reason })
         assertEquals(listOf("w-live"), ConsentUi.live(c, report, "home").map { it.id })
         assertEquals(1, ConsentUi.count(report))
-        assertEquals("elements[0]: widget \"Anigeek LLC\" is waiting for approval on this phone. It isn't shown until then.", report[0].warning)
+        assertEquals("elements[0]: widget \"Example Co\" is waiting for approval on this phone. It isn't shown until then.", report[0].warning)
         assertNull(report[1].warning)
         assertEquals(Consent.State.NeedsApproval, report[0].state)
         assertEquals(Consent.State.Allowed, report[1].state)

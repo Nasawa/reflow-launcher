@@ -28,22 +28,22 @@ class CardPlaceholderStatusTest {
         val consent = ConsentStore(consentDir, clock = { 1_700_000_000_000L })
         val debug = ConfigEngine(src, LastGoodStore(tmp.newFolder()), 0, clock = { 1_700_000_000_000L }, consent = consent, cardsLive = true)
         debug.poll(force = true)
-        val lines = debug.consentReport().first { it.id == "w-anigeek" }.lines
-        assertTrue(consent.allow("w-anigeek", lines, debug.state.value.config))
+        val lines = debug.consentReport().first { it.id == "w-example" }.lines
+        assertTrue(consent.allow("w-example", lines, debug.state.value.config))
         debug.consentChanged()
         assertEquals(Consent.State.Allowed, consent.report(debug.state.value.config).single().state)
-        val ceiling = consent.entry("w-anigeek")!!.ceiling
+        val ceiling = consent.entry("w-example")!!.ceiling
 
         val release = ConfigEngine(src, LastGoodStore(tmp.newFolder()), 0, clock = { 1_700_000_000_000L }, consent = consent, cardsLive = false)
         release.poll(force = true)
         val loaded = warningsOf(dir)
         assertEquals(release.warnings.value, loaded)
-        val expected = """elements[0]: card "w-anigeek" isn't shown in this version of Reflow Launcher. It stays in the file."""
+        val expected = """elements[0]: card "w-example" isn't shown in this version of Reflow Launcher. It stays in the file."""
         assertTrue("placeholder warning listed: $loaded", expected in loaded)
         assertTrue(loaded.none { "waiting for approval" in it })
-        assertEquals(Consent.State.Allowed, consent.entry("w-anigeek")!!.let { Consent.state(consent.report(release.state.value.config).single().lines, it).first })
-        assertEquals(ceiling, consent.entry("w-anigeek")!!.ceiling)
-        val consentObj = status(dir)["consent"]!!.jsonObject["w-anigeek"]!!.jsonObject
+        assertEquals(Consent.State.Allowed, consent.entry("w-example")!!.let { Consent.state(consent.report(release.state.value.config).single().lines, it).first })
+        assertEquals(ceiling, consent.entry("w-example")!!.ceiling)
+        val consentObj = status(dir)["consent"]!!.jsonObject["w-example"]!!.jsonObject
         assertEquals("allowed", consentObj["state"]!!.jsonPrimitive.content)
         assertFalse(consentObj.containsKey("warning"))
     }

@@ -35,9 +35,9 @@ class CardTest {
     }
 
     @Test fun qd5BareOpenUrlAndSource() {
-        ok(doc(card(""","source":"https://blog.anigeek.com","capabilities":[{"kind":"ui.openUrl"}]""",
+        ok(doc(card(""","source":"https://status.example.com","capabilities":[{"kind":"ui.openUrl"}]""",
             """{"1x1":[{"type":"text","text":"go","tap":{"kind":"ui.openUrl","url":"https://elsewhere.org/x"}}]}""")))
-        ok(doc(card(""","source":"nas.lan","capabilities":[{"kind":"ui.openUrl"}]""")))
+        ok(doc(card(""","source":"nas.example","capabilities":[{"kind":"ui.openUrl"}]""")))
         assertTrue(errors(doc(card(""","capabilities":[{"kind":"ui.openUrl","hosts":["a.org"]}]"""))).contains("elements[0].capabilities[0]: unknown key \"hosts\""))
         for (bad in listOf("https://a.org/path", "ftp://a.org", "A.org", "user@a.org", "a.org:8080"))
             assertTrue(bad, errors(doc(card(""","source":"$bad""""))).contains("elements[0].source must be a lowercase hostname, optionally with http:// or https://."))

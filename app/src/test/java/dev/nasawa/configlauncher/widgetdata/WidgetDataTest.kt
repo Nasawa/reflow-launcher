@@ -20,7 +20,7 @@ class WidgetDataTest {
     private fun doc(vararg cards: String) =
         """{"schemaVersion":1,"grid":{"columns":4,"rows":6},"pages":[{"id":"home","items":[]}],"elements":[${cards.joinToString(",")}]}"""
     private fun card(id: String = "w-1", caps: String = """{"kind":"data.file"},{"kind":"ui.reload"}""", extra: String = "", y: Int = 0) =
-        """{"id":"$id","type":"card","requires":4,"page":"home","x":0,"y":$y,"w":2,"h":2,"title":"Anigeek",$extra"capabilities":[$caps],"layouts":{"2x2":[{"type":"text","text":"{data:a}"}]}}"""
+        """{"id":"$id","type":"card","requires":4,"page":"home","x":0,"y":$y,"w":2,"h":2,"title":"Example Co",$extra"capabilities":[$caps],"layouts":{"2x2":[{"type":"text","text":"{data:a}"}]}}"""
 
     private fun root(s: String) = (WidgetData.parse(s.toByteArray()) as WidgetData.Parsed.Ok).data.root
 
@@ -36,8 +36,8 @@ class WidgetDataTest {
     }
 
     @Test fun lookupAndText() {
-        val r = root("""{"monitors":{"summary":"3/3 up","n":3,"ok":true,"none":null},"unhealthy":[{"name":"nas"}],"empty":""}""")
-        assertEquals("3/3 up", WidgetData.text(r, "monitors.summary"))
+        val r = root("""{"monitors":{"summary":"Monitors","n":3,"ok":true,"none":null},"unhealthy":[{"name":"nas"}],"empty":""}""")
+        assertEquals("Monitors", WidgetData.text(r, "monitors.summary"))
         assertEquals("3", WidgetData.text(r, "monitors.n"))
         assertEquals("true", WidgetData.text(r, "monitors.ok"))
         assertEquals("nas", WidgetData.text(r, "unhealthy[0].name"))
@@ -92,7 +92,7 @@ class WidgetDataTest {
 
     @Test fun noReadsWithoutConsentOrDataFile() = runBlocking {
         // Waiting for OK (source + ui.openUrl), and a card without data.file: neither file is read.
-        val v = env(doc(card(caps = """{"kind":"data.file"},{"kind":"ui.openUrl"}""", extra = """"source":"blog.anigeek.com","""),
+        val v = env(doc(card(caps = """{"kind":"data.file"},{"kind":"ui.openUrl"}""", extra = """"source":"status.example.com","""),
             card(id = "w-2", caps = """{"kind":"ui.reload"}""", y = 2)))
         v.data("w-1", """{"a":"one"}"""); v.data("w-2", """{"a":"two"}""")
         v.e.pollWidgets(force = true)
