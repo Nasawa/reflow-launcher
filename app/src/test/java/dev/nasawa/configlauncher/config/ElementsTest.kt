@@ -24,9 +24,10 @@ class ElementsTest {
     private fun errors(s: String) = (ConfigCodec.decode(s) as ParseResult.Invalid).errors
     private val app = AppItem("b", "p.b")
 
-    @Test fun featureLevelFiveKnowsTheTitleBarCardsAndAppWidgets() {
-        // #298: level 3 is retired, cards are level 4, appWidget is level 5.
-        assertEquals(5, Elements.FEATURE_LEVEL)
+    @Test fun featureLevelSixKnowsTheTitleBarCardsAppWidgetsAndReadoutKeys() {
+        // #360: level 3 is retired, cards are level 4, appWidget is level 5, readout keys are FL_CARDS_READOUT (6).
+        assertEquals(6, Elements.FEATURE_LEVEL)
+        assertEquals(6, Elements.FL_CARDS_READOUT)
         assertEquals(setOf("titleBar", "card", "appWidget"), Elements.types.keys)
         assertEquals(listOf(2, 4, 5), Elements.types.values.map { it.level })
     }
@@ -43,8 +44,8 @@ class ElementsTest {
     }
 
     @Test fun requiresAboveFeatureLevelIsSkippedBeforeStrictChecks() {
-        val c = ok(doc("""[{"id":"t-x","type":"titleBar","requires":6,"anchor":"top","whatever":true}]"""))
-        assertEquals(listOf("elements[0] needs feature level 6, but this Reflow Launcher supports up to 5, so it was skipped. It stays in the file. Update the app to show it."), Elements.warnings(c))
+        val c = ok(doc("""[{"id":"t-x","type":"titleBar","requires":7,"anchor":"top","whatever":true}]"""))
+        assertEquals(listOf("elements[0] needs feature level 7, but this Reflow Launcher supports up to 6, so it was skipped. It stays in the file. Update the app to show it."), Elements.warnings(c))
     }
 
     @Test fun overrideForMissingElementIsAWarning() {

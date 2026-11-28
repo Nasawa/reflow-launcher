@@ -177,7 +177,7 @@ add(V,'titlebar-shorthands.json',m(els(_tb(content={'slots':{'start':'pageTitle'
 add(V,'titlebar-low-contrast.json',m(els(_tb(style={'color':'dark','backdrop':'scrim'}))),'valid with a contrast warning (dark text on the scrim)','both','ux.md §15.1','#79')
 add(V,'override-low-contrast.json',m(lambda c:(els(_tb(style={'color':'light','backdrop':'scrim'}))(c),
     c['pages'][0].__setitem__('overrides',{'t-main':{'style':{'color':'dark'}}}))),'valid with a contrast warning: a page override darkens the text on the scrim','both','#118','#79')
-add(V,'titlebar-requires-6.json',m(els(_tb(requires=6, future={'a':1}))),'valid with a warning: requires above the feature level skips the bar (kept verbatim, unknown keys allowed)','both','title-bar.md §6','#79')
+add(V,'titlebar-requires-7.json',m(els(_tb(requires=7, future={'a':1}))),'valid with a warning: requires above the feature level skips the bar (kept verbatim, unknown keys allowed)','both','title-bar.md §6','#79')
 add(I,'token-unknown.json',m(els(_slot('{wether}'))),'invalid, B2: unknown token','kotlin','ux.md §15.1','#79')
 add(I,'token-letter.json',m(els(_slot('{time:HH:mm:ss}'))),'invalid, B2: seconds are not allowed','kotlin','ux.md §15.1','#79')
 add(I,'token-run.json',m(els(_slot('{date:MMMMMM}'))),'invalid, B2: too many pattern letters in a row','kotlin','title-bar.md §5','#79')
@@ -218,6 +218,63 @@ add(I,'card-openurl-hosts.json',m(els(_card(capabilities=[{'kind':'ui.openUrl','
 add(I,'card-tap-undeclared.json',m(els(_card(layouts={'1x1':[{'type':'button','label':'Go','tap':{'kind':'ui.openApp','package':'com.android.settings'}}]}))),
     'invalid, B2: a tap needs its capability on the same card','kotlin','dynamic-widgets.md §4','#137')
 
+# #360 RW-1: M1 readout keys at FL_CARDS_READOUT (6). Drawing / loading / evaluation are later issues.
+_status = {'id':'w-status','type':'card','requires':6,'page':'home','x':0,'y':2,'w':4,'h':5,'minSpan':{'w':2,'h':2},
+    'title':'Example Co','author':'agent','source':'https://status.example.com',
+    'capabilities':[{'kind':'data.file'},{'kind':'ui.reload'},{'kind':'ui.openUrl'}],'data':{'staleAfter':'PT30M'},
+    'layouts':{'2x2':[{'type':'metric','label':'Monitors','value':'{data:monitors.summary}','status':'{data:monitors.status}'}],
+               '4x5':[{'type':'tile','tap':{'kind':'ui.openUrl','url':'{data:blog.url}'},'children':[
+                   {'type':'text','role':'caption','text':'Latest on status.example.com'},
+                   {'type':'text','role':'title','text':'{data:blog.title}','maxLines':2},
+                   {'type':'text','role':'body','text':'{data:blog.excerpt}','maxLines':1}]},
+                 {'type':'row','children':[
+                   {'type':'metric','label':'Site A','value':'{data:site_a.value}','status':'{data:site_a.status}','weight':1},
+                   {'type':'metric','label':'Site B','value':'{data:site_b.value}','status':'{data:site_b.status}','weight':1,'priority':4},
+                   {'type':'metric','label':'Monitors','value':'{data:monitors.summary}','status':'{data:monitors.status}','weight':1}]},
+                 {'type':'tile','children':[
+                   {'type':'text','role':'caption','text':'Unhealthy monitors'},
+                   {'type':'row','children':[
+                     {'type':'text','text':'{data:unhealthy.text}','status':'{data:unhealthy.status}','weight':1},
+                     {'type':'text','text':'{data:monitors.summary}','align':'end'}]}]}]}}
+_usage = {'id':'w-usage','type':'card','requires':6,'page':'home','x':0,'y':8,'w':4,'h':3,'title':'Agent usage','author':'agent',
+    'header':False,'surface':{'color':'#0F6E6E'},
+    'layers':[{'kind':'picture','src':'sticker-{data:state}.webp','default':'sticker-idle.webp','fit':'fixed','width':0.4,
+               'align':'bottom','offset':{'x':0,'y':0.15},'overflow':True,'opacity':0.8,'scrim':'none'},{'kind':'content'}],
+    'summary':'Agent usage, {data:state}. Context {data:ctx|round} percent',
+    'capabilities':[{'kind':'data.file'},{'kind':'ui.reload'}],'data':{'staleAfter':'PT15M'},
+    'layouts':{'4x3':[
+        {'type':'text','role':'caption','font':'mono','align':'end','text':'up {data:started_at|since}'},
+        {'type':'progress','label':'ctx','value':'{data:ctx}','max':100,'style':'ticks','by':'position',
+         'thresholds':[{'from':0,'tone':'accent'},{'from':75,'tone':'warn'}]},
+        {'type':'progress','label':'5h','value':'{data:five_hour}','max':100,'style':'ticks','by':'position',
+         'thresholds':[{'from':0,'tone':'accent'},{'from':75,'tone':'warn'}]},
+        {'type':'progress','label':'7d','value':'{data:seven_day}','max':100,'style':'ticks','by':'position',
+         'thresholds':[{'from':0,'tone':'accent'},{'from':75,'tone':'warn'}]},
+        {'type':'text','role':'caption','font':'mono','align':'end','text':'status: {data:state|default:unknown}'}]}}
+def _grid12(c):
+    c['grid']={'columns':4,'rows':12}
+add(V,'card-status.json',m(lambda c:(_grid12(c), els(_status)(c))),'valid: reflow-widgets.md §8.1 Example Co status card at FL_CARDS_READOUT','both','reflow-widgets.md §8.1','#360')
+add(V,'card-usage.json',m(lambda c:(_grid12(c), els(_usage)(c))),'valid: reflow-widgets.md §8.2 M1 Agent usage card at FL_CARDS_READOUT','both','reflow-widgets.md §8.2','#360')
+add(V,'card-header-false-openurl.json',m(els(_card(requires=6, header=False, capabilities=[{'kind':'ui.openUrl'}]))),'valid with a warning: header false is ignored because the card opens links','both','reflow-widgets.md §4.5','#360')
+add(V,'card-header-false-surface-none.json',m(els(_card(requires=6, header=False, surface='none'))),'valid with a warning: surface none cannot pair with header false, default surface is kept','both','reflow-widgets.md §4.5','#360')
+add(V,'card-auto-scrim.json',m(els(_card(requires=6, layers=[{'kind':'picture','src':'photo.webp'},{'kind':'content'}]))),'valid with a warning: default scrim on a picture directly under content','both','reflow-widgets.md §4.4','#360')
+add(I,'card-readout-requires-4.json',m(els(_card(requires=4, header=False))),'invalid, B2: readout keys need requires 6','kotlin','reflow-widgets.md §12','#360')
+add(I,'card-second-content.json',m(els(_card(requires=6, layers=[{'kind':'content'},{'kind':'content'}]))),'invalid, B2: only one content layer','both','reflow-widgets.md §4.4','#360')
+add(I,'card-remote-src.json',m(els(_card(requires=6, layers=[{'kind':'picture','src':'https://example.com/x.webp'}]))),'invalid, B2: picture src cannot be a web address','both','reflow-widgets.md §4.4','#360')
+add(I,'card-secret-url.json',m(els(_card(requires=6, capabilities=[{'kind':'ui.openUrl'}], layouts={'1x1':[
+    {'type':'text','text':'go','tap':{'kind':'ui.openUrl','url':'https://example.com/${secret:ha}'}},
+    {'type':'text','text':'go2','tap':{'kind':'ui.openUrl','url':'https://example.com/{secret:ha}'}}]}))),
+    'invalid, B2: leftover ${secret:…} and {secret:…} in tap urls are load errors','both','reflow-widgets.md §5.1','#360')
+add(I,'card-segments-21.json',m(els(_card(requires=6, layouts={'1x1':[{'type':'progress','value':0.5,'segments':21}]}))),
+    'invalid, B2: progress segments is at most 20','both','reflow-widgets.md §4.2','#360')
+add(I,'card-summary-121.json',m(els(_card(requires=6, summary='x'*121))),
+    'invalid, B2: summary is at most 120 characters','both','reflow-widgets.md §4','#360')
+add(I,'card-thresholds-6.json',m(els(_card(requires=6, layouts={'1x1':[{'type':'progress','value':1,'thresholds':[
+    {'from':0,'tone':'accent'},{'from':10,'tone':'ok'},{'from':20,'tone':'warn'},{'from':30,'tone':'error'},{'from':40,'tone':'muted'},{'from':50,'tone':'accent'}]}]}))),
+    'invalid, B2: thresholds allows at most 5 entries','both','reflow-widgets.md §4.2','#360')
+add(I,'card-thresholds-from.json',m(els(_card(requires=6, layouts={'1x1':[{'type':'progress','value':1,'thresholds':[{'from':75,'tone':'warn'}]}]}))),
+    'invalid, B2: the first thresholds from must be 0','kotlin','reflow-widgets.md §4.2','#360')
+
 add(I,'number-too-large.json',raw_nums(copy.deepcopy(B),'x-n',['1e309']),'B2: x-n[0] is outside the double range; the phone could not write it back','kotlin','#113','')
 # #120: not RFC 8259 numbers; the phone's pre-scan rejects them like json.loads (full list: test-fixtures/json-numbers.json).
 add(I,'number-leading-zero.json',raw_nums(copy.deepcopy(B),'x-n',['00']),'parse error, B1: leading zero','parser','#120','')
@@ -242,7 +299,7 @@ add(I,'appwidget-provider-x-key.json',m(els(_aw(content={'provider':{'package':'
 add(I,'appwidget-label-41.json',m(els(_aw(content={'provider':{'package':'com.example.weather','class':'.W'},'label':'x'*41}))),'invalid, B2: label is at most 40 characters','both','native-widgets.md §2.2','#298')
 add(I,'appwidget-overlap.json',m(els(_aw(), _aw(id='w-two', x=1))),'invalid, B2: two appWidgets in one cell','kotlin','native-widgets.md §2.3','#298')
 add(I,'appwidget-outside-grid.json',m(els(_aw(x=3))),'invalid, B2: x + w past the grid','kotlin','native-widgets.md §2.3','#298')
-RULES={'number-too-large.json':'number-range','token-unknown.json':'template-grammar','token-letter.json':'template-grammar','token-run.json':'template-grammar','token-unclosed.json':'template-grammar','token-stray.json':'template-grammar','token-pattern-long.json':'template-grammar','token-pattern-on-page.json':'template-grammar','tokens-many.json':'template-grammar','override-bad-template.json':'template-grammar','titlebar-twice.json':'single-title-bar','duplicate-id.json':'duplicate-ids','overlapping-cells.json':'overlapping-cells','cell-outside-grid.json':'cell-outside-grid','2016-items.json':'item-total','duplicate-key.json':'duplicate-keys','depth-17.json':'parser-depth','deep-nesting.json':'parser-depth','size-just-over-2mib.json':'byte-cap','nul-in-label.json':'nul-or-encoding','invalid-utf8.json':'nul-or-encoding','lone-surrogate.json':'nul-or-encoding','utf16.json':'nul-or-encoding','element-overlaps-item.json':'overlapping-cells','element-overlaps-element.json':'overlapping-cells','element-outside-grid.json':'cell-outside-grid','element-duplicate-id.json':'duplicate-ids','card-tap-undeclared.json':'card-capability-ref','appwidget-overlap.json':'overlapping-cells','appwidget-outside-grid.json':'cell-outside-grid'}
+RULES={'number-too-large.json':'number-range','token-unknown.json':'template-grammar','token-letter.json':'template-grammar','token-run.json':'template-grammar','token-unclosed.json':'template-grammar','token-stray.json':'template-grammar','token-pattern-long.json':'template-grammar','token-pattern-on-page.json':'template-grammar','tokens-many.json':'template-grammar','override-bad-template.json':'template-grammar','titlebar-twice.json':'single-title-bar','duplicate-id.json':'duplicate-ids','overlapping-cells.json':'overlapping-cells','cell-outside-grid.json':'cell-outside-grid','2016-items.json':'item-total','duplicate-key.json':'duplicate-keys','depth-17.json':'parser-depth','deep-nesting.json':'parser-depth','size-just-over-2mib.json':'byte-cap','nul-in-label.json':'nul-or-encoding','invalid-utf8.json':'nul-or-encoding','lone-surrogate.json':'nul-or-encoding','utf16.json':'nul-or-encoding','element-overlaps-item.json':'overlapping-cells','element-overlaps-element.json':'overlapping-cells','element-outside-grid.json':'cell-outside-grid','element-duplicate-id.json':'duplicate-ids','card-tap-undeclared.json':'card-capability-ref','card-readout-requires-4.json':'card-readout','card-thresholds-from.json':'card-readout','appwidget-overlap.json':'overlapping-cells','appwidget-outside-grid.json':'cell-outside-grid'}
 for e in man:
     r=RULES.get(e['file'].split('/')[1])
     if r: e['kotlinOnly']=r; e['layer']='kotlin-only'

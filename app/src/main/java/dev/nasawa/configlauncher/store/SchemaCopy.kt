@@ -24,6 +24,7 @@ object SchemaCopy {
         "c6fbbaad19f2527d1f40069432e8b26c9e5d3850a564e6ee0358f40cb3fe0e7f",   // #137 card (level 4)
         "669d1197b6a860ebc7ed07c3b3f199804ceac68fc23a709452bf5dedb8bbe725",   // #242 Reflow Launcher $id / title
         "a4eb5a224e329288cabcf252b8db1fc5c052b66e45451420dab31d11a96a3f13",   // #298 appWidget (level 5)
+        "47a233cc9ab7cd4914a6f6c13a5a5d43c36d02899aa448e2fc7d359c83aa3a95",   // #360 M1 readout keys (FL_CARDS_READOUT = 6)
     )
 
     enum class Outcome { WROTE, UPDATED, UP_TO_DATE, USER_CHANGED, FAILED }

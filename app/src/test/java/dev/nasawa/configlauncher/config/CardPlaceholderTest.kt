@@ -37,8 +37,8 @@ class CardPlaceholderTest {
         assertNull(home[1].title)
         assertEquals(setOf(0 to 0, 1 to 0, 0 to 1, 1 to 1), home[0].placement.cells())
         assertEquals(listOf("w-other"), CardPlaceholder.tiles(c, "two").map { it.id })
-        // #298: FEATURE_LEVEL is 5 (appWidget); the too-new card (requires 9) is not a placeholder.
-        assertEquals(5, Elements.FEATURE_LEVEL)
+        // #360: FEATURE_LEVEL is 6 (FL_CARDS_READOUT); the too-new card (requires 9) is not a placeholder.
+        assertEquals(6, Elements.FEATURE_LEVEL)
         assertTrue(Elements.skip(c.elements!![2]) is Elements.Skip.TooNew)
     }
 

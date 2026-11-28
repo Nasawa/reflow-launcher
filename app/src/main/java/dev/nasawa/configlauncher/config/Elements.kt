@@ -15,11 +15,14 @@ import kotlinx.serialization.json.JsonPrimitive
  *
  * Feature level 1 was the container release (no element type). Level 2 adds the title bar ([TitleBar]). Level 3 is
  * retired, never used (native-widgets.md §2.1: a level is fixed when its feature merges). Level 4 adds the dashboard
- * `card` ([Card], #137). Level 5 adds the hosted `appWidget` ([AppWidget], #298; no host until NW-2). Designed but
- * unbuilt features (`windowOverrides`, `net.fetch`) take the next free numbers when they land.
+ * `card` ([Card], #137). Level 5 adds the hosted `appWidget` ([AppWidget], #298). Level 6 ([FL_CARDS_READOUT], #360)
+ * adds the M1 readout keys on `card`. Designed but unbuilt features (`windowOverrides`, `net.fetch` / [FL_FETCH])
+ * take the next free numbers when they land.
  */
 object Elements {
-    const val FEATURE_LEVEL = 5
+    /** M1 readout keys on `card` (#360 RW-1). The next free integer when this merged. */
+    const val FL_CARDS_READOUT = 6
+    const val FEATURE_LEVEL = FL_CARDS_READOUT
     val TYPE = Regex("^[a-zA-Z][a-zA-Z0-9]{0,31}$")
     /** Grid-placement base block (docs/research/widgets.md §5.1). An element has these or `anchor`, never both. */
     val PLACEMENT = listOf("page", "x", "y", "w", "h")
@@ -78,18 +81,20 @@ object Elements {
     private fun JsonObject.requires() = (this["requires"] as? JsonPrimitive)?.takeIf { !it.isString }?.content?.toLongOrNull()
 
     /** Why [o] is skipped, or null when this launcher shows it. `requires` is checked first (it says "update the app"). */
-    fun skip(o: JsonObject): Skip? {
-        o.requires()?.let { if (it > FEATURE_LEVEL) return Skip.TooNew(it) }
+    fun skip(o: JsonObject, featureLevel: Int = FEATURE_LEVEL): Skip? {
+        o.requires()?.let { if (it > featureLevel) return Skip.TooNew(it) }
         val type = o.str("type") ?: return null
         val t = types[type] ?: return Skip.UnknownType(type)
         return t.unknownCapability(o)?.let { Skip.UnknownCapability(it) }
     }
 
     /** The known type for [o], if it is shown. */
-    fun typeOf(o: JsonObject): ElementType? = if (skip(o) == null) o.str("type")?.let { types[it] } else null
+    fun typeOf(o: JsonObject, featureLevel: Int = FEATURE_LEVEL): ElementType? =
+        if (skip(o, featureLevel) == null) o.str("type")?.let { types[it] } else null
 
     /** Elements this launcher shows, in file order. */
-    fun shown(c: LauncherConfig): List<JsonObject> = c.elements.orEmpty().filter { skip(it) == null }
+    fun shown(c: LauncherConfig, featureLevel: Int = FEATURE_LEVEL): List<JsonObject> =
+        c.elements.orEmpty().filter { skip(it, featureLevel) == null }
 
     fun canonical(o: JsonObject): JsonObject = typeOf(o)?.canonical(o) ?: o
 
@@ -119,25 +124,25 @@ object Elements {
      * Load warnings (ux.md §15.1): skipped elements and overrides naming no element. They never reject the file;
      * they go to status.json `warnings` and the error detail view's Warnings section.
      */
-    fun warnings(c: LauncherConfig): List<String> {
+    fun warnings(c: LauncherConfig, featureLevel: Int = FEATURE_LEVEL): List<String> {
         val out = mutableListOf<String>()
         c.elements.orEmpty().forEachIndexed { i, e ->
-            when (val s = skip(e)) {
-                is Skip.TooNew -> out += "elements[$i] needs feature level ${s.requires}, but this Reflow Launcher supports up to $FEATURE_LEVEL, so it was skipped. It stays in the file. Update the app to show it."
+            when (val s = skip(e, featureLevel)) {
+                is Skip.TooNew -> out += "elements[$i] needs feature level ${s.requires}, but this Reflow Launcher supports up to $featureLevel, so it was skipped. It stays in the file. Update the app to show it."
                 is Skip.UnknownType -> out += "elements[$i]: type \"${s.type}\" isn't supported by this Reflow Launcher, so it was skipped. It stays in the file."
                 is Skip.UnknownCapability -> out += "elements[$i]: capability kind \"${s.kind}\" isn't supported by this Reflow Launcher, so the widget was skipped. It stays in the file. Update the app, or check the kind for a typo."
-                null -> typeOf(e)?.let { out += it.warnings(e, "elements[$i]") }
+                null -> typeOf(e, featureLevel)?.let { out += it.warnings(e, "elements[$i]") }
             }
         }
         val ids = c.elements.orEmpty().mapNotNull { it.str("id") }.toSet()
-        val byId = shown(c).associateBy { it.str("id") }
+        val byId = shown(c, featureLevel).associateBy { it.str("id") }
         c.pages.forEachIndexed { j, p ->
             p.overrides?.forEach { (k, v) ->
                 if (k !in ids) out += "pages[$j].overrides: \"$k\" doesn't match any element, so it was ignored."
                 else {
                     // #118: an override that changes colours gets the same contrast check as the element itself.
                     val e = byId[k] ?: return@forEach
-                    (v as? JsonObject)?.let { ov -> typeOf(e)?.let { out += it.overrideWarnings(e, ov, "pages[$j].overrides.$k") } }
+                    (v as? JsonObject)?.let { ov -> typeOf(e, featureLevel)?.let { out += it.overrideWarnings(e, ov, "pages[$j].overrides.$k") } }
                 }
             }
         }

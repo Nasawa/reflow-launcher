@@ -1,6 +1,8 @@
 name: Emulator smoke
 # Test matrix: emulators API 29, 35 and 36 (minSdk 29). androidTest sources exist (L8 rotate-mid-drag smoke, L9 hinge @Ignore until Sprite wires WindowInfoTracker);
-# this workflow still installs the debug APK, cold-starts MainActivity, and fails on a crash or ANR.
+# this workflow installs the debug APK, seeds a launcher.json with a card and a {data:…} token
+# (scripts/emulator-smoke.sh, same run-as path as longpress-smoke), cold-starts MainActivity,
+# and fails on a crash, ANR, or PatternSyntaxException (the API 29 ICU regex case).
 # Runs nightly, on demand, on every PR, and on pushes to main.
 on:
   schedule:

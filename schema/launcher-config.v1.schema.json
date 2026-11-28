@@ -448,7 +448,7 @@
       }
     },
     "element": {
-      "description": "Common element fields, checked for every element (docs/design/title-bar.md §3, docs/research/widgets.md §5.1). An element is anchored (anchor) or grid-placed (page, x, y, w, h), never both; a grid-placed element reserves its cells even when this launcher skips it. No additionalProperties here: an unknown type accepts any other keys (skipped, kept verbatim); each known type's own definition is strict. Known types (feature level 5): titleBar (level 2), card (level 4) and appWidget (level 5); level 3 is retired and never used.",
+      "description": "Common element fields, checked for every element (docs/design/title-bar.md §3, docs/research/widgets.md §5.1). An element is anchored (anchor) or grid-placed (page, x, y, w, h), never both; a grid-placed element reserves its cells even when this launcher skips it. No additionalProperties here: an unknown type accepts any other keys (skipped, kept verbatim); each known type's own definition is strict. Known types (feature level 6): titleBar (level 2), card (level 4), appWidget (level 5) and M1 readout keys (FL_CARDS_READOUT, 6); level 3 is retired and never used.",
       "type": "object",
       "required": [
         "id",
@@ -572,7 +572,7 @@
                 "const": "titleBar"
               },
               "requires": {
-                "maximum": 5
+                "maximum": 6
               }
             }
           },
@@ -590,7 +590,7 @@
                 "const": "card"
               },
               "requires": {
-                "maximum": 5
+                "maximum": 6
               }
             }
           },
@@ -608,7 +608,7 @@
                 "const": "appWidget"
               },
               "requires": {
-                "maximum": 5
+                "maximum": 6
               }
             }
           },
@@ -847,7 +847,7 @@
       ]
     },
     "cardNode": {
-      "description": "One node of a card layout (dynamic-widgets.md §1): containers column, row, tile (children, at most 4 levels deep) and primitives text, metric, list, icon, progress, button. No coordinates inside a card. Text fields are templates ({data:path}, {relative}, title-bar tokens), checked when cards render (S3-E/F).",
+      "description": "One node of a card layout: containers column, row, tile and primitives text, metric, list, icon, progress, button. No coordinates inside a card. Optional color uses the title-bar grammar. Readout keys (text display/align/font/status, progress max/segments/style/count/thresholds/by, metric thresholds, button icon) need requires at FL_CARDS_READOUT.",
       "oneOf": [
         {
           "type": "object",
@@ -879,6 +879,9 @@
               "items": {
                 "$ref": "#/$defs/cardNode"
               }
+            },
+            "color": {
+              "$ref": "#/$defs/colorValue"
             }
           },
           "additionalProperties": false
@@ -913,6 +916,9 @@
               "items": {
                 "$ref": "#/$defs/cardNode"
               }
+            },
+            "color": {
+              "$ref": "#/$defs/colorValue"
             }
           },
           "additionalProperties": false
@@ -947,6 +953,9 @@
               "items": {
                 "$ref": "#/$defs/cardNode"
               }
+            },
+            "color": {
+              "$ref": "#/$defs/colorValue"
             }
           },
           "additionalProperties": false
@@ -982,13 +991,30 @@
               "enum": [
                 "caption",
                 "body",
-                "title"
+                "title",
+                "display"
               ]
             },
             "maxLines": {
               "type": "integer",
               "minimum": 1,
               "maximum": 6
+            },
+            "color": {
+              "$ref": "#/$defs/colorValue"
+            },
+            "align": {
+              "$ref": "#/$defs/align"
+            },
+            "font": {
+              "enum": [
+                "default",
+                "mono"
+              ]
+            },
+            "status": {
+              "type": "string",
+              "maxLength": 200
             }
           },
           "additionalProperties": false
@@ -1031,6 +1057,12 @@
             "status": {
               "type": "string",
               "maxLength": 200
+            },
+            "color": {
+              "$ref": "#/$defs/colorValue"
+            },
+            "thresholds": {
+              "$ref": "#/$defs/cardThresholds"
             }
           },
           "additionalProperties": false
@@ -1081,6 +1113,9 @@
             "emptyText": {
               "type": "string",
               "maxLength": 80
+            },
+            "color": {
+              "$ref": "#/$defs/colorValue"
             }
           },
           "additionalProperties": false
@@ -1113,6 +1148,9 @@
             },
             "package": {
               "$ref": "#/$defs/packageName"
+            },
+            "color": {
+              "$ref": "#/$defs/colorValue"
             }
           },
           "additionalProperties": false,
@@ -1174,9 +1212,35 @@
                 },
                 {
                   "type": "number",
-                  "minimum": 0,
-                  "maximum": 1
+                  "minimum": 0
                 }
+              ]
+            },
+            "color": {
+              "$ref": "#/$defs/colorValue"
+            },
+            "max": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "segments": {
+              "type": "integer",
+              "minimum": 2,
+              "maximum": 20
+            },
+            "style": {
+              "const": "ticks"
+            },
+            "count": {
+              "type": "integer"
+            },
+            "thresholds": {
+              "$ref": "#/$defs/cardThresholds"
+            },
+            "by": {
+              "enum": [
+                "value",
+                "position"
               ]
             }
           },
@@ -1209,6 +1273,13 @@
             "label": {
               "type": "string",
               "maxLength": 40
+            },
+            "color": {
+              "$ref": "#/$defs/colorValue"
+            },
+            "icon": {
+              "type": "string",
+              "maxLength": 64
             }
           },
           "additionalProperties": false
@@ -1230,7 +1301,10 @@
             "url": {
               "type": "string",
               "minLength": 1,
-              "maxLength": 2048
+              "maxLength": 2048,
+              "not": {
+                "pattern": "\\$\\{secret:|\\{secret:"
+              }
             }
           },
           "required": [
@@ -1268,7 +1342,7 @@
       ]
     },
     "card": {
-      "description": "Dashboard card (#137 S3-A, feature level 4; docs/design/dynamic-widgets.md). Grid-placed, requires 4 or higher. Capabilities use the stage-3 kinds only: data.file (data is always .configlauncher/widgets-data/<id>.json), ui.reload, ui.openApp + packages, and a bare ui.openUrl (taps to source open silently; any other host asks on every tap). A launcher that doesn't know a kind skips the card with a warning; this schema (CI) rejects it so typos fail fast. Nothing renders yet.",
+      "description": "Dashboard card (#137 S3-A, feature level 4; M1 readout keys at FL_CARDS_READOUT / 6, #360). Grid-placed, requires 4 or higher; readout keys (surface none/object, layers, header, summary, and the new text/progress/metric/button/color fields) need requires 6 or higher. Capabilities use the stage-3 kinds only: data.file, ui.reload, ui.openApp + packages, and a bare ui.openUrl (taps to source open silently; any other host asks on every tap).",
       "type": "object",
       "required": [
         "id",
@@ -1332,7 +1406,32 @@
           "pattern": "^(https?://)?[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$"
         },
         "surface": {
-          "const": "auto"
+          "$ref": "#/$defs/cardSurface"
+        },
+        "header": {
+          "type": "boolean"
+        },
+        "summary": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "layers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/cardLayer"
+          },
+          "minContains": 0,
+          "maxContains": 1,
+          "contains": {
+            "properties": {
+              "kind": {
+                "const": "content"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          }
         },
         "capabilities": {
           "type": "array",
@@ -1493,6 +1592,205 @@
         "^x-": {}
       },
       "additionalProperties": false
+    },
+    "colorValue": {
+      "description": "Title-bar colour grammar: a token, #RRGGBB, or {light, dark}.",
+      "oneOf": [
+        {
+          "$ref": "#/$defs/color"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "properties": {
+            "light": {
+              "$ref": "#/$defs/color"
+            },
+            "dark": {
+              "$ref": "#/$defs/color"
+            }
+          }
+        }
+      ]
+    },
+    "cardThresholds": {
+      "description": "Ascending from values on the value/max scale in percent (0-100). Evaluation is #361.",
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 5,
+      "items": {
+        "type": "object",
+        "required": [
+          "from",
+          "tone"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "from": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "tone": {
+            "oneOf": [
+              {
+                "enum": [
+                  "ok",
+                  "warn",
+                  "error",
+                  "accent",
+                  "muted"
+                ]
+              },
+              {
+                "type": "string",
+                "pattern": "^#[0-9A-Fa-f]{6}$"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "cardSurface": {
+      "oneOf": [
+        {
+          "enum": [
+            "auto",
+            "none"
+          ]
+        },
+        {
+          "type": "object",
+          "required": [
+            "color"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "color": {
+              "$ref": "#/$defs/colorValue"
+            },
+            "opacity": {
+              "type": "integer",
+              "minimum": 50,
+              "maximum": 100
+            }
+          }
+        }
+      ]
+    },
+    "cardLayer": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "kind"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "content"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "kind",
+            "src"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "picture"
+            },
+            "src": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80,
+              "not": {
+                "pattern": "(://|/)"
+              }
+            },
+            "default": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*\\.(png|jpg|jpeg|webp)$"
+            },
+            "fit": {
+              "enum": [
+                "cover",
+                "contain",
+                "fixed"
+              ]
+            },
+            "width": {
+              "type": "number"
+            },
+            "align": {
+              "enum": [
+                "topStart",
+                "top",
+                "topEnd",
+                "start",
+                "center",
+                "end",
+                "bottomStart",
+                "bottom",
+                "bottomEnd"
+              ]
+            },
+            "offset": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "x": {
+                  "type": "number"
+                },
+                "y": {
+                  "type": "number"
+                }
+              }
+            },
+            "opacity": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "overflow": {
+              "type": "boolean"
+            },
+            "scrim": {
+              "oneOf": [
+                {
+                  "enum": [
+                    "auto",
+                    "none"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "required": [
+                    "color"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "color": {
+                      "$ref": "#/$defs/colorValue"
+                    },
+                    "opacity": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ]
     }
   }
 }
