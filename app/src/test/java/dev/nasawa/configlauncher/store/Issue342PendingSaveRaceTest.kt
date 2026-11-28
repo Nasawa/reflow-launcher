@@ -10,7 +10,7 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 /**
- * #342 (v1.1.0-dev4, round 66 of 100): an agent's `cp` landed inside the phone's pending save (debounce, then
+ * #342 (in device runs): an agent's `cp` landed inside the phone's pending save (debounce, then
  * read → temp write → replace) and the final file was the phone's save, with no banner or warning.
  *
  * Every step of the save where the agent's write can land, in order, on the real [ConfigEngine] and [SafWrites] over a
@@ -116,7 +116,7 @@ class Issue342PendingSaveRaceTest {
         assertMerged(src, e)
     }
 
-    /** Round 66: the agent's cp after the save's look, around the temp write (before the original's read). */
+    /** In device runs: the agent's cp after the save's look, around the temp write (before the original's read). */
     @Test fun anAgentWriteDuringTheTempWriteIsMerged() {
         val (src, e) = round { r.before[1] = { agentWrites() } }
         assertMerged(src, e)

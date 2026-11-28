@@ -21,7 +21,7 @@ import java.io.File
 import java.io.RandomAccessFile
 
 /**
- * #339 (A51): launcher.json was left as the app's JSON followed by the tail of a longer file. These pin that
+ * #339 (a test phone): launcher.json was left as the app's JSON followed by the tail of a longer file. These pin that
  * [SafIo] leaves exactly the new bytes even on a provider whose "w"/"wt" open doesn't truncate, through a real
  * ContentResolver and provider (Robolectric), and that [SafIo.replace] checks and writes in one open.
  */

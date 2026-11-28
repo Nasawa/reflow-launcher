@@ -158,7 +158,7 @@ internal class SafWrites(
                 if (!replaced) {
                     // #342: no "rw" descriptor, so the look above and the "wt" open are separate calls, and the failed
                     // "rw" open came between them: an agent's whole `cp` landing there was overwritten in full and the
-                    // read-back saw only ours (round 66 on dev4: status `ok`, the agent's item gone). Look again
+                    // read-back saw only ours (in device runs: status `ok`, the agent's item gone). Look again
                     // right before the write; what's left is the one provider call that opens "wt".
                     val now = tree.read(target)
                     trace(name) { "no rw: look again now=${short(now)}, then wt" }

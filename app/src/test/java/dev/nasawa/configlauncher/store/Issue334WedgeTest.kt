@@ -10,7 +10,7 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 /**
- * #334 (dev1 A51): an agent's non-atomic `cp` (truncate, then write) racing the phone's save. Before the fix the
+ * #334 (a test phone): an agent's non-atomic `cp` (truncate, then write) racing the phone's save. Before the fix the
  * read-back landed between the agent's truncate and its write, saw an empty file, called it "write verification
  * failed" and restored the pre-save bytes over the agent's finished write; the engine then sat on the failed edit
  * (polls and RELOAD skipped the file, RELOAD said busy, status.json kept the old `ok`, Retry could be a silent no-op

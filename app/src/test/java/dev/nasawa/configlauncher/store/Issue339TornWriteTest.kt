@@ -10,7 +10,7 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 /**
- * #339 (v1.1.0-dev3, A51, 62 drag-vs-agent-write rounds): two outcomes #334 left.
+ * #339 (in device runs): two outcomes #334 left.
  * - Silent loss: the agent's `cp` landed between the save's last look at launcher.json and its truncate-write (two
  *   provider calls), was overwritten in full, and the read-back saw only our bytes: status.json `ok`, agent item gone.
  * - Torn file: the agent's longer file landed after our truncate and we wrote over its start: our JSON plus its
@@ -27,7 +27,7 @@ class Issue339TornWriteTest {
         """{"id":"a-camera","type":"app","package":"a.camera","x":0,"y":0},{"id":"a-keep","type":"app","package":"a.keep","x":1,"y":0},""" +
         """{"id":"$extra","type":"app","package":"com.sec.android.app.popupcalculator","x":2,"y":4}]}]}"""
 
-    /** A fake provider. [fd]: it gives a seekable read/write descriptor ([DocTree.replace]), as the A51's does. */
+    /** A fake provider. [fd]: it gives a seekable read/write descriptor ([DocTree.replace]), as a test phone's does. */
     private class Racing(val t: SafDirsTest.FakeTree, val fd: Boolean) : DocTree by t {
         /** Once, right after a read of launcher.json returns (the save's own look comes first). */
         var afterTargetRead: (() -> Unit)? = null
@@ -88,7 +88,7 @@ class Issue339TornWriteTest {
         val src = TreeSource(); val e = engine(src)
         assertTrue(e.poll(force = true))
         assertTrue(e.edit(moveCamera()))
-        // Rounds 102/113: the agent's whole cp lands right after the save's look at launcher.json, before its write.
+        // In device runs: the agent's whole cp lands right after the save's look at launcher.json, before its write.
         src.r.afterTargetRead = { src.agentWrites(agent(63)) }
         assertTrue(e.flush())
         assertTrue("the replace re-checked in its own open", src.r.replaces.isNotEmpty())
@@ -101,9 +101,9 @@ class Issue339TornWriteTest {
 
     // ---- (2) torn file ----
 
-    /** Rounds 22/124: the agent's longer file landed after our truncate; our bytes went over its start. */
+    /** In device runs: the agent's longer file landed after our truncate; our bytes went over its start. */
     private fun TreeSource.tearsTheNextWrite(agentJson: String) {
-        // As the agent's tool would write it: pretty-printed, so longer than our save (3,087 vs 2,844 bytes).
+        // As the agent's tool would write it: pretty-printed, so longer than our save.
         val a = ConfigCodec.encodeBytes((ConfigCodec.decode(agentJson.toByteArray()) as ParseResult.Ok).config)
         r.afterTargetWrite = { ours -> check(a.size > ours.size); ours + a.copyOfRange(ours.size, a.size) }
     }
