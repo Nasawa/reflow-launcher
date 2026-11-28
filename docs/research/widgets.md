@@ -128,7 +128,7 @@ Keep #81's decision: **widgets are elements in root `elements[]`, not `pages[].i
 - At runtime the launcher derives the provider's bounds **in cells** for this device: default from `targetCellWidth/Height`, else `minWidth/minHeight` rounded up to cells; min from `minResize*`; max from `maxResize*`; and `resizeMode`.
 - If the file's size is outside the bounds, the launcher **renders at the file's size anyway** (the widget handles its own layout), adds a `status.json` warning (`elements[3]: 1x1 is smaller than this widget's minimum 2x1`), and **doesn't rewrite the file**. Writing a clamped size would churn the file and fight the agent. The resize UI on the phone does enforce bounds.
 - The host reports the real dp size per cell span to the provider (`OPTION_APPWIDGET_SIZES` / `updateAppWidgetSize`) on every layout change, including grid changes from the file.
-- **Different phones, same file:** cell dp size differs per device, so a 2x1 widget can be roomy on the S25 Ultra and cramped on the A51. That's expected; the warning above covers the extreme cases.
+- **Different phones, same file:** cell dp size differs per device, so a 2x1 widget can be roomy on a current flagship phone and cramped on a second test phone. That's expected; the warning above covers the extreme cases.
 
 **Resize UX (high level, for Pragma):** long-press → *Resize* shows a cell-snapped frame (Launcher3 style) bounded by provider min/max and by free cells. **No automatic reflow** of other items in the first version: the frame stops at occupied cells. The result writes one `SetElement(id, {x, y, w, h})` through the existing debounce, hash and ID replay. Move works the same as for app items, with the whole span checked for collisions. Reflow can come later.
 
@@ -160,6 +160,11 @@ What **can** be restored, as options:
 - **C. Hints in the file (rejected for now):** storing provider config hints, such as an `x-` key an agent writes. Providers expose no API for it, so it could never be applied.
 
 ### 5.5 First-party config-defined widgets
+
+> **Superseded (2026-11-27):** `text` and `clock` are not element types. First-party readouts are cards with ambient tokens and recipes; see [docs/design/reflow-widgets.md](../design/reflow-widgets.md). The historical sketch below is the earlier recommendation only; it is not the plan.
+
+Earlier recommendation (not current):
+
 Reuse everything the title bar built: element base, `style` block (`elementStyle`), template grammar with allow-listed tokens, ticker, contrast warnings, `requires` levels.
 - **`text`**: `content.template` (same grammar and token set as the title bar: `{time:…}`, `{date:…}`, `{page}`, and later `{status}`/`{nextAlarm}`), `maxLines`, plus the full text style. This covers "clock as text", greetings, and status lines.
 - **`clock`**: `content.face: "digital" | "analog"`, with an optional pattern. It's a separate type because analog drawing and size-responsive layout aren't text.
@@ -189,7 +194,7 @@ Feature levels continue title-bar.md §6: level 1 = container, level 2 = title b
 | 0. Docs (this PR) | Research and recommendation; Pragma's UX answers; Christopher's policy answers | — | Archimedes, Pragma |
 | 1. Container release (already planned) | Add to the container the **grid placement base block** (`page`, `x`, `y`, `w`, `h`) and the rule that skipped grid elements still reserve cells. No grid type yet. | 1 (amend before it ships) | Archimedes (schema), Sprite, Grace |
 | 2. Schema for widgets | `appWidget` type in `schema/` (provider, profile, label, frame-only style), examples and fixtures; `validate.py` support | ~~3~~ **5**, no `style` (superseded by native-widgets.md §2.1–§2.2, #298) | Archimedes, Grace |
-| 3. Host AppWidgets | `AppWidgetHost` in Compose, binding table, picker, bind/configure flow, placeholders, move/resize write-back, size reporting, garbage collection, work-profile pause | 3 | Sprite, Pragma (UX), Grace (S25/A53/A51; One UI quirks) |
+| 3. Host AppWidgets | `AppWidgetHost` in Compose, binding table, picker, bind/configure flow, placeholders, move/resize write-back, size reporting, garbage collection, work-profile pause | 3 | Sprite, Pragma (UX), Grace (flagship, mid-range, and second test phones; One UI quirks) |
 | 4. First-party `text` and `clock` | Reuse template grammar and style; per-type sizes | 4 | Archimedes (design + schema), Sprite |
 | 5. Local data | `{status}`, `{nextAlarm}`, `{data:…}` from `widgets-data.json` | 5+ | Archimedes, Sprite |
 | 6. Later / optional | System-backup restore remap (5.4 B), reflow on resize, `stack` composites, `dynamic` colour token, tap actions | 6+ | — |

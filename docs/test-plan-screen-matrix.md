@@ -4,7 +4,7 @@ Owner: Grace (QA). Status: **approved by Christopher** (#177, merged at c330340 
 (automation). It doesn't replace the device passes in test-plan §15.1/§17. Spec references: `ux.md §x` is
 docs/ux.md and `A§x` is ARCHITECTURE.md. When this plan and a spec disagree, the spec wins, so fix this file.
 
-**Why.** The app is going public. So far every layout check has run at Christopher's A51 widths (320 dp at max display
+**Why.** The app is going public. So far every layout check has run at second-test-phone widths (320 dp at max display
 size, 411 dp default) on one API 29 emulator (evidence/pr167, dev6-a51). This matrix covers small, typical and large
 phones, 7" and 10" tablets in both orientations, and an unfolded foldable. It also covers font scales 1.0/1.3/2.0 and
 dark/light, using only free emulator images and adb.
@@ -35,10 +35,10 @@ and each point costs about 2–3 minutes, not a full AVD boot.
 | s320-ldpi | 240x427 @ 120 | 320×569 | simulated | v1 v2 v3 | small-a (API 29) |
 | s320-mdpi | 320x640 @ 160 | 320×640 | simulated (the image's native size) | v1 v2 | small-a |
 | s360-mdpi | 360x640 @ 160 | 360×640 | simulated | v1 (small-a), v2 (small-b) | small-a/b |
-| s320-a51 | 640x1422 @ 320 | 320×711 | **device-shaped**: A51 at max display size (1080x2400 @ 540 → 320×711 dp, dev6-a51/widths) | v1 v2 v3 c1 | small-b (API 29) |
+| s320-a51 | 640x1422 @ 320 | 320×711 | **device-shaped**: a second test phone at max display size (1080x2400 @ 540 → 320×711 dp, dev6-a51/widths) | v1 v2 v3 c1 | small-b (API 29) |
 | s360-ldpi | 270x480 @ 120 | 360×640 | simulated | v1 | small-b |
 | p360-xxhdpi | 1080x1920 @ 480 | 360×640 | simulated | v1 | phones (API 35) |
-| p411-a51 | 1080x2400 @ 420 | 411×914 | **device-shaped**: A51 default, exact pixels and density | v1 v2 v3 c1; v1 again on API 36 | phones (API 35), fold (API 36) |
+| p411-a51 | 1080x2400 @ 420 | 411×914 | **device-shaped**: a second test phone at default density, exact pixels and density | v1 v2 v3 c1; v1 again on API 36 | phones (API 35), fold (API 36) |
 | l448 | 1344x2992 @ 480 | 448×997 | simulated large phone | v1 v2 | phones |
 | t7-port / t7-land | 1200x1920 @ 320 | 600×960 / 960×600 | simulated 7" tablet | v1 v2 each | tablets (API 35) |
 | t10-port / t10-land | 1600x2560 @ 320 | 800×1280 / 1280×800 | simulated 10" tablet | v1 v2 each | tablets |
@@ -47,10 +47,10 @@ and each point costs about 2–3 minutes, not a full AVD boot.
 In total there are 31 points across 5 shards (small-a 6, small-b 6, phones 7, tablets 8, fold 4).
 
 - *Device-shaped* means the dp size and density bucket match a real device we own. It still runs AOSP fonts and
-  system UI, not One UI, so it doesn't replace the A51 pass. In dev6-a51 the One UI font measured wider than the emulator's.
+  system UI, not One UI, so it doesn't replace the second-test-phone / One UI pass. In dev6-a51 the One UI font measured wider than the emulator's.
 - *Simulated* means a plausible class size with no claim about any specific model. The generic 7" and 10" profiles stay
   (Christopher's decision) and remain the tablet gate.
-- *Optional real-device spot check:* Christopher's onn. 10.1" Tablet (model 100135925, MediaTek, Android 15). Run the
+- *Optional real-device spot check:* a 10-inch tablet (Android 15). Run the
   local script on it when a build is ready for a tablet look (§5 "Local run on your own machine"). It is not a matrix
   point or a gate, and the layout isn't designed around it ("we shouldn't conform to my personal hardware too much",
   Christopher, Q1). Its results are notes for the §1.1 review; a failure there is triaged like any manual finding.
@@ -62,7 +62,7 @@ In total there are 31 points across 5 shards (small-a 6, small-b 6, phones 7, ta
   - Tiles: `QA Settings`, one 40-character label (ellipsis), one wide label (`Wide WWWW`), and one package that isn't
     installed (`org.example.notinstalled`, tests the missing-app tile).
   - A Settings dock slot.
-  - The A51 title bar from dev6-recheck: `{date:EEE d MMM yyyy}` / `{page}` / `{time:HH:mm}`, size `large`, with a backdrop.
+  - The second-test-phone title bar from dev6-recheck: `{date:EEE d MMM yyyy}` / `{page}` / `{time:HH:mm}`, size `large`, with a backdrop.
 - `launcher-chip.json`: the same, plus a card with `requires: 4` that needs approval (from pr172 `c172-launcher.json`).
 - `settings.xml`: app-only mode, home prompt already shown, drawer keyboard off.
 
@@ -397,7 +397,7 @@ The script changes the display size, density, font scale, night mode and rotatio
 - The blocking/advisory split in §4 is approved as written.
 - G5b/G5c stay advisory until the #175 implementation lands, then block. Done: they block since #178.
 - The generic 7" and 10" tablet profiles stay and remain the gate.
-- Q1, resolved by Christopher (2026-10-26): his onn. 10.1" Tablet (model 100135925, MediaTek, Android 15) is only an
+- Q1, resolved by Christopher (2026-10-26): a 10-inch tablet (Android 15) is only an
   optional real-device spot check on Android 15, not a matrix target or a design driver (§1).
 
 **Resolved by QA** (reasons inline; say if you disagree):
