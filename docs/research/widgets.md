@@ -160,6 +160,9 @@ What **can** be restored, as options:
 - **C. Hints in the file (rejected for now):** storing provider config hints, such as an `x-` key an agent writes. Providers expose no API for it, so it could never be applied.
 
 ### 5.5 First-party config-defined widgets
+
+> **Superseded (2026-11-27):** `text` and `clock` are not element types. First-party readouts are cards with ambient tokens and recipes; see [docs/design/reflow-widgets.md](../design/reflow-widgets.md).
+
 Reuse everything the title bar built: element base, `style` block (`elementStyle`), template grammar with allow-listed tokens, ticker, contrast warnings, `requires` levels.
 - **`text`**: `content.template` (same grammar and token set as the title bar: `{time:…}`, `{date:…}`, `{page}`, and later `{status}`/`{nextAlarm}`), `maxLines`, plus the full text style. This covers "clock as text", greetings, and status lines.
 - **`clock`**: `content.face: "digital" | "analog"`, with an optional pattern. It's a separate type because analog drawing and size-responsive layout aren't text.
